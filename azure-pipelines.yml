@@ -18,7 +18,7 @@ steps:
     outputFormat: 'csv'
 
 
-- task: Semmle@0
+- task: Semmle@1
   inputs:
     sourceCodeDirectory: '$(Build.SourcesDirectory)'
     language: 'python'
