@@ -12,6 +12,7 @@ steps:
   inputs:
     Configuration: 'recommended'
     TargetType: 'eslint'
+    TargetsESLint: '$(Build.SourcesDirectory)/**/*.{py}'
     ErrorLevel: 'warn'
 
 - task: Semmle@0
