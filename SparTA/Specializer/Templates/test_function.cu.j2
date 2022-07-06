@@ -1,0 +1,113 @@
+{# Copyright (c) Microsoft Corporation. #}
+{# Licensed under the MIT license. #}
+
+#include <cuda.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <cstring>
+#include <fstream>
+#include <iostream>
+
+using namespace std;
+
+#define checkCudaErrors(func) {                                                     \
+    cudaError_t e = (func);                                                         \
+    if (e != cudaSuccess)                                                           \
+        printf("%s %d CUDA: %s\\n", __FILE__,  __LINE__, cudaGetErrorString(e));    \
+}
+
+template <typename T>
+int loadArr(T *__restrict__ arr, char* filepath) {
+    ifstream inputFile(filepath);
+    int size = 0;
+    T current_number = 0;
+    while (inputFile >> current_number) {
+        arr[size++] = current_number;
+    }
+    return size;
+}
+
+{{ KERNEL_FUNC_BODY }}
+
+int main(int argc, char** argv) { // iteration number, correction check
+    const int nIter = argc > 0 ? atol(argv[0]) : 10;
+    const int checkResults = argc > 1 ? atol(argv[1]) : 1;
+
+{% for INPUT in INPUTS %}
+    {{ INPUT.type }}* h_{{ INPUT.name }};
+    {{ INPUT.type }}* d_{{ INPUT.name }};
+    int size = loadArr<{{ INPUT.type }}>(h_{{ INPUT.name }}, "{{ INPUT.filepath }}");
+    int mem_size_{{ INPUT.name }} = sizeof({{ INPUT.type }}) * size;
+    checkCudaErrors(cudaMalloc(&d_{{ INPUT.name }}, mem_size_{{ INPUT.name }}));
+    checkCudaErrors(cudaMemcpy(d_{{ INPUT.name }}, h_{{ INPUT.name }}, mem_size_{{ INPUT.name }}, cudaMemcpyHostToDevice));
+{% endfor %}
+
+{% for OUTPUT in OUTPUTS %}
+    {{ OUTPUT.type }}* h_{{ OUTPUT.name }}_tgt;
+    {{ OUTPUT.type }}* d_{{ OUTPUT.name }};
+    int size = loadArr<{{ OUTPUT.type }}>(h_{{ OUTPUT.name }}_tgt, "{{ OUTPUT.filepath }}");
+    int mem_size_{{ OUTPUT.name }} = sizeof({{ OUTPUT.type }}) * size;
+    checkCudaErrors(cudaMalloc(&d_{{ OUTPUT.name }}, mem_size_{{ OUTPUT.name }}));
+{% endfor %}
+
+    cudaEvent_t start, stop;
+    checkCudaErrors(cudaEventCreate(&start));
+    checkCudaErrors(cudaEventCreate(&stop));
+    float msecTotal = 0;
+
+    const dim3 dimBlock({{ DIM_BLOCK|join(', ') }});
+    const dim3 dimGrid({{ DIM_GRID|join(', ') }});
+
+    // warm-up
+    for (int run = 0; run < nIter; run++) {
+        {{ KERNEL_FUNC_NAME }}<<<dimGrid, dimBlock>>>(
+            d_{{ INPUTS|join(', d_', attribute='name') }},
+            d_{{ OUTPUTS|join(', d_', attribute='name') }}
+        );
+    }
+
+    checkCudaErrors(cudaEventRecord(start));
+    for (int run = 0; run < nIter; run++) {
+        {{ KERNEL_FUNC_NAME }}<<<dimGrid, dimBlock>>>(
+            d_{{ INPUTS|join(', d_', attribute='name') }},
+            d_{{ OUTPUTS|join(', d_', attribute='name') }}
+        );
+    }
+
+    checkCudaErrors(cudaEventRecord(stop));
+    checkCudaErrors(cudaEventSynchronize(stop));
+    checkCudaErrors(cudaEventElapsedTime(&msecTotal, start, stop));
+    float msecPerMatrixMul = msecTotal / nIter;
+    printf("%f", msecPerMatrixMul);
+
+    double eps = 1.e-4;
+
+{% for OUTPUT in OUTPUTS %}
+    {{ OUTPUT.type }}* h_{{ OUTPUT.name }} = ({{ OUTPUT.type }}*)malloc(mem_size_{{ OUTPUT.name }});
+    checkCudaErrors(cudaMemcpy(h_{{ OUTPUT.name }}, d_{{ OUTPUT.name }}, mem_size_{{ OUTPUT.name }}, cudaMemcpyDeviceToHost));
+    if (checkResults) {
+        for (int i = 0; i < mem_size_{{ OUTPUT.name }}; i++) {
+            double result = (double)h_{{ OUTPUT.name }}[i];
+            double target = (double)h_{{ OUTPUT.name }}_tgt[i];
+            double abs_err = abs(result - target);
+            if (abs_err > eps) {
+                printf("Error on {{ OUTPUT.name }}[%05d]: ", i);
+                printf("result=%lf, target=%lf, abs_err=%lf\n", result, target, abs_err);
+                break;
+            }
+        }
+    }
+{% endfor %}
+
+{% for INPUT in INPUTS %}
+    cudaFree(d_{{ INPUT.name }});
+    free(h_{{ INPUT.name }});
+{% endfor %}
+
+{% for OUTPUT in OUTPUTS %}
+    cudaFree(d_{{ OUTPUT.name }});
+    free(h_{{ OUTPUT.name }}_tgt);
+    free(h_{{ OUTPUT.name }});
+{% endfor %}
+}
