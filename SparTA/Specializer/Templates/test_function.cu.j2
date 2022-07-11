@@ -14,40 +14,44 @@ using namespace std;
 #define checkCudaErrors(func) {                                                     \
     cudaError_t e = (func);                                                         \
     if (e != cudaSuccess)                                                           \
-        printf("%s %d CUDA: %s\\n", __FILE__,  __LINE__, cudaGetErrorString(e));    \
+        fprintf(stderr, "%s %d CUDA: %s\\n", __FILE__,  __LINE__, cudaGetErrorString(e));    \
 }
 
 template <typename T>
-int loadArr(T *__restrict__ arr, char* filepath) {
+void loadArr(string filepath, T *__restrict__ arr, int size) {
     ifstream inputFile(filepath);
-    int size = 0;
-    T current_number = 0;
-    while (inputFile >> current_number) {
-        arr[size++] = current_number;
-    }
-    return size;
+    inputFile.read((char*)arr, size * sizeof(T));
+}
+
+template <typename T>
+int getArrLength(string filepath) {
+    ifstream inputFile(filepath);
+    inputFile.seekg (0, inputFile.end);
+    return inputFile.tellg() / sizeof(T);
 }
 
 {{ KERNEL_FUNC_BODY }}
 
 int main(int argc, char** argv) { // iteration number, correction check
-    const int nIter = argc > 0 ? atol(argv[0]) : 10;
-    const int checkResults = argc > 1 ? atol(argv[1]) : 1;
+    const int nIter = argc > 1 ? atol(argv[1]) : 10;
+    const int checkResults = argc > 2 ? atol(argv[2]) : 1;
 
 {% for INPUT in INPUTS %}
-    {{ INPUT.type }}* h_{{ INPUT.name }};
+    int size_{{ INPUT.name }} = getArrLength<{{ INPUT.type }}>("{{ INPUT.filepath }}");
+    int mem_size_{{ INPUT.name }} = sizeof({{ INPUT.type }}) * size_{{ INPUT.name }};
+    {{ INPUT.type }}* h_{{ INPUT.name }} = ({{ INPUT.type }}*)malloc(mem_size_{{ INPUT.name }});
+    loadArr<{{ INPUT.type }}>("{{ INPUT.filepath }}", h_{{ INPUT.name }}, size_{{ INPUT.name }});
     {{ INPUT.type }}* d_{{ INPUT.name }};
-    int size = loadArr<{{ INPUT.type }}>(h_{{ INPUT.name }}, "{{ INPUT.filepath }}");
-    int mem_size_{{ INPUT.name }} = sizeof({{ INPUT.type }}) * size;
     checkCudaErrors(cudaMalloc(&d_{{ INPUT.name }}, mem_size_{{ INPUT.name }}));
     checkCudaErrors(cudaMemcpy(d_{{ INPUT.name }}, h_{{ INPUT.name }}, mem_size_{{ INPUT.name }}, cudaMemcpyHostToDevice));
 {% endfor %}
 
 {% for OUTPUT in OUTPUTS %}
-    {{ OUTPUT.type }}* h_{{ OUTPUT.name }}_tgt;
+    int size_{{ OUTPUT.name }} = getArrLength<{{ OUTPUT.type }}>("{{ OUTPUT.filepath }}");
+    int mem_size_{{ OUTPUT.name }} = sizeof({{ OUTPUT.type }}) * size_{{ OUTPUT.name }};
+    {{ OUTPUT.type }}* h_{{ OUTPUT.name }}_tgt = ({{ OUTPUT.type }}*)malloc(mem_size_{{ OUTPUT.name }});
+    loadArr<{{ OUTPUT.type }}>("{{ OUTPUT.filepath }}", h_{{ OUTPUT.name }}_tgt, size_{{ OUTPUT.name }});
     {{ OUTPUT.type }}* d_{{ OUTPUT.name }};
-    int size = loadArr<{{ OUTPUT.type }}>(h_{{ OUTPUT.name }}_tgt, "{{ OUTPUT.filepath }}");
-    int mem_size_{{ OUTPUT.name }} = sizeof({{ OUTPUT.type }}) * size;
     checkCudaErrors(cudaMalloc(&d_{{ OUTPUT.name }}, mem_size_{{ OUTPUT.name }}));
 {% endfor %}
 
@@ -79,21 +83,23 @@ int main(int argc, char** argv) { // iteration number, correction check
     checkCudaErrors(cudaEventSynchronize(stop));
     checkCudaErrors(cudaEventElapsedTime(&msecTotal, start, stop));
     float msecPerMatrixMul = msecTotal / nIter;
-    printf("%f", msecPerMatrixMul);
+    fprintf(stdout, "%f", msecPerMatrixMul);
 
     double eps = 1.e-4;
+    int error = 0;
 
 {% for OUTPUT in OUTPUTS %}
     {{ OUTPUT.type }}* h_{{ OUTPUT.name }} = ({{ OUTPUT.type }}*)malloc(mem_size_{{ OUTPUT.name }});
     checkCudaErrors(cudaMemcpy(h_{{ OUTPUT.name }}, d_{{ OUTPUT.name }}, mem_size_{{ OUTPUT.name }}, cudaMemcpyDeviceToHost));
     if (checkResults) {
-        for (int i = 0; i < mem_size_{{ OUTPUT.name }}; i++) {
-            double result = (double)h_{{ OUTPUT.name }}[i];
-            double target = (double)h_{{ OUTPUT.name }}_tgt[i];
-            double abs_err = abs(result - target);
+        for (int i = 0; i < size_{{ OUTPUT.name }}; i++) {
+            float result = (float)h_{{ OUTPUT.name }}[i];
+            float target = (float)h_{{ OUTPUT.name }}_tgt[i];
+            float abs_err = abs(result - target);
             if (abs_err > eps) {
-                printf("Error on {{ OUTPUT.name }}[%05d]: ", i);
-                printf("result=%lf, target=%lf, abs_err=%lf\n", result, target, abs_err);
+                fprintf(stderr, "Error on {{ OUTPUT.name }}[%d]: ", i);
+                fprintf(stderr, "result=%f, target=%f, abs_err=%f\n", result, target, abs_err);
+                error = 1;
                 break;
             }
         }
@@ -110,4 +116,6 @@ int main(int argc, char** argv) { // iteration number, correction check
     free(h_{{ OUTPUT.name }}_tgt);
     free(h_{{ OUTPUT.name }});
 {% endfor %}
+
+    if (error) exit(1);
 }
