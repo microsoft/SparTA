@@ -26,7 +26,7 @@ void loadArr(string filepath, T *__restrict__ arr, int size) {
 template <typename T>
 int getArrLength(string filepath) {
     ifstream inputFile(filepath);
-    inputFile.seekg (0, inputFile.end);
+    inputFile.seekg(0, inputFile.end);
     return inputFile.tellg() / sizeof(T);
 }
 
@@ -86,12 +86,24 @@ int main(int argc, char** argv) { // iteration number, correction check
     fprintf(stdout, "%f", msecPerMatrixMul);
 
     double eps = 1.e-4;
-    int error = 0;
 
 {% for OUTPUT in OUTPUTS %}
     {{ OUTPUT.type }}* h_{{ OUTPUT.name }} = ({{ OUTPUT.type }}*)malloc(mem_size_{{ OUTPUT.name }});
     checkCudaErrors(cudaMemcpy(h_{{ OUTPUT.name }}, d_{{ OUTPUT.name }}, mem_size_{{ OUTPUT.name }}, cudaMemcpyDeviceToHost));
     if (checkResults) {
+
+        fprintf(stdout, "C++ load:\n");
+        fprintf(stdout, "A[0] = %.19f, A[1] = %.19f, A[1024] = %.19f\n", h_A[0],h_A[1], h_A[1024]);
+        float sum = 0;
+        for (int i = 0; i < size_A; i++) sum += h_A[i];
+        fprintf(stdout, "Sum_A = %.19f\n", sum);
+        sum = 0;
+        for (int i = 0; i < size_C; i++) sum += h_C_tgt[i];
+        fprintf(stdout, "Sum_C_tgt = %.19f\n", sum);
+        sum = 0;
+        for (int i = 0; i < size_C; i++) sum += h_C[i];
+        fprintf(stdout, "Sum_C = %.19f\n", sum);
+
         for (int i = 0; i < size_{{ OUTPUT.name }}; i++) {
             float result = (float)h_{{ OUTPUT.name }}[i];
             float target = (float)h_{{ OUTPUT.name }}_tgt[i];
@@ -99,7 +111,6 @@ int main(int argc, char** argv) { // iteration number, correction check
             if (abs_err > eps) {
                 fprintf(stderr, "Error on {{ OUTPUT.name }}[%d]: ", i);
                 fprintf(stderr, "result=%f, target=%f, abs_err=%f\n", result, target, abs_err);
-                error = 1;
                 break;
             }
         }
@@ -116,6 +127,4 @@ int main(int argc, char** argv) { // iteration number, correction check
     free(h_{{ OUTPUT.name }}_tgt);
     free(h_{{ OUTPUT.name }});
 {% endfor %}
-
-    if (error) exit(1);
 }

@@ -3,6 +3,7 @@
 
 import os
 import abc
+import shutil
 import hashlib
 import subprocess
 
@@ -88,7 +89,7 @@ class FactoryBase(abc.ABC):
 class TestFunction(object):
 
     def __init__(self, folder: str, inputs: dict, outputs: dict, config: dict, gpu_code='61'):
-        with open(os.path.join(TEMPLATE_PATH, 'test_function.cu.j2')) as f:
+        with open(os.path.join(TEMPLATE_PATH, 'test.cu.j2')) as f:
             test_function_template = f.read()
         config |= {
             'INPUTS': inputs.values(),
@@ -104,7 +105,7 @@ class TestFunction(object):
         self._exec_path = os.path.join(folder, 'test_func')
         with open(self._code_path, 'w') as f:
             f.write(test_function_code)
-        self._run_cmd(f"nvcc -gencode arch=compute_{gpu_code},code=sm_{gpu_code} {self._code_path} -o {self._exec_path}")
+        self._run_cmd(f"nvcc -gencode arch=compute_{gpu_code},code=sm_{gpu_code} {self._code_path} -w -o {self._exec_path}")
 
     def save_test_data(self, input_data: dict[str, 'np.array'], output_data: dict[str, 'np.array']):
         for k, v in input_data.items():
@@ -119,7 +120,7 @@ class TestFunction(object):
         stdout, stderr = process.communicate()
         stdout = stdout.decode("utf-8").replace('\\n', '\n')
         stderr = stderr.decode("utf-8").replace('\\n', '\n')
-        if process.returncode and len(stderr):
+        if len(stderr) > 0:
             raise subprocess.SubprocessError(stderr)
         return stdout
 
@@ -131,4 +132,4 @@ class TestFunction(object):
             return float("inf")
 
     def __del__(self):
-        pass
+        shutil.rmtree(self._folder, ignore_errors=True)
