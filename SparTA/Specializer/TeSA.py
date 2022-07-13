@@ -58,7 +58,7 @@ class BCSR(TeSABase):
     @staticmethod
     def desc():
         return {
-            'val': {'type': 'float'},
+            'val': {},
             'row': {'type': 'int'},
             'col': {'type': 'int'},
         }
@@ -79,7 +79,7 @@ class BCSR(TeSABase):
         for key in ['row', 'col']:
             if not str(tesa[key].dtype).startswith('int'):
                 raise ValueError(f'BCSR {key} should be intergers')
-        if sum(tesa['row']) != tesa['col'].size:
+        if tesa['row'][-1] != tesa['col'].size:
             raise ValueError('BCSR variable size mismatches')
         if tesa['col'].size * block_width * block_height != tesa['val'].size:
             raise ValueError('BCSR variable size mismatches')
@@ -95,13 +95,12 @@ class BCSR(TeSABase):
         height = block_height * row_num
         width = block_width * col_num
         block_size = block_height * block_width
-        dense = np.zeros((height, width))
+        dense = np.zeros((height, width)).astype(tesa['val'].dtype)
         block_i = 0
         block_cnt = 0
         block_start = 0
         for block_j in tesa['col']:
             if block_cnt == tesa['row'][block_i]:
-                block_cnt = 0
                 block_i += 1
             col_start = block_j * block_width
             row_start = (block_i - 1) * block_height
@@ -109,9 +108,10 @@ class BCSR(TeSABase):
             block = block.reshape((block_width, block_height)).T  # TODO: Check
             dense[row_start:row_start + block_height, col_start:col_start + block_width] = block
             block_start += block_size
+            block_cnt += 1
         return dense
 
-    def _convert_dense_to_tesa(self, dense: 'np.ndarray', **kwargs) -> dict[str, 'np.ndarray']:
+    def _convert_dense_to_tesa(self, dense: 'np.ndarray') -> dict[str, 'np.ndarray']:
         try:
             block_width = self._config['block_width']
             block_height = self._config['block_height']
@@ -120,9 +120,9 @@ class BCSR(TeSABase):
         height, width = dense.shape
         row_num = height // block_height
         col_num = width // block_width
-        if 'mask' in kwargs.keys():
-            if isinstance(kwargs['mask'], np.ndarray) and mask.shape == (col_num, row_num):
-                mask = kwargs['mask'].astype(bool)
+        if 'mask' in self._config.keys():
+            if isinstance(self._config['mask'], np.ndarray) and self._config['mask'].shape == (row_num, col_num):
+                mask = self._config['mask'].astype(bool)
             else:
                 raise ValueError('BCSR mask invalid')
         else:
@@ -130,7 +130,7 @@ class BCSR(TeSABase):
             mask = np.abs(mask).sum(axis=(2, 3)) > 0
         col = []
         row = []
-        val = []
+        val = np.array([])
         for block_i in range(row_num):
             block_start_i = block_i * block_height
             block_end_i = block_start_i + block_height
@@ -148,5 +148,5 @@ class BCSR(TeSABase):
         return {
             'col': np.array(col).astype(np.int32),
             'row': np.array(row).astype(np.int32),
-            'val': val
+            'val': val.astype(dense.dtype)
         }

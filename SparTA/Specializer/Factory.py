@@ -14,8 +14,8 @@ import torch
 import numpy as np
 from jinja2 import Template
 
-# from SparTA.Specializer import TeSA
-import TeSA
+from SparTA.Specializer import TeSA, Utils
+# import TeSA, Utils
 
 
 CUDA_TEMPLATE_DIR = os.path.join('SparTA', 'Specializer', 'Templates')
@@ -32,7 +32,6 @@ class Operator(object):
         self.inputs = op_config['inputs']
         self.outputs = op_config['outputs']
         self.tiles = op_config['tiles']
-        self.gpu_code = '61'
         with open(os.path.join(CUDA_TEMPLATE_DIR, 'Kernels', f'{self.name}.cuh.j2')) as f:
             self.template = f.read()
 
@@ -135,7 +134,7 @@ class TestInterface(KernelInterface):
         self._exec_path = os.path.join(self._dir, self._operator.name)
         with open(self._code_path, 'w') as f:
             f.write(test_code)
-        gpu_code = self._operator.gpu_code
+        gpu_code = Utils.cuda_detect()[0][1]
         self._run_cmd(f"nvcc -gencode arch=compute_{gpu_code},code=sm_{gpu_code} {self._code_path} -w -o {self._exec_path}")
 
     def _generate_data(self, desc: dict) -> 'np.ndarray':
@@ -144,6 +143,7 @@ class TestInterface(KernelInterface):
             if val.shape != tuple(map(self._replace_and_eval, desc['shape'])):
                 raise ValueError(f'{desc.keys()} formula and shape do not match')
         else:
+            np.random.seed(2022)
             val = np.random.normal(size=list(map(self._replace_and_eval, desc['shape'])))
         return val.astype(f'{desc["type"]}32')
 
@@ -153,9 +153,9 @@ class TestInterface(KernelInterface):
             self._save_data(desc["name"], val)
         elif desc['layout'] == 'bcsr':
             height, width = val.shape  # TODO: support high-dim tensors
-            block_height, block_width = self._config['DIM_BLOCK']
+            block_height, block_width = tuple(map(self._replace_and_eval, desc['block_size']))
             row_num, col_num = height // block_height, width // block_width
-            mask = np.random.uniform(size=(row_num, col_num)) < 0.2
+            mask = np.random.uniform(size=(row_num, col_num)) < 1.2 #0.2
             bcsr = TeSA.BCSR(val, mask=mask, block_width=block_width, block_height=block_height)
             for k, v in bcsr.tesa().items():
                 self._save_data(f'{desc["name"]}_{k}', v)
@@ -189,7 +189,7 @@ class ModuleInterface(KernelInterface, torch.nn.Module):
 
 M, K, N = 1024, 256, 512
 BM, BK, BN = 64, 8, 128
-TM, TK, TN = 8, 4, 8
+TM, TK, TN = 8, 4, 16
 op = Operator(op_config_file='SparseLinear')
 f = TestInterface(op, {
     'GLOBAL_M_VALUE': M,
