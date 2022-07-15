@@ -1,6 +1,7 @@
 
 {
     "name": "sparse_matmul",
+    "factory_type": "template",
     "dims": [
         "GLOBAL_M_VALUE",
         "GLOBAL_N_VALUE",

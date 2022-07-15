@@ -5,10 +5,10 @@ import copy
 from abc import abstractmethod
 from typing import Dict, List
 
-from .TunnerBase import TunnerBase
+from SparTA.Specializer.Tuners.TunerBase import TunerBase
 
 
-class GridSearchTunner(TunnerBase):
+class GridSearchTunner(TunerBase):
 
     def _generate_all_cfgs(self, keys: List[str], cfg: Dict[str, int] = {}):
         if len(keys) == 0:
@@ -19,17 +19,17 @@ class GridSearchTunner(TunnerBase):
             cfgs += self._generate_all_cfgs(copy.deepcopy(keys), cfg)
         return cfgs
 
-    def tunning_kernel_cfg(self, *inputs):
+    def tunning_kernel_cfg(self):
         cfg_space = self._generate_all_cfgs(list(self._search_space.keys()))
-        self._logger.info(f'Searching through {len(cfg_space)} configs...')
+        print(f'Searching through {len(cfg_space)} configs...')
         best_cfg = None
         best_latency = float('inf')
         for i, _cfg in enumerate(cfg_space):
-            self._logger.info(f'{i + 1}/{len(cfg_space)}: {list(_cfg.values())}')
-            latency = self._emitter.measure_trail_latency(*inputs, _cfg, self._logger)
+            print(f'{i + 1}/{len(cfg_space)}: {list(_cfg.values())}')
+            latency = self._factory.get_test_func(_cfg)()
             if latency < best_latency:
                 best_cfg = _cfg
                 best_latency = latency
-            self._logger.info(f'Latency: {latency} s')
-        self._logger.info(f'Best config: {best_cfg}')
+            print(f'Latency: {latency} s')
+        print(f'Best config: {best_cfg}')
         return best_cfg

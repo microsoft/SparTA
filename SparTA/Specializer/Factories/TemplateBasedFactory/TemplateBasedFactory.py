@@ -3,45 +3,43 @@
 
 import os
 import abc
-import json
 import copy
 import shutil
 import hashlib
 import subprocess
-import collections
+from typing import Callable
 
 import torch
 import numpy as np
 from jinja2 import Template
 
 from SparTA.Specializer import TeSA, Utils
-# import TeSA, Utils
+from SparTA.Specializer.Factories.FactoryBase import FactoryBase
 
 
-CUDA_TEMPLATE_DIR = os.path.join('SparTA', 'Specializer', 'Templates')
-OPERATOR_CONFIG_DIR = os.path.join('SparTA', 'Specializer', 'Operators')
+CUDA_TEMPLATE_DIR = os.path.join('SparTA', 'Specializer', 'Factories', 'TemplateBasedFactory', 'Templates')
 
 
-class Operator(object):
+class TemplateBasedFactory(FactoryBase):
 
-    def __init__(self, op_config_file='SparseLinear'):
-        with open(os.path.join(OPERATOR_CONFIG_DIR, f'{op_config_file}.json')) as f:
-            op_config = json.loads(f.read())
-        self.name = op_config['name']
-        self.dims = op_config['dims']
-        self.inputs = op_config['inputs']
-        self.outputs = op_config['outputs']
-        self.tiles = op_config['tiles']
+    def __init__(self, op_config: dict):
+        super().__init__(op_config)
         with open(os.path.join(CUDA_TEMPLATE_DIR, 'Kernels', f'{self.name}.cuh.j2')) as f:
             self.template = f.read()
+
+    def get_test_func(self, shape_config: dict) -> Callable:
+        return TestInterface(self, shape_config)
+
+    def get_module(self, shape_config: dict) -> 'torch.nn.Module':
+        return ModuleInterface(self, shape_config)
 
 
 class KernelInterface(abc.ABC):
 
-    def __init__(self, operator: 'Operator', shape_config: dict):
-        self._operator = operator
+    def __init__(self, factory: 'TemplateBasedFactory', shape_config: dict):
+        self._factory = factory
         self._id = hashlib.sha1(str(sorted(shape_config.items())).encode()).hexdigest()[:6]
-        self._dir = os.path.join('tmp', operator.name, self._id)
+        self._dir = os.path.join('tmp', factory.name, self._id)
         if not os.path.exists(self._dir):
             os.makedirs(self._dir)
         self._shape = copy.deepcopy(shape_config)
@@ -52,7 +50,7 @@ class KernelInterface(abc.ABC):
         self._build()
 
     def _load_codes(self) -> dict[str, str]:
-        function_body = Template(self._operator.template).render(self._shape)
+        function_body = Template(self._factory.template).render(self._shape)
         function_name = function_body[function_body.find('__global__ void') + 15:]
         function_name = function_name[:function_name.find('(')].strip()
         return {
@@ -82,11 +80,11 @@ class KernelInterface(abc.ABC):
         return self._expand_data_config(data_config)
 
     def _load_data_config(self) -> dict:
-        self._inputs = self._expand_data_config(self._operator.inputs)
-        self._outputs = self._expand_data_config(self._operator.outputs)
+        self._inputs = self._expand_data_config(self._factory.inputs)
+        self._outputs = self._expand_data_config(self._factory.outputs)
         return {
-            'INPUTS': self._expand_tesa_config(self._operator.inputs).values(),
-            'OUTPUTS': self._expand_tesa_config(self._operator.outputs).values(),
+            'INPUTS': self._expand_tesa_config(self._factory.inputs).values(),
+            'OUTPUTS': self._expand_tesa_config(self._factory.outputs).values(),
         }
 
     def _replace_and_eval(self, s: str) -> int:
@@ -98,8 +96,8 @@ class KernelInterface(abc.ABC):
 
     def _load_tile_config(self) -> dict[str, list[int]]:
         return {
-            'DIM_BLOCK': list(map(self._replace_and_eval, self._operator.tiles['block'])),
-            'DIM_GRID': list(map(self._replace_and_eval, self._operator.tiles['grid']))
+            'DIM_BLOCK': list(map(self._replace_and_eval, self._factory.tiles['block'])),
+            'DIM_GRID': list(map(self._replace_and_eval, self._factory.tiles['grid']))
         }
 
     def _run_cmd(self, cmd: str) -> str:
@@ -130,8 +128,8 @@ class TestInterface(KernelInterface):
         with open(os.path.join(CUDA_TEMPLATE_DIR, 'test.cu.j2')) as f:
             test_template = f.read()
         test_code = Template(test_template).render(self._config)
-        self._code_path = os.path.join(self._dir, f'{self._operator.name}.cu')
-        self._exec_path = os.path.join(self._dir, self._operator.name)
+        self._code_path = os.path.join(self._dir, f'{self._factory.name}.cu')
+        self._exec_path = os.path.join(self._dir, self._factory.name)
         with open(self._code_path, 'w') as f:
             f.write(test_code)
         gpu_code = Utils.cuda_detect()[0][1]
@@ -152,10 +150,10 @@ class TestInterface(KernelInterface):
         if desc['layout'] == 'dense':
             self._save_data(desc["name"], val)
         elif desc['layout'] == 'bcsr':
-            height, width = val.shape  # TODO: support high-dim tensors
+            height, width = val.shape
             block_height, block_width = tuple(map(self._replace_and_eval, desc['block_size']))
             row_num, col_num = height // block_height, width // block_width
-            mask = np.random.uniform(size=(row_num, col_num)) < 1.2 #0.2
+            mask = np.random.uniform(size=(row_num, col_num)) < 0.2
             bcsr = TeSA.BCSR(val, mask=mask, block_width=block_width, block_height=block_height)
             for k, v in bcsr.tesa().items():
                 self._save_data(f'{desc["name"]}_{k}', v)
@@ -174,8 +172,8 @@ class TestInterface(KernelInterface):
         except ValueError:
             return float("inf")
 
-    # def __del__(self):
-    #     shutil.rmtree(self._dir, ignore_errors=True)
+    def __del__(self):
+        shutil.rmtree(self._dir, ignore_errors=True)
 
 
 class ModuleInterface(KernelInterface, torch.nn.Module):
@@ -185,21 +183,3 @@ class ModuleInterface(KernelInterface, torch.nn.Module):
 
     def __call__(self, *args):
         pass
-
-
-M, K, N = 1024, 256, 512
-BM, BK, BN = 64, 8, 128
-TM, TK, TN = 8, 4, 16
-op = Operator(op_config_file='SparseLinear')
-f = TestInterface(op, {
-    'GLOBAL_M_VALUE': M,
-    'GLOBAL_K_VALUE': K,
-    'GLOBAL_N_VALUE': N,
-    'BLOCK_SIZE_M_VALUE': BM,
-    'BLOCK_SIZE_K_VALUE': BK,
-    'BLOCK_SIZE_N_VALUE': BN,
-    'THREAD_SIZE_M_VALUE': TM,
-    'THREAD_SIZE_K_VALUE': TK,
-    'THREAD_SIZE_N_VALUE': TN
-})
-print(f())

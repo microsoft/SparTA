@@ -3,17 +3,15 @@
 
 import abc
 from typing import Dict, List
-import logging
 
-from ..Emitter.EmitterBase import EmitterBase
+from SparTA.Specializer.Factories.FactoryBase import FactoryBase
 
 
-class TunnerBase(abc.ABC):
+class TunerBase(abc.ABC):
 
-    def __init__(self, emitter: EmitterBase, search_space: Dict[str, List[int]], logger: logging.Logger):
-        self._emitter = emitter
+    def __init__(self, factory: FactoryBase, search_space: Dict[str, List[int]]):
+        self._factory = factory
         self._search_space = search_space
-        self._logger = logger
 
     @abc.abstractmethod
     def tunning_kernel_cfg(self, *args, **kwargs):
