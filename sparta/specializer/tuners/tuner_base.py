@@ -4,12 +4,12 @@
 import abc
 from typing import Dict, List
 
-from SparTA.Specializer.Factories.FactoryBase import FactoryBase
+from sparta.specializer.factories import factory_base
 
 
 class TunerBase(abc.ABC):
 
-    def __init__(self, factory: FactoryBase, search_space: Dict[str, List[int]]):
+    def __init__(self, factory: factory_base.FactoryBase, search_space: Dict[str, List[int]]):
         self._factory = factory
         self._search_space = search_space
 

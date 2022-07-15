@@ -11,20 +11,20 @@ from typing import Callable
 
 import torch
 import numpy as np
-from jinja2 import Template
+import jinja2 
 
-from SparTA.Specializer import TeSA, Utils
-from SparTA.Specializer.Factories.FactoryBase import FactoryBase
-
-
-CUDA_TEMPLATE_DIR = os.path.join('SparTA', 'Specializer', 'Factories', 'TemplateBasedFactory', 'Templates')
+from sparta.common import tesa, utils
+from sparta.specializer import factories
 
 
-class TemplateBasedFactory(FactoryBase):
+CUDA_TEMPLATE_DIR = os.path.join('sparta', 'specializer', 'factories', 'template_based_factory', 'templates')
+
+
+class TemplateBasedFactory(factories.FactoryBase):
 
     def __init__(self, op_config: dict):
         super().__init__(op_config)
-        with open(os.path.join(CUDA_TEMPLATE_DIR, 'Kernels', f'{self.name}.cuh.j2')) as f:
+        with open(os.path.join(CUDA_TEMPLATE_DIR, 'kernels', f'{self.name}.cuh.j2')) as f:
             self.template = f.read()
 
     def get_test_func(self, shape_config: dict) -> Callable:
@@ -50,7 +50,7 @@ class KernelInterface(abc.ABC):
         self._build()
 
     def _load_codes(self) -> dict[str, str]:
-        function_body = Template(self._factory.template).render(self._shape)
+        function_body = jinja2.Template(self._factory.template).render(self._shape)
         function_name = function_body[function_body.find('__global__ void') + 15:]
         function_name = function_name[:function_name.find('(')].strip()
         return {
@@ -71,7 +71,7 @@ class KernelInterface(abc.ABC):
         data_config = {}
         for data_k, data_v in raw_data_config.items():
             if data_v['layout'] == 'bcsr':
-                for tesa_k, tesa_v in TeSA.BCSR.desc().items():
+                for tesa_k, tesa_v in tesa.BCSR.desc().items():
                     desc = copy.deepcopy(data_v)
                     desc.update(tesa_v)
                     data_config[f'{data_k}_{tesa_k}'] = desc
@@ -127,12 +127,12 @@ class TestInterface(KernelInterface):
     def _build(self):
         with open(os.path.join(CUDA_TEMPLATE_DIR, 'test.cu.j2')) as f:
             test_template = f.read()
-        test_code = Template(test_template).render(self._config)
+        test_code = jinja2.Template(test_template).render(self._config)
         self._code_path = os.path.join(self._dir, f'{self._factory.name}.cu')
         self._exec_path = os.path.join(self._dir, self._factory.name)
         with open(self._code_path, 'w') as f:
             f.write(test_code)
-        gpu_code = Utils.cuda_detect()[0][1]
+        gpu_code = utils.cuda_detect()[0][1]
         self._run_cmd(f"nvcc -gencode arch=compute_{gpu_code},code=sm_{gpu_code} {self._code_path} -w -o {self._exec_path}")
 
     def _generate_data(self, desc: dict) -> 'np.ndarray':
@@ -154,7 +154,7 @@ class TestInterface(KernelInterface):
             block_height, block_width = tuple(map(self._replace_and_eval, desc['block_size']))
             row_num, col_num = height // block_height, width // block_width
             mask = np.random.uniform(size=(row_num, col_num)) < 0.2
-            bcsr = TeSA.BCSR(val, mask=mask, block_width=block_width, block_height=block_height)
+            bcsr = tesa.BCSR(val, mask=mask, block_width=block_width, block_height=block_height)
             for k, v in bcsr.tesa().items():
                 self._save_data(f'{desc["name"]}_{k}', v)
 

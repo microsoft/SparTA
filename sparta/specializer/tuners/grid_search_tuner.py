@@ -5,10 +5,10 @@ import copy
 from abc import abstractmethod
 from typing import Dict, List
 
-from SparTA.Specializer.Tuners.TunerBase import TunerBase
+from sparta.specializer import tuners
 
 
-class GridSearchTunner(TunerBase):
+class GridSearchTunner(tuners.TunerBase):
 
     def _generate_all_cfgs(self, keys: List[str], cfg: Dict[str, int] = {}):
         if len(keys) == 0:
