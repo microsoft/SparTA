@@ -58,9 +58,9 @@ class BCSR(TeSABase):
     @staticmethod
     def desc():
         return {
-            'val': {},
-            'row': {'type': 'int'},
-            'col': {'type': 'int'},
+            'val': {'role': 'data'},
+            'row': {'role': 'tesa', 'type': 'int'},
+            'col': {'role': 'tesa', 'type': 'int'},
         }
 
     def _verify_tesa(self, tesa: dict[str, 'np.ndarray']):
@@ -70,7 +70,7 @@ class BCSR(TeSABase):
         except KeyError:
             raise ValueError('BCSR block size arguments missed')
         for key in ['val', 'row', 'col']:
-            if key not in tesa.keys():
+            if key not in tesa:
                 raise ValueError(f'BCSR {key} missed')
             if not isinstance(tesa[key], np.ndarray):
                 raise ValueError(f'BCSR {key} should be a numpy array')
@@ -120,7 +120,7 @@ class BCSR(TeSABase):
         height, width = dense.shape
         row_num = height // block_height
         col_num = width // block_width
-        if 'mask' in self._config.keys():
+        if 'mask' in self._config:
             if isinstance(self._config['mask'], np.ndarray) and self._config['mask'].shape == (row_num, col_num):
                 mask = self._config['mask'].astype(bool)
             else:

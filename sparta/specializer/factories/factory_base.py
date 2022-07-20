@@ -5,6 +5,7 @@ import abc
 from typing import Callable
 
 import torch
+import numpy as np
 
 
 class FactoryBase(abc.ABC):
@@ -17,13 +18,13 @@ class FactoryBase(abc.ABC):
         self.tiles = op_config['tiles']
 
     @abc.abstractclassmethod
-    def get_test_func(self, shape_config: dict) -> Callable:
+    def get_test_func(self, shape_config: dict, mask: dict[str, 'np.ndarray'] = None) -> Callable:
         '''
         Get a callable test function
         '''
 
     @abc.abstractclassmethod
-    def get_module(self, shape_config: dict) -> 'torch.nn.Module':
+    def get_module(self, shape_config: dict, mask: dict[str, 'np.ndarray'] = None) -> 'torch.nn.Module':
         '''
         Get a pytorch module
         '''
