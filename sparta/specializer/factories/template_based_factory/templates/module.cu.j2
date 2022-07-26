@@ -27,14 +27,14 @@ namespace {
             torch::Tensor {{ INPUT.name }} = torch::from_blob(
                 {{ INPUT.name }}_vec.data(),
                 { {{ INPUT.shape|join(', ') }} },
-                torch::k{{ INPUT.type|capitalize }}
-            );
+                torch::k{{ INPUT.type|capitalize }}32
+            ).to(A.options().dtype(torch::k{{ INPUT.type|capitalize }}32));
         {% endif %}
     {% endfor %}
     {% for OUTPUT in OUTPUTS %}
         torch::Tensor {{ OUTPUT.name }} = torch::empty(
             { {{ OUTPUT.shape|join(', ') }} },
-            torch::k{{ OUTPUT.type|capitalize }}
+            A.options().dtype(torch::kFloat32)
         );
     {% endfor %}
 
@@ -59,6 +59,7 @@ namespace {
     {% endif %}
 }
 
+{# TODO backward #}
 PYBIND11_MODULE({{ MODULE_NAME }}, m) {
     m.def("forward", &{{ MODULE_NAME }}, "{{ MODULE_NAME }} forward function");
 }

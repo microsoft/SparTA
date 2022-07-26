@@ -175,18 +175,18 @@ class TestInterface(KernelInterface):
         for i, desc in enumerate((self._inputs | self._outputs).values()):
             self._import_data(desc, args[i] if i < len(args) else self._generate_data(desc))
         try:
-            result = self._run_cmd(self._exec_path)
+            result = self._run_cmd(self._exec_path)  # TODO add args
             return float(result)
         except subprocess.SubprocessError:
             return float("inf")
 
-    def __del__(self):
-        shutil.rmtree(self._dir, ignore_errors=True)
+    # def __del__(self):
+    #     shutil.rmtree(self._dir, ignore_errors=True)
 
 
 class ModuleInterface(KernelInterface):
 
-    def _build(self):
+    def _build(self):  # TODO public access to code
         module_name = f'{self._factory.name}_{self._id}'
         self._config['MODULE_NAME'] = module_name
         for input_desc in self._inputs.values():
@@ -196,8 +196,8 @@ class ModuleInterface(KernelInterface):
         with open(os.path.join(CUDA_TEMPLATE_DIR, 'module.cu.j2')) as f:
             module_template = f.read()
         module_code = jinja2.Template(module_template).render(self._config)
-        # with open(os.path.join(self._dir, f'{self._factory.name}.cu'), 'w') as f:
-        #     f.write(module_code)
+        with open(os.path.join(self._dir, f'{self._factory.name}_bind.cu'), 'w') as f:
+            f.write(module_code)
         self._module = cpp_extension.load_inline(
             module_name,
             '',
