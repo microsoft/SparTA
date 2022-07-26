@@ -33,8 +33,9 @@ int getArrLength(string filepath) {
 {{ KERNEL_FUNC_BODY }}
 
 int main(int argc, char** argv) { // iteration number, correction check
-    const int nIter = argc > 1 ? atol(argv[1]) : 10;
-    const int checkResults = argc > 2 ? atol(argv[2]) : 1;
+    const int nWarm = argc > 1 ? atol(argv[1]) : 10;
+    const int nIter = argc > 2 ? atol(argv[2]) : 10;
+    const int checkResults = argc > 3 ? atol(argv[3]) : 1;
 
 {% for INPUT in INPUTS %}
     int size_{{ INPUT.name }} = getArrLength<{{ INPUT.type }}>("{{ INPUT.filepath }}");
@@ -64,7 +65,7 @@ int main(int argc, char** argv) { // iteration number, correction check
     const dim3 dimGrid({{ DIM_GRID|join(', ') }});
 
     // warm-up
-    for (int run = 0; run < nIter; run++) {
+    for (int run = 0; run < nWarm; run++) {
         {{ KERNEL_FUNC_NAME }}<<<dimGrid, dimBlock>>>(
             d_{{ INPUTS|join(', d_', attribute='name') }},
             d_{{ OUTPUTS|join(', d_', attribute='name') }}
