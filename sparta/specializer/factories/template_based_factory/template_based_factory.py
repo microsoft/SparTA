@@ -14,7 +14,7 @@ class TemplateBasedFactory(factories.FactoryBase):
 
     def __init__(self, op_config: dict):
         super().__init__(op_config)
-        with open(os.path.join(KERNEL_TEMPLATE_DIR, f'{self.name}.cuh.j2')) as f:
+        with open(os.path.join(KERNEL_TEMPLATE_DIR, f'{self.kernel_name}.cuh.j2')) as f:
             self._template = f.read()
 
     def get_kernel_code(self, **kwargs) -> str:

@@ -24,8 +24,10 @@ COMMON_TEMPLATE_DIR = os.path.join(
 class FactoryBase(abc.ABC):
 
     def __init__(self, op_config: dict):
-        self.name = op_config['name']
-        self.dims = op_config['dims']
+        self.op_name = op_config['op_name']
+        self.kernel_name = op_config['kernel_name']
+        self.dynamic_dims = op_config['dynamic_dims']
+        self.fixed_dims = op_config['fixed_dims']
         self.inputs = op_config['inputs']
         self.outputs = op_config['outputs']
         self.tiles = op_config['tiles']
@@ -50,8 +52,7 @@ class KernelInterface(abc.ABC):
 
     def __init__(self, factory: 'FactoryBase', shape_config: dict, mask: dict[str, 'np.ndarray']):
         self._factory = factory
-        self._id = hashlib.sha1(
-            str(sorted(shape_config.items())).encode()).hexdigest()[:6]
+        self._id = hashlib.sha1(str(sorted(shape_config.items())).encode()).hexdigest()[:6]
         self._shape = copy.deepcopy(shape_config)
         self._mask = {} if mask is None else mask
         self._data = {}
@@ -61,7 +62,7 @@ class KernelInterface(abc.ABC):
         self._build()
 
     def _load_codes(self) -> dict[str, str]:
-        function_body = self._factory.get_kernel_code(**self._shape)
+        function_body = self._factory.get_kernel_code(**(self._shape | self._factory.fixed_dims))
         function_name = function_body[function_body.find(
             '__global__ void') + 15:]
         function_name = function_name[:function_name.find('(')].strip()
@@ -147,7 +148,7 @@ class KernelInterface(abc.ABC):
 class TestInterface(KernelInterface, Callable):
 
     def _build(self):
-        self._dir = os.path.join('tmp', self._factory.name, self._id)
+        self._dir = os.path.join('tmp', self._factory.op_name, self._id)
         if not os.path.exists(self._dir):
             os.makedirs(self._dir)
         self._specify_data_path(self._config['INPUTS'])
@@ -155,13 +156,14 @@ class TestInterface(KernelInterface, Callable):
         with open(os.path.join(COMMON_TEMPLATE_DIR, 'test.cu.j2')) as f:
             test_template = f.read()
         test_code = jinja2.Template(test_template).render(self._config)
-        self._code_path = os.path.join(self._dir, f'{self._factory.name}.cu')
-        self._exec_path = os.path.join(self._dir, self._factory.name)
+        self._code_path = os.path.join(self._dir, f'{self._factory.op_name}.cu')
+        self._exec_path = os.path.join(self._dir, self._factory.op_name)
         with open(self._code_path, 'w') as f:
             f.write(test_code)
         gpu_code = utils.cuda_detect()[0][1]
         self._run_cmd(
-            f"nvcc -gencode arch=compute_{gpu_code},code=sm_{gpu_code} {self._code_path} -w -o {self._exec_path}")
+            f"nvcc -gencode arch=compute_{gpu_code},code=sm_{gpu_code} {self._code_path} -w -o {self._exec_path}"
+        )
 
     def _specify_data_path(self, desc_list: dict) -> dict:
         for desc in desc_list:
@@ -200,11 +202,8 @@ class TestInterface(KernelInterface, Callable):
         for name, desc in (self._inputs | self._outputs).items():
             data = raw_data[name] if name in raw_data else self._generate_data(desc)
             self._import_data(desc, data)
-        try:
-            result = self._run_cmd(f'{self._exec_path} {num_warmups} {num_iters} {int(check_results)}')
-            return float(result)
-        except subprocess.SubprocessError:
-            return float("inf")
+        result = self._run_cmd(f'{self._exec_path} {num_warmups} {num_iters} {int(check_results)}')
+        return float(result)
 
     def __del__(self):
         shutil.rmtree(self._dir, ignore_errors=True)
@@ -213,7 +212,8 @@ class TestInterface(KernelInterface, Callable):
 class ModuleInterface(KernelInterface):
 
     def _build(self):
-        self._module_name = f'{self._factory.name}_{self._id}'
+        mask_id = hashlib.sha1(str(self._mask).encode()).hexdigest()[:6]
+        self._module_name = f'{self._factory.op_name}_{self._id}_{mask_id}'
         self._config['MODULE_NAME'] = self._module_name
         for input_desc in self._inputs.values():
             self._get_tesa_data(input_desc, 'INPUTS')

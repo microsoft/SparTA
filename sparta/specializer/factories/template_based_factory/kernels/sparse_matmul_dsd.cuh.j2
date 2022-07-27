@@ -11,24 +11,21 @@ const int TM = {{ THREAD_SIZE_M_VALUE }};
 const int TK = {{ THREAD_SIZE_K_VALUE }};
 const int TN = {{ THREAD_SIZE_N_VALUE }};
 
-__global__ void BLOCK_SPARSE_MATMUL_BIASED(
+__global__ void BLOCK_SPARSE_MATMUL(
     float* input_A,
     float* input_W_val,
     int* input_W_row,
     int* input_W_col,
-    float* input_bias,
+    {% if BIASED %}float* input_bias,{% endif %}
     float* output_C
-)
-{
+) {
     float * A = reinterpret_cast<float*>(input_A);
     float * W_val = reinterpret_cast<float*>(input_W_val);
     int * W_row = reinterpret_cast<int*>(input_W_row);
     int * W_col = reinterpret_cast<int*>(input_W_col);
-    float * bias = reinterpret_cast<float*>(input_bias);
+    {% if BIASED %}float * bias = reinterpret_cast<float*>(input_bias);{% endif %}
     float * C = reinterpret_cast<float*>(output_C);
-    /* 
-    COMMENT_TAG
-    */
+
     int by = blockIdx.y;
     int bx = blockIdx.x;
     int ty = threadIdx.y;
@@ -42,7 +39,7 @@ __global__ void BLOCK_SPARSE_MATMUL_BIASED(
     float b_frag[TN][TK];
 
     int A_THREAD_PER_ROW = BK / 4;
-    int B_THREAD_PER_ROW = BN / 4;
+    int B_THREAD_PER_ROW = {% if TRANSPOSE %}BK{% else %}BN{% endif %} / 4;
 
     int bszy = BM / TM;
     int bszx = BN / TN;
@@ -64,53 +61,55 @@ __global__ void BLOCK_SPARSE_MATMUL_BIASED(
 
     const int vBLOCK_SIZE_M = BM / TM;
     const int vBLOCK_SIZE_N = BN / TN;
-    for(int tile_block_idx = index_start; tile_block_idx < index_end; tile_block_idx += 1){
+    {% if TRANSPOSE %}float4 tmp_float4;{% endif %}
+    for (int tile_block_idx = index_start; tile_block_idx < index_end; tile_block_idx += 1) {
         int tile_idx = W_col[tile_block_idx] * BK;
         #pragma unroll
-        for(int k = 0; k < BM; k += A_TILE_ROW_STRIDE){
+        for (int k = 0; k < BM; k += A_TILE_ROW_STRIDE) {
             *((float4 *)(&As[(k+A_BLOCK_ROW_START) * BK + A_BLOCK_COL_START])) =
                 *((float4 *)(&A[(by*BM+k+A_BLOCK_ROW_START) * K + tile_idx+A_BLOCK_COL_START]));
-            //FETCH_FLOAT4(As[OFFSET(k+A_BLOCK_ROW_START, A_BLOCK_COL_START, BK)]) =
-                //FETCH_FLOAT4(A[OFFSET(by*BM+k+A_BLOCK_ROW_START, tile_idx+A_BLOCK_COL_START, K)]);
         }
 
         #pragma unroll
-        for(int k = 0; k < BK; k += B_TILE_ROW_STRIDE){
+        for (int k = 0; k < {% if TRANSPOSE %}BN{% else %}BK{% endif %}; k += B_TILE_ROW_STRIDE) {
+            {% if TRANSPOSE %}
+            tmp_float4 = (reinterpret_cast<float4*>(&W_val[tile_block_idx * BN * BK + (k+B_BLOCK_ROW_START) * BK + B_BLOCK_COL_START]))[0];
+            Bs[(B_BLOCK_COL_START+0) * BN + k+B_BLOCK_ROW_START] = tmp_float4.x;
+            Bs[(B_BLOCK_COL_START+1) * BN + k+B_BLOCK_ROW_START] = tmp_float4.y;
+            Bs[(B_BLOCK_COL_START+2) * BN + k+B_BLOCK_ROW_START] = tmp_float4.z;
+            Bs[(B_BLOCK_COL_START+3) * BN + k+B_BLOCK_ROW_START] = tmp_float4.w;
+            {% else %}
             *((float4 *)(&Bs[(k+B_BLOCK_ROW_START) * BN + B_BLOCK_COL_START])) =
                 *((float4 *)(&W_val[tile_block_idx * BN * BK + (k+B_BLOCK_ROW_START) * BN + B_BLOCK_COL_START]));
-            //FETCH_FLOAT4(Bs[OFFSET(k+B_BLOCK_ROW_START, B_BLOCK_COL_START, BN)]) = 
-                //FETCH_FLOAT4(W_val[tile_block_idx * BN * BK + (k+B_BLOCK_ROW_START) * BN + B_BLOCK_COL_START]);
+            {% endif %}
         }
 
         __syncthreads();
 
         #pragma unroll
-        for(int k = 0; k < BK; k += TK){
+        for (int k = 0; k < BK; k += TK) {
             #pragma unroll
-            for(int i = 0; i < TK; i++){
+            for (int i = 0; i < TK; i++) {
                 #pragma unroll
-                for(int j = 0; j < TM; j += 1){
+                for (int j = 0; j < TM; j += 1) {
                     a_frag[j][i] = As[(ty + vBLOCK_SIZE_M * j) * BK + k + i];
-                    //a_frag[j][i] = As[OFFSET(ty + vBLOCK_SIZE_M * j, k+i, BK)];
                 }
             }
 
             #pragma unroll
-            for(int i = 0; i < TK; i++){
+            for (int i = 0; i < TK; i++) {
                 #pragma unroll
-                for(int j = 0; j < TN; j += 1){
-                    b_frag[j][i] = Bs[(k+i) * BN + tx + vBLOCK_SIZE_N * j];
-                    //b_frag[j][i] = Bs[OFFSET(k+i, tx + vBLOCK_SIZE_N * j, BN)];
+                for (int j = 0; j < TN; j += 1) {
+                    b_frag[j][i] = Bs[(k + i) * BN + tx + vBLOCK_SIZE_N * j];
                 }
             }
 
             #pragma unroll
-            for(int i = 0; i < TN; i++){
+            for (int i = 0; i < TN; i++) {
                 #pragma unroll
-                for(int j = 0; j < TM; j++){
+                for (int j = 0; j < TM; j++) {
                     #pragma unroll
-                    for(int k_in = 0; k_in < TK; k_in++){
-                        // accum[i][j] = fma(a_frag[j][k_in], b_frag[i][k_in], accum[i][j]);
+                    for (int k_in = 0; k_in < TK; k_in++) {
                         accum[i][j] += a_frag[j][k_in] * b_frag[i][k_in];
                     }
                 }
@@ -120,23 +119,19 @@ __global__ void BLOCK_SPARSE_MATMUL_BIASED(
         __syncthreads();
     }
 
+    {% if BIASED %}
     float bias_local[TN];
-    for(int thread_x = 0; thread_x < TN; thread_x++){
+    for (int thread_x = 0; thread_x < TN; thread_x++) {
         bias_local[thread_x] = bias[BN * bx + tx + thread_x * vBLOCK_SIZE_N];
     }
+    {% endif %}
 
     #pragma unroll
-    for(int thread_x = 0; thread_x < TN; thread_x++){
+    for (int thread_x = 0; thread_x < TN; thread_x++) {
         #pragma unroll
-        for(int thread_y = 0; thread_y < TM; thread_y+=1){
-            C[(BM * by + ty + thread_y * vBLOCK_SIZE_M) * N + BN * bx + tx + thread_x * vBLOCK_SIZE_N] = (accum[thread_x][thread_y]) + bias_local[thread_x];
-            /*
-            C[OFFSET(
-                BM * by + ty + thread_y * vBLOCK_SIZE_M,
-                BN * bx + tx + thread_x * vBLOCK_SIZE_N,
-                N
-            )] = (accum[thread_x][thread_y]) + bias_local[thread_x];
-            */
+        for (int thread_y = 0; thread_y < TM; thread_y+=1) {
+            C[(BM * by + ty + thread_y * vBLOCK_SIZE_M) * N + BN * bx + tx + thread_x * vBLOCK_SIZE_N] =
+                (accum[thread_x][thread_y]){% if BIASED %} + bias_local[thread_x]{% endif %};
         }
     }
 }

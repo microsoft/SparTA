@@ -1,8 +1,9 @@
 
 {
-    "name": "sparse_matmul",
+    "op_name": "sparse_matmul_dsd_biased",
     "factory_type": "template",
-    "dims": [
+    "kernel_name": "sparse_matmul_dsd",
+    "dynamic_dims": [
         "GLOBAL_M_VALUE",
         "GLOBAL_N_VALUE",
         "GLOBAL_K_VALUE",
@@ -13,6 +14,10 @@
         "THREAD_SIZE_N_VALUE",
         "THREAD_SIZE_K_VALUE"
     ],
+    "fixed_dims": {
+        "BIASED": true,
+        "TRANSPOSE": false
+    },
     "inputs": {
         "A": {
             "type": "float",
@@ -21,9 +26,9 @@
         },
         "W": {
             "type": "float",
-            "shape": ["GLOBAL_N_VALUE", "GLOBAL_K_VALUE"],
+            "shape": ["GLOBAL_K_VALUE", "GLOBAL_N_VALUE"],
             "layout": "bcsr",
-            "block_size": ["BLOCK_SIZE_N_VALUE", "BLOCK_SIZE_K_VALUE"]
+            "block_size": ["BLOCK_SIZE_K_VALUE", "BLOCK_SIZE_N_VALUE"]
         },
         "bias": {
             "type":"float",
@@ -36,7 +41,7 @@
             "type": "float",
             "shape": ["GLOBAL_M_VALUE", "GLOBAL_N_VALUE"],
             "layout": "dense",
-            "formula": "A @ W.T + bias"
+            "formula": "A @ W + bias"
         }
     },
     "tiles": {

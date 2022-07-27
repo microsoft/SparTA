@@ -2,7 +2,7 @@
 # Licensed under the MIT license.
 
 import copy
-from abc import abstractmethod
+import subprocess
 from typing import Dict, List
 
 from sparta.specializer import tuners
@@ -12,7 +12,14 @@ class GridSearchTunner(tuners.TunerBase):
 
     def _generate_all_cfgs(self, keys: List[str], cfg: Dict[str, int] = {}):
         if len(keys) == 0:
-            return [copy.deepcopy(cfg)]
+            if (
+                cfg['GLOBAL_M_VALUE'] > cfg['BLOCK_SIZE_M_VALUE'] and cfg['BLOCK_SIZE_M_VALUE'] > cfg['THREAD_SIZE_M_VALUE'] and
+                cfg['GLOBAL_N_VALUE'] > cfg['BLOCK_SIZE_N_VALUE'] and cfg['BLOCK_SIZE_N_VALUE'] > cfg['THREAD_SIZE_N_VALUE'] and
+                cfg['GLOBAL_K_VALUE'] > cfg['BLOCK_SIZE_K_VALUE'] and cfg['BLOCK_SIZE_K_VALUE'] > cfg['THREAD_SIZE_K_VALUE']
+            ):
+                return [copy.deepcopy(cfg)]
+            else:
+                return []
         key = keys.pop()
         cfgs = []
         for cfg[key] in self._search_space[key]:
@@ -26,10 +33,14 @@ class GridSearchTunner(tuners.TunerBase):
         best_latency = float('inf')
         for i, _cfg in enumerate(cfg_space):
             print(f'{i + 1}/{len(cfg_space)}: {list(_cfg.values())}')
-            latency = self._factory.get_test_func(_cfg)()
+            try:
+                latency = self._factory.get_test_func(_cfg)()
+            except subprocess.SubprocessError:
+                print(f'Error occured')
+                continue
             if latency < best_latency:
                 best_cfg = _cfg
                 best_latency = latency
-            print(f'Latency: {latency} s')
+            print(f'Latency: {latency} ms')
         print(f'Best config: {best_cfg}')
         return best_cfg

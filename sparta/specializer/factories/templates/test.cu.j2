@@ -11,9 +11,9 @@
 
 using namespace std;
 
-#define checkCudaErrors(func) {                                                     \
-    cudaError_t e = (func);                                                         \
-    if (e != cudaSuccess)                                                           \
+#define checkCudaErrors(func) {                                                              \
+    cudaError_t e = (func);                                                                  \
+    if (e != cudaSuccess)                                                                    \
         fprintf(stderr, "%s %d CUDA: %s\\n", __FILE__,  __LINE__, cudaGetErrorString(e));    \
 }
 

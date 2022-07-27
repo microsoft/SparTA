@@ -1,0 +1,46 @@
+
+{
+    "op_name": "sparse_matmul_dsd",
+    "factory_type": "template",
+    "kernel_name": "sparse_matmul_dsd",
+    "dynamic_dims": [
+        "GLOBAL_M_VALUE",
+        "GLOBAL_N_VALUE",
+        "GLOBAL_K_VALUE",
+        "BLOCK_SIZE_M_VALUE",
+        "BLOCK_SIZE_N_VALUE",
+        "BLOCK_SIZE_K_VALUE",
+        "THREAD_SIZE_M_VALUE",
+        "THREAD_SIZE_N_VALUE",
+        "THREAD_SIZE_K_VALUE"
+    ],
+    "fixed_dims": {
+        "BIASED": false,
+        "TRANSPOSE": false
+    },
+    "inputs": {
+        "A": {
+            "type": "float",
+            "shape": ["GLOBAL_M_VALUE", "GLOBAL_K_VALUE"],
+            "layout": "dense"
+        },
+        "W": {
+            "type": "float",
+            "shape": ["GLOBAL_K_VALUE", "GLOBAL_N_VALUE"],
+            "layout": "bcsr",
+            "block_size": ["BLOCK_SIZE_K_VALUE", "BLOCK_SIZE_N_VALUE"]
+        }
+    },
+    "outputs": {
+        "C": {
+            "type": "float",
+            "shape": ["GLOBAL_M_VALUE", "GLOBAL_N_VALUE"],
+            "layout": "dense",
+            "formula": "A @ W"
+        }
+    },
+    "tiles": {
+        "block": ["BLOCK_SIZE_N_VALUE // THREAD_SIZE_N_VALUE", "BLOCK_SIZE_M_VALUE // THREAD_SIZE_M_VALUE"],
+        "grid": ["GLOBAL_N_VALUE // BLOCK_SIZE_N_VALUE", "GLOBAL_M_VALUE // BLOCK_SIZE_M_VALUE"]
+    }
+}

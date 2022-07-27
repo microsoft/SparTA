@@ -105,7 +105,7 @@ class BCSR(TeSABase):
             col_start = block_j * block_width
             row_start = (block_i - 1) * block_height
             block = tesa['val'][block_start:block_start + block_size]
-            block = block.reshape((block_width, block_height)).T  # TODO: Check
+            block = block.reshape((block_width, block_height))
             dense[row_start:row_start + block_height, col_start:col_start + block_width] = block
             block_start += block_size
             block_cnt += 1
@@ -139,7 +139,7 @@ class BCSR(TeSABase):
                 block_end_j = block_start_j + block_width
                 if mask[block_i, block_j]:
                     col.append(block_j)
-                    block = dense[block_start_i:block_end_i, block_start_j:block_end_j].T  # TODO: Check
+                    block = dense[block_start_i:block_end_i, block_start_j:block_end_j]
                     val = np.concatenate([val, block.flatten()])
                 else:
                     dense[block_start_i:block_end_i, block_start_j:block_end_j] = 0
