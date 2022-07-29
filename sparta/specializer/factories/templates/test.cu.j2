@@ -51,7 +51,9 @@ int main(int argc, char** argv) { // iteration number, correction check
     int size_{{ OUTPUT.name }} = getArrLength<{{ OUTPUT.type }}>("{{ OUTPUT.filepath }}");
     int mem_size_{{ OUTPUT.name }} = sizeof({{ OUTPUT.type }}) * size_{{ OUTPUT.name }};
     {{ OUTPUT.type }}* h_{{ OUTPUT.name }}_tgt = ({{ OUTPUT.type }}*)malloc(mem_size_{{ OUTPUT.name }});
-    loadArr<{{ OUTPUT.type }}>("{{ OUTPUT.filepath }}", h_{{ OUTPUT.name }}_tgt, size_{{ OUTPUT.name }});
+    if (checkResults) {
+        loadArr<{{ OUTPUT.type }}>("{{ OUTPUT.filepath }}", h_{{ OUTPUT.name }}_tgt, size_{{ OUTPUT.name }});
+    }
     {{ OUTPUT.type }}* d_{{ OUTPUT.name }};
     checkCudaErrors(cudaMalloc(&d_{{ OUTPUT.name }}, mem_size_{{ OUTPUT.name }}));
 {% endfor %}

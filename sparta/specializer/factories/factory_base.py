@@ -128,10 +128,13 @@ class KernelInterface(abc.ABC):
         else:
             return {desc["name"]: val}
 
-    def _run_cmd(self, cmd: str) -> str:
-        process = subprocess.Popen(
-            cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        stdout, stderr = process.communicate()
+    def _run_cmd(self, cmd: str, timeout: float) -> str:
+        process = subprocess.Popen(f'exec {cmd}', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired as e:
+            process.kill()
+            raise e
         stdout = stdout.decode("utf-8").replace('\\n', '\n')
         stderr = stderr.decode("utf-8").replace('\\n', '\n')
         if len(stderr) > 0:
@@ -162,7 +165,8 @@ class TestInterface(KernelInterface, Callable):
             f.write(test_code)
         gpu_code = utils.cuda_detect()[0][1]
         self._run_cmd(
-            f"nvcc -gencode arch=compute_{gpu_code},code=sm_{gpu_code} {self._code_path} -w -o {self._exec_path}"
+            f"nvcc -gencode arch=compute_{gpu_code},code=sm_{gpu_code} {self._code_path} -w -o {self._exec_path}",
+            timeout=5
         )
 
     def _specify_data_path(self, desc_list: dict) -> dict:
@@ -199,10 +203,13 @@ class TestInterface(KernelInterface, Callable):
         if target_outputs is not None:
             raw_data |= target_outputs
         self._data = {}
-        for name, desc in (self._inputs | self._outputs).items():
+        for name, desc in (self._inputs | (self._outputs if check_results else {})).items():
             data = raw_data[name] if name in raw_data else self._generate_data(desc)
             self._import_data(desc, data)
-        result = self._run_cmd(f'{self._exec_path} {num_warmups} {num_iters} {int(check_results)}')
+        result = self._run_cmd(
+            f'{self._exec_path} {num_warmups} {num_iters} {int(check_results)}',
+            timeout=1
+        )
         return float(result)
 
     def __del__(self):

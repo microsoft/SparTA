@@ -12,14 +12,7 @@ class GridSearchTunner(tuners.TunerBase):
 
     def _generate_all_cfgs(self, keys: List[str], cfg: Dict[str, int] = {}):
         if len(keys) == 0:
-            if (
-                cfg['GLOBAL_M_VALUE'] > cfg['BLOCK_SIZE_M_VALUE'] and cfg['BLOCK_SIZE_M_VALUE'] > cfg['THREAD_SIZE_M_VALUE'] and
-                cfg['GLOBAL_N_VALUE'] > cfg['BLOCK_SIZE_N_VALUE'] and cfg['BLOCK_SIZE_N_VALUE'] > cfg['THREAD_SIZE_N_VALUE'] and
-                cfg['GLOBAL_K_VALUE'] > cfg['BLOCK_SIZE_K_VALUE'] and cfg['BLOCK_SIZE_K_VALUE'] > cfg['THREAD_SIZE_K_VALUE']
-            ):
-                return [copy.deepcopy(cfg)]
-            else:
-                return []
+            return [copy.deepcopy(cfg)]
         key = keys.pop()
         cfgs = []
         for cfg[key] in self._search_space[key]:
@@ -36,7 +29,7 @@ class GridSearchTunner(tuners.TunerBase):
             try:
                 latency = self._factory.get_test_func(_cfg)()
             except subprocess.SubprocessError:
-                print(f'Error occured')
+                print(f'An error occured')
                 continue
             if latency < best_latency:
                 best_cfg = _cfg
