@@ -17,8 +17,11 @@ from torch.utils import cpp_extension
 from sparta.common import tesa, utils
 
 
-COMMON_TEMPLATE_DIR = os.path.join(
-    'sparta', 'specializer', 'factories', 'templates')
+COMMON_TEMPLATE_DIR = os.path.join('sparta', 'specializer', 'factories', 'templates')
+TESA_MAP = {
+    'bcsr': tesa.BCSR,
+    'bcsr_t': tesa.BCSRT
+}
 
 
 class FactoryBase(abc.ABC):
@@ -82,8 +85,8 @@ class KernelInterface(abc.ABC):
         desc_dict = {}
         for data_name, data_desc in raw_desc_dict.items():
             data_desc['role'] = 'data'
-            if data_desc['layout'] == 'bcsr':
-                for tesa_name, tesa_desc in tesa.BCSR.desc().items():
+            if data_desc['layout'] in TESA_MAP:
+                for tesa_name, tesa_desc in TESA_MAP[data_desc['layout']].desc().items():
                     desc = copy.deepcopy(data_desc)
                     desc.update(tesa_desc)
                     desc_dict[f'{data_name}_{tesa_name}'] = desc
@@ -113,7 +116,7 @@ class KernelInterface(abc.ABC):
         }
 
     def _convert_dense_data(self, desc: dict, val: 'np.ndarray') -> dict[str, 'np.ndarray']:
-        if desc['layout'] == 'bcsr':
+        if desc['layout'] in TESA_MAP:
             height, width = desc['shape']
             block_height, block_width = tuple(
                 map(self._replace_and_eval, desc['block_size']))
@@ -122,8 +125,7 @@ class KernelInterface(abc.ABC):
                 mask = self._mask[desc['name']]
             else:
                 mask = np.random.uniform(size=(row_num, col_num)) < 0.2
-            bcsr = tesa.BCSR(
-                val, mask=mask, block_width=block_width, block_height=block_height)
+            bcsr = TESA_MAP[desc['layout']](val, mask=mask, block_width=block_width, block_height=block_height)
             return {f'{desc["name"]}_{k}': v for k, v in bcsr.tesa().items()}
         else:
             return {desc["name"]: val}

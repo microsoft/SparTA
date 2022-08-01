@@ -7,12 +7,23 @@ from typing import Dict, List
 
 from sparta.specializer import tuners
 
+def print(s: str):
+    with open('tuning_log.txt', 'a') as f:
+        f.write(s + '\n')
 
 class GridSearchTunner(tuners.TunerBase):
 
     def _generate_all_cfgs(self, keys: List[str], cfg: Dict[str, int] = {}):
         if len(keys) == 0:
-            return [copy.deepcopy(cfg)]
+            # TODO: Move to OP tuner config
+            if (
+                cfg['GLOBAL_M_VALUE'] > cfg['BLOCK_SIZE_M_VALUE'] and cfg['BLOCK_SIZE_M_VALUE'] > cfg['THREAD_SIZE_M_VALUE'] and
+                cfg['GLOBAL_N_VALUE'] > cfg['BLOCK_SIZE_N_VALUE'] and cfg['BLOCK_SIZE_N_VALUE'] > cfg['THREAD_SIZE_N_VALUE'] and
+                cfg['GLOBAL_K_VALUE'] > cfg['BLOCK_SIZE_K_VALUE'] and cfg['BLOCK_SIZE_K_VALUE'] > cfg['THREAD_SIZE_K_VALUE']
+            ):
+                return [copy.deepcopy(cfg)]
+            else:
+                return []
         key = keys.pop()
         cfgs = []
         for cfg[key] in self._search_space[key]:

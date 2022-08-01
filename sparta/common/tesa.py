@@ -150,3 +150,73 @@ class BCSR(TeSABase):
             'row': np.array(row).astype(np.int32),
             'val': val.astype(dense.dtype)
         }
+
+
+class BCSRT(BCSR):
+
+    def _convert_tesa_to_dense(self, tesa: dict[str, 'np.ndarray']) -> 'np.ndarray':
+        try:
+            block_width = self._config['block_width']
+            block_height = self._config['block_height']
+        except KeyError:
+            raise ValueError('BCSR block size arguments missed')
+        col_num = np.max(tesa['col']) + 1
+        row_num = tesa['row'].size - 1
+        height = block_height * row_num
+        width = block_width * col_num
+        block_size = block_height * block_width
+        dense = np.zeros((height, width)).astype(tesa['val'].dtype)
+        block_j = 0
+        block_cnt = 0
+        block_start = 0
+        for block_i in tesa['col']:
+            if block_cnt == tesa['row'][block_i]:
+                block_j += 1
+            col_start = (block_j - 1) * block_width
+            row_start = block_i * block_height
+            block = tesa['val'][block_start:block_start + block_size]
+            block = block.reshape((block_width, block_height))
+            dense[row_start:row_start + block_height, col_start:col_start + block_width] = block
+            block_start += block_size
+            block_cnt += 1
+        return dense
+
+    def _convert_dense_to_tesa(self, dense: 'np.ndarray') -> dict[str, 'np.ndarray']:
+        try:
+            block_width = self._config['block_width']
+            block_height = self._config['block_height']
+        except KeyError:
+            raise ValueError('BCSR block size arguments missed')
+        height, width = dense.shape
+        row_num = height // block_height
+        col_num = width // block_width
+        if 'mask' in self._config:
+            if isinstance(self._config['mask'], np.ndarray) and self._config['mask'].shape == (row_num, col_num):
+                mask = self._config['mask'].astype(bool)
+            else:
+                raise ValueError('BCSR mask invalid')
+        else:
+            mask = dense.reshape(row_num, block_height, col_num, block_width).swapaxes(1,2)
+            mask = np.abs(mask).sum(axis=(2, 3)) > 0
+        col = []
+        row = []
+        val = np.array([])
+        for block_j in range(col_num):
+            block_start_j = block_j * block_width
+            block_end_j = block_start_j + block_width
+            for block_i in range(row_num):
+                block_start_i = block_i * block_height
+                block_end_i = block_start_i + block_height
+                if mask[block_i, block_j]:
+                    col.append(block_i)
+                    block = dense[block_start_i:block_end_i, block_start_j:block_end_j]
+                    val = np.concatenate([val, block.flatten()])
+                else:
+                    dense[block_start_i:block_end_i, block_start_j:block_end_j] = 0
+            row.append(len(col))
+        row = [0] + row
+        return {
+            'col': np.array(col).astype(np.int32),
+            'row': np.array(row).astype(np.int32),
+            'val': val.astype(dense.dtype)
+        }
