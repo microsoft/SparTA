@@ -28,6 +28,7 @@
             "type": "float",
             "shape": ["GLOBAL_N_VALUE", "GLOBAL_K_VALUE"],
             "layout": "bcsr",
+            "mode": "H",
             "block_size": ["BLOCK_SIZE_N_VALUE", "BLOCK_SIZE_K_VALUE"]
         },
         "bias": {

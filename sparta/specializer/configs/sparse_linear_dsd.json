@@ -27,7 +27,8 @@
         "W": {
             "type": "float",
             "shape": ["GLOBAL_K_VALUE", "GLOBAL_N_VALUE"],
-            "layout": "bcsr_t",
+            "layout": "bcsr",
+            "mode": "V",
             "block_size": ["BLOCK_SIZE_K_VALUE", "BLOCK_SIZE_N_VALUE"]
         }
     },

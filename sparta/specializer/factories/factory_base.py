@@ -7,7 +7,7 @@ import copy
 import shutil
 import hashlib
 import subprocess
-from typing import Callable
+from typing import Any, List, Dict, Callable
 
 import torch
 import jinja2
@@ -18,15 +18,18 @@ from sparta.common import tesa, utils
 
 
 COMMON_TEMPLATE_DIR = os.path.join('sparta', 'specializer', 'factories', 'templates')
-TESA_MAP = {
-    'bcsr': tesa.BCSR,
-    'bcsr_t': tesa.BCSRT
-}
+
+
+def get_tesa_class(layout: str):
+    if layout == 'bcsr':
+        return tesa.BCSR
+    else:
+        raise ValueError(f'Unrecognized TeSA layout: {layout}')
 
 
 class FactoryBase(abc.ABC):
 
-    def __init__(self, op_config: dict):
+    def __init__(self, op_config: Dict):
         self.op_name = op_config['op_name']
         self.kernel_name = op_config['kernel_name']
         self.dynamic_dims = op_config['dynamic_dims']
@@ -41,19 +44,19 @@ class FactoryBase(abc.ABC):
         Get CUDA code of the kernel
         '''
 
-    def get_test_func(self, shape_config: dict, mask: dict[str, 'np.ndarray'] = None) -> Callable:
+    def get_test_func(self, shape_config: Dict, mask: Dict[str, np.ndarray] = None) -> 'TestInterface':
         return TestInterface(self, shape_config, mask)
 
-    def get_module(self, shape_config: dict, mask: dict[str, 'np.ndarray'] = None) -> 'torch.nn.Module':
+    def get_module(self, shape_config: Dict, mask: Dict[str, np.ndarray] = None) -> 'ModuleInterface':
         return ModuleInterface(self, shape_config, mask).get_module()
 
-    def get_module_code(self, shape_config: dict, mask: dict[str, 'np.ndarray'] = None) -> str:
+    def get_module_code(self, shape_config: Dict, mask: Dict[str, np.ndarray] = None) -> str:
         return ModuleInterface(self, shape_config, mask).get_module_code()
 
 
 class KernelInterface(abc.ABC):
 
-    def __init__(self, factory: 'FactoryBase', shape_config: dict, mask: dict[str, 'np.ndarray']):
+    def __init__(self, factory: FactoryBase, shape_config: Dict, mask: Dict[str, np.ndarray]):
         self._factory = factory
         self._id = hashlib.sha1(str(sorted(shape_config.items())).encode()).hexdigest()[:6]
         self._shape = copy.deepcopy(shape_config)
@@ -61,10 +64,9 @@ class KernelInterface(abc.ABC):
         self._data = {}
         self._config = self._load_codes()
         self._config |= self._load_data_desc()
-        self._config |= self._load_tile_config()
         self._build()
 
-    def _load_codes(self) -> dict[str, str]:
+    def _load_codes(self) -> Dict[str, str]:
         function_body = self._factory.get_kernel_code(**(self._shape | self._factory.fixed_dims))
         function_name = function_body[function_body.find(
             '__global__ void') + 15:]
@@ -74,27 +76,29 @@ class KernelInterface(abc.ABC):
             'KERNEL_FUNC_BODY': function_body
         }
 
-    def _expand_data_desc(self, raw_desc_dict: dict) -> dict:
+    def _expand_data_desc(self, raw_desc_dict: Dict) -> Dict:
         desc_dict = copy.deepcopy(raw_desc_dict)
         for name, desc in desc_dict.items():
             desc['name'] = name
             desc['shape'] = list(map(self._replace_and_eval, desc['shape']))
         return desc_dict
 
-    def _expand_tesa_desc(self, raw_desc_dict) -> dict:
+    def _expand_tesa_desc(self, raw_desc_dict) -> Dict:
         desc_dict = {}
         for data_name, data_desc in raw_desc_dict.items():
             data_desc['role'] = 'data'
-            if data_desc['layout'] in TESA_MAP:
-                for tesa_name, tesa_desc in TESA_MAP[data_desc['layout']].desc().items():
+            if data_desc['layout'] == 'dense':
+                desc_dict[data_name] = data_desc
+            else:
+                TeSAClass = get_tesa_class(data_desc['layout'])
+                mode = data_desc['mode'] if 'mode' in data_desc else 'H'
+                for tesa_name, tesa_desc in TeSAClass.desc(mode=mode).items():
                     desc = copy.deepcopy(data_desc)
                     desc.update(tesa_desc)
                     desc_dict[f'{data_name}_{tesa_name}'] = desc
-            else:
-                desc_dict[data_name] = data_desc
         return self._expand_data_desc(desc_dict)
 
-    def _load_data_desc(self) -> dict:
+    def _load_data_desc(self) -> Dict:
         self._inputs = self._expand_data_desc(self._factory.inputs)
         self._outputs = self._expand_data_desc(self._factory.outputs)
         return {
@@ -102,33 +106,34 @@ class KernelInterface(abc.ABC):
             'OUTPUTS': list(self._expand_tesa_desc(self._factory.outputs).values()),
         }
 
-    def _replace_and_eval(self, s: str) -> int:
+    def _replace_and_eval(self, s: str) -> Any:
         for k, v in self._shape.items():
             s = s.replace(k, str(v))
         for k in self._data:
             s = s.replace(k, f'self._data["{k}"]')
         return eval(s)
 
-    def _load_tile_config(self) -> dict[str, list[int]]:
+    def _load_tile_config(self) -> Dict[str, List[int]]:
         return {
             'DIM_BLOCK': list(map(self._replace_and_eval, self._factory.tiles['block'])),
             'DIM_GRID': list(map(self._replace_and_eval, self._factory.tiles['grid']))
         }
 
-    def _convert_dense_data(self, desc: dict, val: 'np.ndarray') -> dict[str, 'np.ndarray']:
-        if desc['layout'] in TESA_MAP:
-            height, width = desc['shape']
-            block_height, block_width = tuple(
-                map(self._replace_and_eval, desc['block_size']))
-            row_num, col_num = height // block_height, width // block_width
-            if desc['name'] in self._mask:
-                mask = self._mask[desc['name']]
-            else:
-                mask = np.random.uniform(size=(row_num, col_num)) < 0.2
-            bcsr = TESA_MAP[desc['layout']](val, mask=mask, block_width=block_width, block_height=block_height)
-            return {f'{desc["name"]}_{k}': v for k, v in bcsr.tesa().items()}
+    def _convert_dense_data(self, desc: Dict, dense_val: np.ndarray) -> Dict[str, np.ndarray]:
+        if desc['layout'] == 'dense':
+            return {desc["name"]: dense_val}
         else:
-            return {desc["name"]: val}
+            TeSAClass = get_tesa_class(desc['layout'])
+            if desc['layout'].startswith('bcsr'):
+                bcsr_cfg = {
+                    'dense': dense_val,
+                    'size': dense_val.shape,
+                    'block_size': tuple(map(self._replace_and_eval, desc['block_size'])),
+                    'mask': self._mask[desc['name']] if desc['name'] in self._mask else 0.2,
+                    'mode': desc['mode'] if 'mode' in desc else 'H',
+                }
+                bcsr = TeSAClass(**bcsr_cfg)
+                return {f'{desc["name"]}_{k}': v for k, v in bcsr.sparse.items()}
 
     def _run_cmd(self, cmd: str, timeout: float) -> str:
         process = subprocess.Popen(f'exec {cmd}', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -160,7 +165,7 @@ class TestInterface(KernelInterface, Callable):
         self._specify_data_path(self._config['OUTPUTS'])
         with open(os.path.join(COMMON_TEMPLATE_DIR, 'test.cu.j2')) as f:
             test_template = f.read()
-        test_code = jinja2.Template(test_template).render(self._config)
+        test_code = jinja2.Template(test_template).render(self._config | self._load_tile_config())
         self._code_path = os.path.join(self._dir, f'{self._factory.op_name}.cu')
         self._exec_path = os.path.join(self._dir, self._factory.op_name)
         with open(self._code_path, 'w') as f:
@@ -171,12 +176,12 @@ class TestInterface(KernelInterface, Callable):
             timeout=5
         )
 
-    def _specify_data_path(self, desc_list: dict) -> dict:
+    def _specify_data_path(self, desc_list: Dict) -> Dict:
         for desc in desc_list:
             if 'filepath' not in desc:
                 desc['filepath'] = os.path.join(self._dir, f'{desc["name"]}.dat')
 
-    def _generate_data(self, desc: dict) -> 'np.ndarray':
+    def _generate_data(self, desc: Dict) -> np.ndarray:
         if 'formula' in desc:
             val = self._replace_and_eval(desc['formula'])
             if val.shape != tuple(desc['shape']):
@@ -186,17 +191,19 @@ class TestInterface(KernelInterface, Callable):
             val = np.random.normal(size=desc['shape'])
         return val.astype(f'{desc["type"]}32')
 
-    def _import_data(self, desc: dict, val: 'np.ndarray'):
+    def _import_data(self, desc: Dict, val: np.ndarray):
         self._data[desc["name"]] = val
         for k, v in self._convert_dense_data(desc, val).items():
             self._save_data(k, v)
 
-    def _save_data(self, name: str, val: 'np.ndarray'):
+    def _save_data(self, name: str, val: np.ndarray):
+        if not isinstance(val, np.ndarray):
+            val = np.array([val])
         with open(os.path.join(self._dir, f'{name}.dat'), 'wb') as f:
             val.flatten().tofile(f)
 
     def __call__(
-        self, inputs: dict[str, 'np.ndarray'] = None, target_outputs: dict[str, 'np.ndarray'] = None,
+        self, inputs: Dict[str, np.ndarray] = None, target_outputs: Dict[str, np.ndarray] = None,
         num_warmups: int = 10, num_iters: int = 10, check_results: bool = True
     ) -> float:
         raw_data = {}
@@ -214,8 +221,8 @@ class TestInterface(KernelInterface, Callable):
         )
         return float(result)
 
-    def __del__(self):
-        shutil.rmtree(self._dir, ignore_errors=True)
+    # def __del__(self):
+    #     shutil.rmtree(self._dir, ignore_errors=True)
 
 
 class ModuleInterface(KernelInterface):
@@ -229,7 +236,7 @@ class ModuleInterface(KernelInterface):
         for output_desc in self._outputs.values():
             self._get_tesa_data(output_desc, 'OUTPUTS')
 
-    def _get_tesa_data(self, desc: dict[str, dict], category: str):
+    def _get_tesa_data(self, desc: Dict[str, dict], category: str):
         fake_val = np.zeros(shape=desc['shape'])
         for k, v in self._convert_dense_data(desc, fake_val).items():
             idx = list(map(lambda x: x['name'],
@@ -241,7 +248,7 @@ class ModuleInterface(KernelInterface):
     def get_module_code(self):
         with open(os.path.join(COMMON_TEMPLATE_DIR, 'module.cu.j2')) as f:
             module_template = f.read()
-        return jinja2.Template(module_template).render(self._config)
+        return jinja2.Template(module_template).render(self._config | self._load_tile_config())
 
     def get_module(self):
         return cpp_extension.load_inline(

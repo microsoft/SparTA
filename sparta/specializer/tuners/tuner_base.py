@@ -16,5 +16,5 @@ class TunerBase(abc.ABC):
     @abc.abstractmethod
     def tunning_kernel_cfg(self, *args, **kwargs):
         """
-        Measure the latency of a specific kernel of the template.
+        Find the best config (with minimal latency) of a specific kernel.
         """

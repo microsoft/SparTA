@@ -28,13 +28,13 @@ namespace {
                 {{ INPUT.name }}_vec.data(),
                 { {{ INPUT.shape|join(', ') }} },
                 torch::k{{ INPUT.type|capitalize }}32
-            ).to(A.options().dtype(torch::k{{ INPUT.type|capitalize }}32));
+            ).to({{ INPUTS[0].name }}.options().dtype(torch::k{{ INPUT.type|capitalize }}32));
         {% endif %}
     {% endfor %}
     {% for OUTPUT in OUTPUTS %}
         torch::Tensor {{ OUTPUT.name }} = torch::empty(
             { {{ OUTPUT.shape|join(', ') }} },
-            A.options().dtype(torch::kFloat32)
+            {{ INPUTS[0].name }}.options().dtype(torch::kFloat32)
         );
     {% endfor %}
 
