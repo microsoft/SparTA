@@ -37,7 +37,7 @@ class TeSABase(abc.ABC):
 class BCSR(TeSABase):
 
     @staticmethod
-    def _construct_csr(data: Dict, mode: str = 'H'):
+    def _select_vars(data: Dict, mode: str = 'H'):
         if mode == 'H':
             keys = ['val', 'row_ptr', 'col_idx']
         elif mode == 'V':
@@ -94,13 +94,13 @@ class BCSR(TeSABase):
 
         sparse = {
             'val': np.array(val).astype(dense.dtype),
-            'nnz': len(row_idx),
+            'nnz': np.array([len(row_idx)]).astype(np.int32),
             'row_idx': np.array(row_idx).astype(np.int32),
             'col_idx': np.array(col_idx).astype(np.int32),
             'row_ptr': np.array(row_ptr).astype(np.int32),
             'col_ptr': np.array(col_ptr).astype(np.int32),
         }
-        return dense, BCSR._construct_csr(sparse, mode)
+        return dense, BCSR._select_vars(sparse, mode)
 
     def _import_sparse_data(
             self, val: np.ndarray, size: Iterable[int], block_size: Iterable[int],
@@ -179,17 +179,17 @@ class BCSR(TeSABase):
 
         sparse = {
             'val': val,
-            'nnz': nnz,
+            'nnz': np.array([nnz]).astype(np.int32),
             'row_idx': row_idx.astype(np.int32),
             'col_idx': col_idx.astype(np.int32),
             'row_ptr': row_ptr.astype(np.int32),
             'col_ptr': col_ptr.astype(np.int32),
         }
-        return dense, BCSR._construct_csr(sparse, mode)
+        return dense, BCSR._select_vars(sparse, mode)
 
     @staticmethod
     def desc(mode: str = 'H'):
-        return BCSR._construct_csr({
+        return BCSR._select_vars({
             'val': {'role': 'data'},
             'row_idx': {'role': 'tesa', 'type': 'int'},
             'col_idx': {'role': 'tesa', 'type': 'int'},

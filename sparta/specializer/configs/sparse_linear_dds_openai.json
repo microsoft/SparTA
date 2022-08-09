@@ -17,7 +17,7 @@
         },
         "B": {
             "type": "float",
-            "shape": ["GLOBAL_K_VALUE", "GLOBAL_N_VALUE"],
+            "shape": ["GLOBAL_N_VALUE", "GLOBAL_K_VALUE"],
             "layout": "dense"
         }
     },
@@ -27,12 +27,12 @@
             "shape": ["GLOBAL_M_VALUE", "GLOBAL_N_VALUE"],
             "layout": "bcsr",
             "mode": "X",
-            "block_size": ["BLOCK_SIZE_K_VALUE", "BLOCK_SIZE_N_VALUE"],
-            "formula": "A @ B"
+            "block_size": [32, 32],
+            "formula": "A @ B.T"
         }
     },
     "tiles": {
-        "block": ["256"],
+        "block": [256],
         "grid": ["C_nnz"]
     }
 }

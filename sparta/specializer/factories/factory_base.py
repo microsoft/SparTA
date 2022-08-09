@@ -68,8 +68,7 @@ class KernelInterface(abc.ABC):
 
     def _load_codes(self) -> Dict[str, str]:
         function_body = self._factory.get_kernel_code(**(self._shape | self._factory.fixed_dims))
-        function_name = function_body[function_body.find(
-            '__global__ void') + 15:]
+        function_name = function_body[function_body.find('__global__ void') + 15:]
         function_name = function_name[:function_name.find('(')].strip()
         return {
             'KERNEL_FUNC_NAME': function_name,
@@ -83,7 +82,7 @@ class KernelInterface(abc.ABC):
             desc['shape'] = list(map(self._replace_and_eval, desc['shape']))
         return desc_dict
 
-    def _expand_tesa_desc(self, raw_desc_dict) -> Dict:
+    def _expand_tesa_desc(self, raw_desc_dict: Dict) -> Dict:
         desc_dict = {}
         for data_name, data_desc in raw_desc_dict.items():
             data_desc['role'] = 'data'
@@ -101,17 +100,37 @@ class KernelInterface(abc.ABC):
     def _load_data_desc(self) -> Dict:
         self._inputs = self._expand_data_desc(self._factory.inputs)
         self._outputs = self._expand_data_desc(self._factory.outputs)
-        return {
-            'INPUTS': list(self._expand_tesa_desc(self._factory.inputs).values()),
-            'OUTPUTS': list(self._expand_tesa_desc(self._factory.outputs).values()),
-        }
+        input_descs = []
+        output_descs = []
+        for desc in self._expand_tesa_desc(self._factory.inputs).values():
+            input_descs.append(desc)
+        for desc in self._expand_tesa_desc(self._factory.outputs).values():
+            if desc['role'] == 'tesa':
+                input_descs.append(desc)
+            else:
+                output_descs.append(desc)
+        return {'INPUTS': input_descs, 'OUTPUTS': output_descs}
 
     def _replace_and_eval(self, s: str) -> Any:
-        for k, v in self._shape.items():
-            s = s.replace(k, str(v))
-        for k in self._data:
-            s = s.replace(k, f'self._data["{k}"]')
-        return eval(s)
+        def find_data(x: str):
+            for k, v in self._shape.items():
+                if k == x:
+                    return str(v)
+            for k in self._data:
+                if k == x:
+                    return f'self._data["{k}"]'
+            return x
+        t = ''
+        x = ''
+        for c in str(s):
+            if c.isalpha() or c.isnumeric() or c == '_':
+                x += c
+            else:
+                t += find_data(x)
+                t += c
+                x = ''
+        t += find_data(x)
+        return eval(t)
 
     def _load_tile_config(self) -> Dict[str, List[int]]:
         return {
@@ -164,15 +183,17 @@ class TestInterface(KernelInterface, Callable):
         self._specify_data_path(self._config['INPUTS'])
         self._specify_data_path(self._config['OUTPUTS'])
         with open(os.path.join(COMMON_TEMPLATE_DIR, 'test.cu.j2')) as f:
-            test_template = f.read()
-        test_code = jinja2.Template(test_template).render(self._config | self._load_tile_config())
+            self._template = f.read()
         self._code_path = os.path.join(self._dir, f'{self._factory.op_name}.cu')
         self._exec_path = os.path.join(self._dir, self._factory.op_name)
+
+    def _build_exe(self):
         with open(self._code_path, 'w') as f:
-            f.write(test_code)
+            f.write(jinja2.Template(self._template).render(self._config | self._load_tile_config()))
         gpu_code = utils.cuda_detect()[0][1]
+        build_args = f'arch=compute_{gpu_code},code=sm_{gpu_code}'
         self._run_cmd(
-            f"nvcc -gencode arch=compute_{gpu_code},code=sm_{gpu_code} {self._code_path} -w -o {self._exec_path}",
+            f"nvcc -gencode {build_args} {self._code_path} -w -o {self._exec_path}",
             timeout=5
         )
 
@@ -195,10 +216,9 @@ class TestInterface(KernelInterface, Callable):
         self._data[desc["name"]] = val
         for k, v in self._convert_dense_data(desc, val).items():
             self._save_data(k, v)
+            self._data[k] = v if v.size > 1 else v[0]  # TODO
 
     def _save_data(self, name: str, val: np.ndarray):
-        if not isinstance(val, np.ndarray):
-            val = np.array([val])
         with open(os.path.join(self._dir, f'{name}.dat'), 'wb') as f:
             val.flatten().tofile(f)
 
@@ -215,6 +235,7 @@ class TestInterface(KernelInterface, Callable):
         for name, desc in (self._inputs | (self._outputs if check_results else {})).items():
             data = raw_data[name] if name in raw_data else self._generate_data(desc)
             self._import_data(desc, data)
+        self._build_exe()
         result = self._run_cmd(
             f'{self._exec_path} {num_warmups} {num_iters} {int(check_results)}',
             timeout=1
@@ -235,15 +256,18 @@ class ModuleInterface(KernelInterface):
             self._get_tesa_data(input_desc, 'INPUTS')
         for output_desc in self._outputs.values():
             self._get_tesa_data(output_desc, 'OUTPUTS')
+        # print(self._config)
 
     def _get_tesa_data(self, desc: Dict[str, dict], category: str):
         fake_val = np.zeros(shape=desc['shape'])
         for k, v in self._convert_dense_data(desc, fake_val).items():
-            idx = list(map(lambda x: x['name'],
-                       self._config[category])).index(k)
-            self._config[category][idx]['shape'] = list(v.shape)
-            if self._config[category][idx]['role'] == 'tesa':
-                self._config[category][idx]['val'] = v.flatten().tolist()
+            for data_cfg in self._config['INPUTS'] + self._config['OUTPUTS']:
+                if data_cfg['name'] == k:
+                    data_cfg['shape'] = list(v.shape)
+                    if data_cfg['role'] == 'tesa':
+                        data_cfg['val'] = v.flatten().tolist()
+                        self._data[k] = v if v.size > 1 else v[0]  # TODO
+                    break
 
     def get_module_code(self):
         with open(os.path.join(COMMON_TEMPLATE_DIR, 'module.cu.j2')) as f:

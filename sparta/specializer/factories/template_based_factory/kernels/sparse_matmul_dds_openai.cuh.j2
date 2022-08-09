@@ -2,29 +2,41 @@ const int M = {{ GLOBAL_M_VALUE }};
 const int K = {{ GLOBAL_K_VALUE }};
 const int N = {{ GLOBAL_N_VALUE }};
 
+__device__ __forceinline__ const float* add_ptr_f(const float* src, int offset) \
+{                                                                               \
+    const float* dst;                                                           \
+    asm("{                       \n\t"                                          \
+        ".reg .u32 lo,hi,of;     \n\t"                                          \
+        "mul.lo.u32 of, %2, %3;  \n\t"                                          \
+        "mov.b64    {lo,hi}, %1; \n\t"                                          \
+        "add.cc.u32  lo,lo,  of; \n\t"                                          \
+        "addc.u32    hi,hi,  0;  \n\t"                                          \
+        "mov.b64 %0, {lo,hi};    \n\t"                                          \
+        "}" : "=l"(dst) : "l"(src), "r"(offset), "r"((int)sizeof(*src)));       \
+    return dst;                                                                 \
+}
+
 __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
     float* A,
     float* B,
-    float* C_val,
-    int * row_index,
-    int * col_index,
-){
+    int* row_index,
+    int* col_index,
+    int* block_nnz,
+    float* C_val){
     /*
     description:
     tiling k dimension
     smm_dd_s_nn: sparse matmul, dense (MxK, along K) x dense (KxN, along N) -> sparse (MxN, along N)
     the output sparse is block size 32x32, the blocks will be written to bcsr 32x64
     */
-    const int BLOCK_SIZE_M = 32;
-    const int BLOCK_SIZE_K = 64;
-    const int BLOCK_SIZE_N = 32;
+    const int BLOCK_SIZE_M = 32;  // 64
+    const int BLOCK_SIZE_K = 64;  //8
+    const int BLOCK_SIZE_N = 32;  //128
     const int THREAD_SIZE_K = 64;
-    int batch_idx = blockIdx.z;
-    int head_idx = blockIdx.y + gridDim.y * blockIdx.z; // launch config: block_idx, head_idx, batch_idx
 
-    A += M * K * head_idx;
-    B += K * N * head_idx;
-    C_val += GLOBAL_M * GLOBAL_N * head_idx;
+    A += M*K*blockIdx.y;
+    B += K*N*blockIdx.y;
+    C_val += block_nnz[0]*32*32*blockIdx.y;
 
     assert(blockDim.x % 32 == 0);
     uint n_warp = 8; // blockDim.x / 32
@@ -144,8 +156,11 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
 
     uint readC = ty*32*8 + tx*2 + ((tid & 192)>>2);
 
-    C_val += ((blockIdx.x / (GLOBAL_N / BLOCK_SIZE_N)) * BLOCK_SIZE_M + ty) * GLOBAL_N + (blockIdx.x % (GLOBAL_N / BLOCK_SIZE_N)) * BLOCK_SIZE_N + tx * 2;
-    // C_val += ty * 32 + tx * 2;
+    // uint blk_index = block_index[blockIdx.x] / 2;
+    uint blk_index = blockIdx.x;
+    // uint intra_blk_index = block_index[blockIdx.x] % 2;
+    C_val += 32 * 32 * blk_index;
+    C_val += ty * 32 + tx * 2;
 
     __syncthreads();
     *(float4*)&fShare[storC + 0*32*8] = *(float4*)regC[0];
@@ -160,8 +175,10 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
 
     // Tree reduce
     for (int j = 4; j > 0; j >>= 1)
-        for (int i = 0; i < j; i++)
-            c2[i] = _add(c2[i], c2[i+j]);
+        for (int i = 0; i < j; i++) {
+            c2[i].x += c2[i+j].x;
+            c2[i].y += c2[i+j].y;
+        }
 
     //-> store((bhalf2*)C, c2[0]);
     *(float2*)C_val = c2[0];
@@ -178,10 +195,11 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
 
     // Tree reduce
     for (int j = 4; j > 0; j >>= 1)
-        for (int i = 0; i < j; i++)
-            c2[i] = _add(c2[i], c2[i+j]);
+        for (int i = 0; i < j; i++) {
+            c2[i].x += c2[i+j].x;
+            c2[i].y += c2[i+j].y;
+        }
 
-    // C_val += 16 * 32;
-    C_val += 16 * GLOBAL_N;
+    C_val += 16 * 32;
     *(float2*)C_val = c2[0];
 }
