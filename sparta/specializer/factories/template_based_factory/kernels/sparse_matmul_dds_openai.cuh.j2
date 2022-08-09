@@ -19,14 +19,16 @@ __device__ __forceinline__ const float* add_ptr_f(const float* src, int offset) 
 __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
     float* A,
     float* B,
-    int* row_index,
-    int* col_index,
-    int* block_nnz,
-    float* C_val){
+    int* C_row_idx,
+    int* C_col_idx,
+    int* C_block_nnz,
+    float* C_val
+) {
     /*
     description:
     tiling k dimension
-    smm_dd_s_nn: sparse matmul, dense (MxK, along K) x dense (KxN, along N) -> sparse (MxN, along N)
+    tile size: 32x64x32
+    smm_dd_s_nn: sparse matmul, dense (MxK, along K) x dense (NxK, along K) -> sparse (MxN, along N)
     the output sparse is block size 32x32, the blocks will be written to bcsr 32x64
     */
     const int BLOCK_SIZE_M = 32;  // 64
@@ -36,7 +38,7 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
 
     A += M*K*blockIdx.y;
     B += K*N*blockIdx.y;
-    C_val += block_nnz[0]*32*32*blockIdx.y;
+    C_val += C_block_nnz[0]*32*32*blockIdx.y;
 
     assert(blockDim.x % 32 == 0);
     uint n_warp = 8; // blockDim.x / 32
@@ -49,13 +51,14 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
     char* bShare = (char*)fShare;
 
     uint tid = threadIdx.x;
-    uint bx = col_index[blockIdx.x]; // N
-    uint by = row_index[blockIdx.x]; // M
+    uint bx = C_col_idx[blockIdx.x]; // N
+    uint by = C_row_idx[blockIdx.x]; // M
 
     uint tx = tid % 16;
     uint ty = tid / 16;
     assert(THREAD_SIZE_K % 16 == 0);
     uint k = tx * 4;
+
     uint ori_offsetA00 = (by * 32 + ty) * K + k;
     uint ori_offsetA16 = ori_offsetA00 + K * 16;
     uint ori_offsetB00 = (bx * 32 + ty) * K + k;

@@ -90,8 +90,11 @@ class KernelInterface(abc.ABC):
                 desc_dict[data_name] = data_desc
             else:
                 TeSAClass = get_tesa_class(data_desc['layout'])
-                mode = data_desc['mode'] if 'mode' in data_desc else 'H'
-                for tesa_name, tesa_desc in TeSAClass.desc(mode=mode).items():
+                if data_desc['layout'].startswith('bcsr'):
+                    tesa_cfg = {
+                        'mode': data_desc['mode'] if 'mode' in data_desc else 'H'
+                    }
+                for tesa_name, tesa_desc in TeSAClass.desc(**tesa_cfg).items():
                     desc = copy.deepcopy(data_desc)
                     desc.update(tesa_desc)
                     desc_dict[f'{data_name}_{tesa_name}'] = desc
@@ -143,16 +146,17 @@ class KernelInterface(abc.ABC):
             return {desc["name"]: dense_val}
         else:
             TeSAClass = get_tesa_class(desc['layout'])
+            tesa_cfg = {
+                'dense': dense_val,
+                'mask': self._mask[desc['name']] if desc['name'] in self._mask else 0.2,
+            }
             if desc['layout'].startswith('bcsr'):
-                bcsr_cfg = {
-                    'dense': dense_val,
+                tesa_cfg |= {
                     'size': dense_val.shape,
                     'block_size': tuple(map(self._replace_and_eval, desc['block_size'])),
-                    'mask': self._mask[desc['name']] if desc['name'] in self._mask else 0.2,
                     'mode': desc['mode'] if 'mode' in desc else 'H',
                 }
-                bcsr = TeSAClass(**bcsr_cfg)
-                return {f'{desc["name"]}_{k}': v for k, v in bcsr.sparse.items()}
+            return {f'{desc["name"]}_{k}': v for k, v in TeSAClass(**tesa_cfg).sparse.items()}
 
     def _run_cmd(self, cmd: str, timeout: float) -> str:
         process = subprocess.Popen(f'exec {cmd}', shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
