@@ -20,8 +20,9 @@ space = {
     'THREAD_SIZE_K_VALUE': [2, 4],
     'THREAD_SIZE_N_VALUE': [2, 4],
 }
+mask = np.random.uniform(size=(shape['GLOBAL_M_VALUE'], shape['GLOBAL_K_VALUE'])) < 0.01
 
 cfg = tuners.GridSearchTunner(
     specializer=specializer.Specializer(op_name='sparse_linear_sdd', **shape),
     search_space=space
-).tunning_kernel_cfg()
+).find_best_config(mask={'A': mask})

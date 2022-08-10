@@ -60,6 +60,9 @@ class BCSR(TeSABase):
             mask: np.ndarray = np.abs(mask).sum(axis=(2, 3)) > 0
         elif (isinstance(mask, float) or isinstance(mask, int)) and 0 <= mask <= 1:
             mask = np.random.uniform(size=(row_num, col_num)) < mask
+        elif isinstance(mask, np.ndarray) and mask.shape == (height, width):
+            mask = mask.reshape(row_num, block_height, col_num, block_width).swapaxes(1, 2)
+            mask: np.ndarray = np.abs(mask).sum(axis=(2, 3)) > 0
         elif isinstance(mask, np.ndarray) and mask.shape == (row_num, col_num):
             mask = mask.astype(bool)
         else:

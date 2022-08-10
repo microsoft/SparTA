@@ -18,7 +18,7 @@ class GridSearchTunner(tuners.TunerBase):
             cfgs += self._generate_all_cfgs(copy.deepcopy(keys), cfg)
         return cfgs
 
-    def _cfgs(self):
+    def _configs(self):
         cfg_space = self._generate_all_cfgs(list(self._search_space.keys()))
         for cfg in cfg_space:
             yield cfg

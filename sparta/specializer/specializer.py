@@ -3,7 +3,7 @@
 
 import os
 import json
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import numpy as np
 
@@ -69,11 +69,11 @@ class Specializer(object):
                 return get_factory(kernel_name)
         return get_factory(self._default_kernel)
 
-    def get_test_func(self, shape_config: Dict[str, int], mask: Dict[str, np.ndarray] = None):
+    def get_test_func(self, shape_config: Dict[str, int], mask: Optional[Dict[str, np.ndarray]] = None):
         return self._get_factory(shape_config).get_test_func((self._hyper_params | shape_config), mask)
 
-    def get_module(self, shape_config: Dict[str, int], mask: Dict[str, np.ndarray] = None):
+    def get_module(self, shape_config: Dict[str, int], mask: Optional[Dict[str, np.ndarray]] = None):
         return self._get_factory(shape_config).get_module((self._hyper_params | shape_config), mask)
 
-    def get_module_code(self, shape_config: Dict[str, int], mask: Dict[str, np.ndarray] = None):
+    def get_module_code(self, shape_config: Dict[str, int], mask: Optional[Dict[str, np.ndarray]] = None):
         return self._get_factory(shape_config).get_module_code((self._hyper_params | shape_config), mask)
