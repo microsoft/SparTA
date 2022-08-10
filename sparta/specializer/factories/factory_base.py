@@ -246,8 +246,8 @@ class TestInterface(KernelInterface, Callable):
         )
         return float(result)
 
-    # def __del__(self):
-    #     shutil.rmtree(self._dir, ignore_errors=True)
+    def __del__(self):
+        shutil.rmtree(self._dir, ignore_errors=True)
 
 
 class ModuleInterface(KernelInterface):

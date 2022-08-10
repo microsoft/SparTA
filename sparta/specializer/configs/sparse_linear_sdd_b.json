@@ -1,0 +1,52 @@
+
+{
+    "op_name": "sparse_matmul_sdd_biased",
+    "factory_type": "template",
+    "kernel_name": "sparse_matmul_sdd",
+    "dynamic_dims": [
+        "GLOBAL_M_VALUE",
+        "GLOBAL_N_VALUE",
+        "GLOBAL_K_VALUE",
+        "BLOCK_SIZE_M_VALUE",
+        "BLOCK_SIZE_N_VALUE",
+        "BLOCK_SIZE_K_VALUE",
+        "THREAD_SIZE_M_VALUE",
+        "THREAD_SIZE_N_VALUE",
+        "THREAD_SIZE_K_VALUE"
+    ],
+    "fixed_dims": {
+        "BIASED": true,
+        "TRANSPOSE": false
+    },
+    "inputs": {
+        "W": {
+            "type": "float",
+            "shape": ["GLOBAL_M_VALUE", "GLOBAL_K_VALUE"],
+            "layout": "bcsr",
+            "mode": "H",
+            "block_size": ["BLOCK_SIZE_M_VALUE", "BLOCK_SIZE_K_VALUE"]
+        },
+        "B": {
+            "type": "float",
+            "shape": ["GLOBAL_K_VALUE", "GLOBAL_N_VALUE"],
+            "layout": "dense"
+        },
+        "bias": {
+            "type":"float",
+            "shape": ["GLOBAL_N_VALUE"],
+            "layout": "dense"
+        }
+    },
+    "outputs": {
+        "C": {
+            "type": "float",
+            "shape": ["GLOBAL_M_VALUE", "GLOBAL_N_VALUE"],
+            "layout": "dense",
+            "formula": "W @ B + bias"
+        }
+    },
+    "tiles": {
+        "block": ["BLOCK_SIZE_N_VALUE // THREAD_SIZE_N_VALUE", "BLOCK_SIZE_M_VALUE // THREAD_SIZE_M_VALUE"],
+        "grid": ["GLOBAL_N_VALUE // BLOCK_SIZE_N_VALUE", "GLOBAL_M_VALUE // BLOCK_SIZE_M_VALUE"]
+    }
+}
