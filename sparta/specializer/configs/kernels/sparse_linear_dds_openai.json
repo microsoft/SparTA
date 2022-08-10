@@ -1,6 +1,6 @@
 
 {
-    "op_name": "sparse_matmul_dds_openai",
+    "op_name": "sparse_matmul_dds",
     "factory_type": "template",
     "kernel_name": "sparse_matmul_dds_openai",
     "dynamic_dims": [
