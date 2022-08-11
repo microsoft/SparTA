@@ -19,7 +19,7 @@
         "TRANSPOSE": true
     },
     "inputs": {
-        "W": {
+        "A": {
             "type": "float",
             "shape": ["GLOBAL_M_VALUE", "GLOBAL_K_VALUE"],
             "layout": "bcsr",
@@ -37,7 +37,7 @@
             "type": "float",
             "shape": ["GLOBAL_M_VALUE", "GLOBAL_N_VALUE"],
             "layout": "dense",
-            "formula": "W @ B.T"
+            "formula": "A @ B.T"
         }
     },
     "tiles": {

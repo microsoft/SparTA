@@ -2,7 +2,6 @@
 # Licensed under the MIT license.
 
 import copy
-import subprocess
 from typing import Dict, List
 
 from sparta.specializer import tuners

@@ -19,7 +19,7 @@
         "TRANSPOSE": false
     },
     "inputs": {
-        "W": {
+        "A": {
             "type": "float",
             "shape": ["GLOBAL_M_VALUE", "GLOBAL_K_VALUE"],
             "layout": "bcsr",
@@ -42,7 +42,7 @@
             "type": "float",
             "shape": ["GLOBAL_M_VALUE", "GLOBAL_N_VALUE"],
             "layout": "dense",
-            "formula": "W @ B + bias"
+            "formula": "A @ B + bias"
         }
     },
     "tiles": {

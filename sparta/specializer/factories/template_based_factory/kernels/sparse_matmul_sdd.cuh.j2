@@ -12,16 +12,16 @@ const int TK = {{ THREAD_SIZE_K_VALUE }};
 const int TN = {{ THREAD_SIZE_N_VALUE }};
 
 __global__ void BLOCK_SPARSE_MATMUL(
-    float* input_W_val,
-    int* input_W_row,
-    int* input_W_col,
+    float* input_A_val,
+    int* input_A_block_ptr,
+    int* input_A_block_idx,
     float* input_B,
     {% if BIASED %}float* input_bias,{% endif %}
     float* output_C
 ) {
-    float * W_val = reinterpret_cast<float*>(input_W_val);
-    int * W_row = reinterpret_cast<int*>(input_W_row);
-    int * W_col = reinterpret_cast<int*>(input_W_col);
+    float * A_val = reinterpret_cast<float*>(input_A_val);
+    int * A_block_ptr = reinterpret_cast<int*>(input_A_block_ptr);
+    int * A_block_idx = reinterpret_cast<int*>(input_A_block_idx);
     float * B = reinterpret_cast<float*>(input_B);
     {% if BIASED %}float * bias = reinterpret_cast<float*>(input_bias);{% endif %}
     float * C = reinterpret_cast<float*>(output_C);
@@ -57,17 +57,17 @@ __global__ void BLOCK_SPARSE_MATMUL(
     int A_BLOCK_COL_START = tid % A_THREAD_PER_ROW * 4;
     int B_BLOCK_COL_START = tid % B_THREAD_PER_ROW * 4;
 
-    int index_start = W_row[by], index_end = W_row[by+1];
+    int index_start = A_block_ptr[by], index_end = A_block_ptr[by+1];
 
     const int vBLOCK_SIZE_M = BM / TM;
     const int vBLOCK_SIZE_N = BN / TN;
     {% if TRANSPOSE %}float4 tmp_float4;{% endif %}
     for (int tile_block_idx = index_start; tile_block_idx < index_end; tile_block_idx += 1) {
-        int tile_idx = W_col[tile_block_idx] * BK;
+        int tile_idx = A_block_idx[tile_block_idx] * BK;
         #pragma unroll
         for (int k = 0; k < BM; k += A_TILE_ROW_STRIDE) {
             *((float4 *)(&As[(k+A_BLOCK_ROW_START) * BK + A_BLOCK_COL_START])) =
-                *((float4 *)(&W_val[tile_block_idx * BM * BK + (k+A_BLOCK_ROW_START) * BK + A_BLOCK_COL_START]));
+                *((float4 *)(&A_val[tile_block_idx * BM * BK + (k+A_BLOCK_ROW_START) * BK + A_BLOCK_COL_START]));
         }
 
         #pragma unroll

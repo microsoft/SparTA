@@ -17,16 +17,12 @@ cfg = {
     'GLOBAL_N_VALUE': 512,
 }
 
-factory = specializer.get_factory('sparse_linear_dds_openai')
+factory = specializer.get_factory('sparse_linear_openai_dds')
 
 # Prepare Data
 def prepare_data():
     A = np.random.normal(size=(cfg['GLOBAL_M_VALUE'], cfg['GLOBAL_K_VALUE'])).astype(np.float32)
     B = np.random.normal(size=(cfg['GLOBAL_N_VALUE'], cfg['GLOBAL_K_VALUE'])).astype(np.float32)
-    # A = np.ones((cfg['GLOBAL_M_VALUE'], cfg['GLOBAL_K_VALUE'])).astype(np.float32)
-    # B = np.ones((cfg['GLOBAL_K_VALUE'], cfg['GLOBAL_N_VALUE'])).astype(np.float32)
-    # A = np.eye(1024).astype(np.float32)
-    # B = np.eye(1024).astype(np.float32)
 
     C_tgt = (A @ B.T).astype(np.float32)
     C_mask = np.random.uniform(size=(

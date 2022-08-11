@@ -2,7 +2,7 @@ const int M = {{ GLOBAL_M_VALUE }};
 const int K = {{ GLOBAL_K_VALUE }};
 const int N = {{ GLOBAL_N_VALUE }};
 
-__device__ __forceinline__ const float* add_ptr_f(const float* src, int offset) \
+__device__ __forceinline__ const float* add_ptr_u(const float* src, int offset) \
 {                                                                               \
     const float* dst;                                                           \
     asm("{                       \n\t"                                          \
@@ -16,29 +16,29 @@ __device__ __forceinline__ const float* add_ptr_f(const float* src, int offset) 
     return dst;                                                                 \
 }
 
-__global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
+__global__ void BLOCK_SPARSE_MATMUL_32_64_32(
     float* A,
-    float* B,
-    int* C_row_idx,
-    int* C_col_idx,
-    int* C_block_nnz,
-    float* C_val
+    float* B_val,
+    int* B_block_ptr,
+    int* B_block_idx,
+    float* C
 ) {
     /*
     description:
     tiling k dimension
     tile size: 32x64x32
-    smm_dd_s_nn: sparse matmul, dense (MxK, along K) x dense (NxK, along K) -> sparse (MxN, along N)
-    the output sparse is block size 32x32, the blocks will be written to bcsr 32x64
+    smm_sd_d_nn: sparse matmul, dense (MxK, along K) x sparse (NxK, along K, K major bcsr) -> dense (MxN, along N)
+    smm_sd_d_nt: sparse matmul, dense (MxK, along K) x sparse (KxN, along N, K major bcsr, need transpose) -> dense (MxN, along N)
+    dense matrix X block sparse matrix (block size: 64x32) -> dense matrix
     */
     const int BLOCK_SIZE_M = 32;  // 64
     const int BLOCK_SIZE_K = 64;  //8
     const int BLOCK_SIZE_N = 32;  //128
     const int THREAD_SIZE_K = 64;
 
-    A += M*K*blockIdx.y;
-    B += K*N*blockIdx.y;
-    C_val += C_block_nnz[0]*32*32*blockIdx.y;
+    A += M*K*blockIdx.z;
+    B_val += B_block_ptr[N/32]*64*32*blockIdx.z;
+    C += M*N*blockIdx.z;
 
     assert(blockDim.x % 32 == 0);
     uint n_warp = 8; // blockDim.x / 32
@@ -51,18 +51,26 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
     char* bShare = (char*)fShare;
 
     uint tid = threadIdx.x;
-    uint bx = C_col_idx[blockIdx.x]; // N
-    uint by = C_row_idx[blockIdx.x]; // M
+    uint bx = blockIdx.x; // N
+    uint by = blockIdx.y; // M
 
     uint tx = tid % 16;
     uint ty = tid / 16;
     assert(THREAD_SIZE_K % 16 == 0);
-    uint k = tx * 4;
 
-    uint ori_offsetA00 = (by * 32 + ty) * K + k;
+    // A is stored in dense format
+    uint ori_offsetA00 = (by * 32 + ty) * K + tx * 4;
     uint ori_offsetA16 = ori_offsetA00 + K * 16;
-    uint ori_offsetB00 = (bx * 32 + ty) * K + k;
-    uint ori_offsetB16 = ori_offsetB00 + K * 16;
+
+    // B is stored in sparse format
+    {% if TRANSPOSE %}
+    uint offsetB00 = B_block_ptr[bx] * BLOCK_SIZE_N * BLOCK_SIZE_K + ty * BLOCK_SIZE_K + tx * 4;
+    uint offsetB16 = offsetB00 + BLOCK_SIZE_K * 16;
+    {% else %}
+    uint offsetB00 = B_block_ptr[bx] * BLOCK_SIZE_N * BLOCK_SIZE_K + tid * 4;
+    uint offsetB16 = offsetB00 + BLOCK_SIZE_N * 32;
+    uint storB = (tid * 4 + tid / (BLOCK_SIZE_N/4) / 4 * 2) * 4;
+    {% endif %}
 
     uint tid224 = tid & 224;
     uint storAB = (tx * 32 * 4 + ty + tx * 2) * 4;
@@ -81,19 +89,24 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
         for (int j = 0; j < 4; j++)
             regC[i][j] = 0.0f;
 
-    for (int k_seq = 0; k_seq < (int)(K/64); k_seq++)
+    // bx means in index of this thread block on N dimonsion
+    // by means in index of this thread block on M dimonsion
+    // index_start and index_end is block index on column
+    int index_start = B_block_ptr[bx], index_end = B_block_ptr[bx+1];
+    for (int bcsr_row_idx = index_start; bcsr_row_idx < index_end; bcsr_row_idx += 1)
     {
-        uint offsetA00 = ori_offsetA00 + 64 * k_seq;
-        uint offsetA16 = ori_offsetA16 + 64 * k_seq;
-        uint offsetB00 = ori_offsetB00 + 64 * k_seq;
-        uint offsetB16 = ori_offsetB16 + 64 * k_seq;
+        uint offsetA00 = ori_offsetA00 + 64 * B_block_idx[bcsr_row_idx];
+        uint offsetA16 = ori_offsetA16 + 64 * B_block_idx[bcsr_row_idx];
 
         float4 a00 = {0}, a16 = {0};
         float4 b00 = {0}, b16 = {0};
-        a00 = __ldg((const float4*)(add_ptr_f(A, offsetA00)));
-        a16 = __ldg((const float4*)(add_ptr_f(A, offsetA16)));
-        b00 = __ldg((const float4*)(add_ptr_f(B, offsetB00)));
-        b16 = __ldg((const float4*)(add_ptr_f(B, offsetB16)));
+        a00 = __ldg((const float4*)(add_ptr_u(A, offsetA00)));
+        a16 = __ldg((const float4*)(add_ptr_u(A, offsetA16)));
+        b00 = __ldg((const float4*)(add_ptr_u(B_val, offsetB00)));
+        b16 = __ldg((const float4*)(add_ptr_u(B_val, offsetB16)));
+
+        offsetB00 += BLOCK_SIZE_N * BLOCK_SIZE_K;
+        offsetB16 += BLOCK_SIZE_N * BLOCK_SIZE_K;
 
         __syncthreads();
 
@@ -106,6 +119,7 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
         *(float*)&bShare[storAB + (2*32 + 16 + 0*65*32)*4] = a16.z;
         *(float*)&bShare[storAB + (3*32 + 16 + 0*65*32)*4] = a16.w;
 
+        {% if TRANSPOSE %}
         *(float*)&bShare[storAB + (0*32 +  0 + 1*65*32)*4] = b00.x;
         *(float*)&bShare[storAB + (1*32 +  0 + 1*65*32)*4] = b00.y;
         *(float*)&bShare[storAB + (2*32 +  0 + 1*65*32)*4] = b00.z;
@@ -114,6 +128,17 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
         *(float*)&bShare[storAB + (1*32 + 16 + 1*65*32)*4] = b16.y;
         *(float*)&bShare[storAB + (2*32 + 16 + 1*65*32)*4] = b16.z;
         *(float*)&bShare[storAB + (3*32 + 16 + 1*65*32)*4] = b16.w;
+        {% else %}
+        *(float*)&bShare[storB + (1*65*32 + 0)*4] = b00.x;
+        *(float*)&bShare[storB + (1*65*32 + 1)*4] = b00.y;
+        *(float*)&bShare[storB + (1*65*32 + 2)*4] = b00.z;
+        *(float*)&bShare[storB + (1*65*32 + 3)*4] = b00.w;
+        *(float*)&bShare[storB + (32*32 + 8*2 + 1*65*32 + 0)*4] = b16.x;
+        *(float*)&bShare[storB + (32*32 + 8*2 + 1*65*32 + 1)*4] = b16.y;
+        *(float*)&bShare[storB + (32*32 + 8*2 + 1*65*32 + 2)*4] = b16.z;
+        *(float*)&bShare[storB + (32*32 + 8*2 + 1*65*32 + 3)*4] = b16.w;
+        {% endif %}
+
         __syncthreads();
 
         float regA[8], regB[4];
@@ -159,11 +184,8 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
 
     uint readC = ty*32*8 + tx*2 + ((tid & 192)>>2);
 
-    // uint blk_index = block_index[blockIdx.x] / 2;
-    uint blk_index = blockIdx.x;
-    // uint intra_blk_index = block_index[blockIdx.x] % 2;
-    C_val += 32 * 32 * blk_index;
-    C_val += ty * 32 + tx * 2;
+    // C should be row major
+    C += (by * BLOCK_SIZE_N + ty) * N + (bx * BLOCK_SIZE_M + tx * 2);
 
     __syncthreads();
     *(float4*)&fShare[storC + 0*32*8] = *(float4*)regC[0];
@@ -183,8 +205,7 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
             c2[i].y += c2[i+j].y;
         }
 
-    //-> store((bhalf2*)C, c2[0]);
-    *(float2*)C_val = c2[0];
+    *(float2*)C = c2[0];
 
     __syncthreads();
     *(float4*)&fShare[storC + 0*32*8] = *(float4*)regC[4];
@@ -203,6 +224,6 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
             c2[i].y += c2[i+j].y;
         }
 
-    C_val += 16 * 32;
-    *(float2*)C_val = c2[0];
+    C += 16 * N;
+    *(float2*)C = c2[0];
 }

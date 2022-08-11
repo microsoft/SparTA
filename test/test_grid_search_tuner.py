@@ -22,7 +22,9 @@ space = {
 }
 mask = np.random.uniform(size=(shape['GLOBAL_M_VALUE'], shape['GLOBAL_K_VALUE'])) < 0.01
 
-cfg = tuners.GridSearchTunner(
+best_cfg = tuners.GridSearchTunner(
     specializer=specializer.Specializer(op_name='sparse_linear_sdd', **shape),
     search_space=space
 ).find_best_config(mask={'A': mask})
+
+# specializer.Specializer(open_name='', **shape).get_module(best_cfg, params=[])

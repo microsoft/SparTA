@@ -13,16 +13,16 @@ const int TN = {{ THREAD_SIZE_N_VALUE }};
 
 __global__ void BLOCK_SPARSE_MATMUL(
     float* input_A,
-    float* input_W_val,
-    int* input_W_row,
-    int* input_W_col,
+    float* input_B_val,
+    int* input_B_block_ptr,
+    int* input_B_block_idx,
     {% if BIASED %}float* input_bias,{% endif %}
     float* output_C
 ) {
     float * A = reinterpret_cast<float*>(input_A);
-    float * W_val = reinterpret_cast<float*>(input_W_val);
-    int * W_row = reinterpret_cast<int*>(input_W_row);
-    int * W_col = reinterpret_cast<int*>(input_W_col);
+    float * B_val = reinterpret_cast<float*>(input_B_val);
+    int * B_block_ptr = reinterpret_cast<int*>(input_B_block_ptr);
+    int * B_block_idx = reinterpret_cast<int*>(input_B_block_idx);
     {% if BIASED %}float * bias = reinterpret_cast<float*>(input_bias);{% endif %}
     float * C = reinterpret_cast<float*>(output_C);
 
@@ -57,13 +57,13 @@ __global__ void BLOCK_SPARSE_MATMUL(
     int A_BLOCK_COL_START = tid % A_THREAD_PER_ROW * 4;
     int B_BLOCK_COL_START = tid % B_THREAD_PER_ROW * 4;
 
-    int index_start = W_row[bx], index_end = W_row[bx+1];
+    int index_start = B_block_ptr[bx], index_end = B_block_ptr[bx+1];
 
     const int vBLOCK_SIZE_M = BM / TM;
     const int vBLOCK_SIZE_N = BN / TN;
     {% if TRANSPOSE %}float4 tmp_float4;{% endif %}
     for (int tile_block_idx = index_start; tile_block_idx < index_end; tile_block_idx += 1) {
-        int tile_idx = W_col[tile_block_idx] * BK;
+        int tile_idx = B_block_idx[tile_block_idx] * BK;
         #pragma unroll
         for (int k = 0; k < BM; k += A_TILE_ROW_STRIDE) {
             *((float4 *)(&As[(k+A_BLOCK_ROW_START) * BK + A_BLOCK_COL_START])) =
@@ -73,14 +73,14 @@ __global__ void BLOCK_SPARSE_MATMUL(
         #pragma unroll
         for (int k = 0; k < {% if TRANSPOSE %}BN{% else %}BK{% endif %}; k += B_TILE_ROW_STRIDE) {
             {% if TRANSPOSE %}
-            tmp_float4 = (reinterpret_cast<float4*>(&W_val[tile_block_idx * BN * BK + (k+B_BLOCK_ROW_START) * BK + B_BLOCK_COL_START]))[0];
+            tmp_float4 = (reinterpret_cast<float4*>(&B_val[tile_block_idx * BN * BK + (k+B_BLOCK_ROW_START) * BK + B_BLOCK_COL_START]))[0];
             Bs[(B_BLOCK_COL_START+0) * BN + k+B_BLOCK_ROW_START] = tmp_float4.x;
             Bs[(B_BLOCK_COL_START+1) * BN + k+B_BLOCK_ROW_START] = tmp_float4.y;
             Bs[(B_BLOCK_COL_START+2) * BN + k+B_BLOCK_ROW_START] = tmp_float4.z;
             Bs[(B_BLOCK_COL_START+3) * BN + k+B_BLOCK_ROW_START] = tmp_float4.w;
             {% else %}
             *((float4 *)(&Bs[(k+B_BLOCK_ROW_START) * BN + B_BLOCK_COL_START])) =
-                *((float4 *)(&W_val[tile_block_idx * BN * BK + (k+B_BLOCK_ROW_START) * BN + B_BLOCK_COL_START]));
+                *((float4 *)(&B_val[tile_block_idx * BN * BK + (k+B_BLOCK_ROW_START) * BN + B_BLOCK_COL_START]));
             {% endif %}
         }
 

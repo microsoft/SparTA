@@ -20,53 +20,53 @@ cfg = {
     # 'GLOBAL_N_VALUE': 1024,
 }
 
-factory = specializer.get_factory('sparse_linear_openai_sdd')
+factory = specializer.get_factory('sparse_linear_openai_dsd')
 
 # Prepare Data
 def prepare_data():
     A = np.random.normal(size=(cfg['GLOBAL_M_VALUE'], cfg['GLOBAL_K_VALUE'])).astype(np.float32)
     B = np.random.normal(size=(cfg['GLOBAL_K_VALUE'], cfg['GLOBAL_N_VALUE'])).astype(np.float32)
-    A_mask = np.random.uniform(size=(
-        cfg['GLOBAL_M_VALUE'] // 32,
+    B_mask = np.random.uniform(size=(
         cfg['GLOBAL_K_VALUE'] // 64,
+        cfg['GLOBAL_N_VALUE'] // 32,
     )) < 0.2
-    A_tesa = tesa.BCSR(
-        dense=A,
-        mask=A_mask,
-        block_size=(32, 64),
-        mode='H'
+    B_tesa = tesa.BCSR(
+        dense=B,
+        mask=B_mask,
+        block_size=(64, 32),
+        mode='V'
     ).sparse
-    A_val = A_tesa['val']
+    B_val = B_tesa['val']
 
-    A_mask_tiled = np.zeros((cfg['GLOBAL_M_VALUE'], cfg['GLOBAL_K_VALUE']))
-    for row_idx in range(A_mask.shape[0]):
-        for col_idx in range(A_mask.shape[1]):
-            row_start = row_idx * 32
-            row_end = row_start + 32
-            col_start = col_idx * 64
-            col_end = col_start + 64
-            A_mask_tiled[row_start:row_end, col_start:col_end] = A_mask[row_idx, col_idx]
+    B_mask_tiled = np.zeros((cfg['GLOBAL_K_VALUE'], cfg['GLOBAL_N_VALUE']))
+    for row_idx in range(B_mask.shape[0]):
+        for col_idx in range(B_mask.shape[1]):
+            row_start = row_idx * 64
+            row_end = row_start + 64
+            col_start = col_idx * 32
+            col_end = col_start + 32
+            B_mask_tiled[row_start:row_end, col_start:col_end] = B_mask[row_idx, col_idx]
 
-    A *= A_mask_tiled
+    B *= B_mask_tiled
     C_tgt = A @ B
-    return A, A_val, A_mask, B, C_tgt
+    return A, B, B_val, B_mask, C_tgt
 
-A, A_val, A_mask, B, C_tgt = prepare_data()
+A, B, B_val, B_mask, C_tgt = prepare_data()
 
 # Test Function
-test_func = factory.get_test_func(cfg, mask={'A': A_mask})
+test_func = factory.get_test_func(cfg, mask={'B': B_mask})
 print(f'NVCC Latency: {test_func(inputs={"A": A, "B": B}, num_iters=1000)} ms')
 
 # PyTorch Module
-module_code = factory.get_module_code(cfg, mask={'A': A_mask})
+module_code = factory.get_module_code(cfg, mask={'B': B_mask})
 with open('./test/module.cu', 'w') as f:
     f.write(module_code)
 
-f = factory.get_module(cfg, mask={'A': A_mask}).forward
+f = factory.get_module(cfg, mask={'B': B_mask}).forward
 
 device = torch.device(f'cuda:3')
-A = torch.from_numpy(A_val).to(device)
-B = torch.from_numpy(B).to(device)
+A = torch.from_numpy(A).to(device)
+B = torch.from_numpy(B_val).to(device)
 
 for _ in range(10):
     C = f(A, B)
