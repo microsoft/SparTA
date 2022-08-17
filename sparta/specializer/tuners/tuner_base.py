@@ -25,7 +25,10 @@ class TunerBase(abc.ABC):
         Generator that yields the next config to test
         '''
 
-    def find_best_config(self, mask: Optional[Dict[str, np.ndarray]] = None) -> Optional[Dict[str, int]]:
+    def find_best_config(
+            self, inputs: Optional[Dict[str, np.ndarray]] = None,
+            mask: Optional[Dict[str, np.ndarray]] = None
+        ) -> Optional[Dict[str, int]]:
         best_cfg = None
         best_latency = float('inf')
         num = 0
@@ -34,7 +37,7 @@ class TunerBase(abc.ABC):
                 num += 1
                 print(f'#{num}: {", ".join([f"{k}={v}" for k, v in cfg.items()])}')
                 try:
-                    latency = self._specializer.get_test_func(cfg, mask)()
+                    latency = self._specializer.get_test_func(cfg, mask)(inputs=inputs)
                 except subprocess.SubprocessError:
                     print(f'An error occured')
                     continue

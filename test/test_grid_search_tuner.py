@@ -20,11 +20,12 @@ space = {
     'THREAD_SIZE_K_VALUE': [2, 4],
     'THREAD_SIZE_N_VALUE': [2, 4],
 }
-mask = np.random.uniform(size=(shape['GLOBAL_M_VALUE'], shape['GLOBAL_K_VALUE'])) < 0.01
 
-best_cfg = tuners.GridSearchTunner(
-    specializer=specializer.Specializer(op_name='sparse_linear_sdd', **shape),
-    search_space=space
-).find_best_config(mask={'A': mask})
+A_mask = np.random.uniform(size=(shape['GLOBAL_M_VALUE'], shape['GLOBAL_K_VALUE'])) < 0.01
 
-# specializer.Specializer(open_name='', **shape).get_module(best_cfg, params=[])
+op_specializer = specializer.Specializer(op_name='sparse_linear_dsd', **shape)
+
+best_config = op_specializer.find_best_config(search_space=space, mask={'A': A_mask})
+
+if best_config is not None:
+    our_matmul = op_specializer.get_module(best_config, mask={'A': A_mask})

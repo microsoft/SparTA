@@ -47,7 +47,7 @@ class FactoryBase(abc.ABC):
     def get_test_func(self, shape_config: Dict, mask: Dict[str, np.ndarray] = None) -> 'TestInterface':
         return TestInterface(self, shape_config, mask)
 
-    def get_module(self, shape_config: Dict, mask: Dict[str, np.ndarray] = None) -> 'ModuleInterface':
+    def get_module(self, shape_config: Dict, mask: Dict[str, np.ndarray] = None) -> torch.nn.Module:
         return ModuleInterface(self, shape_config, mask).get_module()
 
     def get_module_code(self, shape_config: Dict, mask: Dict[str, np.ndarray] = None) -> str:
@@ -242,7 +242,7 @@ class TestInterface(KernelInterface, Callable):
         self._build_exe()
         result = self._run_cmd(
             f'{self._exec_path} {num_warmups} {num_iters} {int(check_results)}',
-            timeout=1
+            timeout=5
         )
         return float(result)
 
@@ -273,12 +273,12 @@ class ModuleInterface(KernelInterface):
                         self._data[k] = v if v.size > 1 else v[0]  # TODO
                     break
 
-    def get_module_code(self):
+    def get_module_code(self) -> str:
         with open(os.path.join(COMMON_TEMPLATE_DIR, 'module.cu.j2')) as f:
             module_template = f.read()
         return jinja2.Template(module_template).render(self._config | self._load_tile_config())
 
-    def get_module(self):
+    def get_module(self) -> torch.nn.Module:
         return cpp_extension.load_inline(
             self._module_name,
             '',

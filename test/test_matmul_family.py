@@ -35,5 +35,3 @@ for kernel_type in ['sdd', 'dsd', 'dds']:
     for kernel_cfg in ['', '_t']:
         openai_kernel_name = f'sparse_linear_openai_{kernel_type}{kernel_cfg}'
         test_kernel(openai_kernel_name, shape_cfg)
-
-exit()
