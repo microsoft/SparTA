@@ -168,6 +168,7 @@ class KernelInterface(abc.ABC):
         stdout = stdout.decode("utf-8").replace('\\n', '\n')
         stderr = stderr.decode("utf-8").replace('\\n', '\n')
         if len(stderr) > 0:
+            print(stderr)
             raise subprocess.SubprocessError(stderr)
         return stdout
 
@@ -242,7 +243,7 @@ class TestInterface(KernelInterface, Callable):
         self._build_exe()
         result = self._run_cmd(
             f'{self._exec_path} {num_warmups} {num_iters} {int(check_results)}',
-            timeout=5
+            timeout = 1 + 0.01 * num_iters
         )
         return float(result)
 
@@ -253,7 +254,8 @@ class TestInterface(KernelInterface, Callable):
 class ModuleInterface(KernelInterface):
 
     def _build(self):
-        mask_id = hashlib.sha1(str(self._mask).encode()).hexdigest()[:6]
+        mask_str = str({k: str(v.tolist()) for k, v in self._mask.items()})
+        mask_id = hashlib.sha1(mask_str.encode()).hexdigest()[:6]
         self._module_name = f'{self._factory.op_name}_{self._id}_{mask_id}'
         self._config['MODULE_NAME'] = self._module_name
         for input_desc in self._inputs.values():

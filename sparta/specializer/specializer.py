@@ -3,6 +3,7 @@
 
 import os
 import json
+import subprocess
 from typing import Dict, List, Type, Optional
 
 import numpy as np
@@ -84,5 +85,25 @@ class Specializer(object):
             search_space: Optional[Dict[str, List[int]]] = None
         ) -> Optional[Dict[str, int]]:
         search_space = self.search_space if search_space is None else search_space
-        tuner = tuner_type(specializer=self, search_space=search_space)
-        return tuner.find_best_config(inputs=inputs, mask=mask)
+        tuner = tuner_type(search_space=search_space)
+        best_cfg = None
+        best_latency = float('inf')
+        num = 0
+        for cfg in tuner._configs():
+            if self._check_config(cfg):
+                num += 1
+                print(f'#{num}: {", ".join([f"{k}={v}" for k, v in cfg.items()])}')
+                try:
+                    latency = self.get_test_func(cfg, mask)(inputs=inputs)
+                except subprocess.SubprocessError:
+                    print(f'An error occured')
+                    continue
+                if latency < best_latency:
+                    best_cfg = cfg
+                    best_latency = latency
+                print(f'Latency: {latency} ms')
+        if best_cfg is not None:
+            print(f'Best config: {", ".join([f"{k}={v}" for k, v in best_cfg.items()])}')
+        else:
+            print('All configs test failed')
+        return best_cfg

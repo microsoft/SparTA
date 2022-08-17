@@ -17,7 +17,7 @@ space = {
     'THREAD_SIZE_N_VALUE': [2, 4],
 }
 
-M, K, N = 4096, 768, 3072
+M, K, N = 1024, 256, 512
 shape = {
     'GLOBAL_M_VALUE': M,
     'GLOBAL_K_VALUE': K,
