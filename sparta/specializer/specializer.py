@@ -9,7 +9,6 @@ import numpy as np
 
 from sparta.specializer import factories, tuners
 
-
 KERNEL_CONFIG_DIR = os.path.join('sparta', 'specializer', 'configs', 'kernels')
 OPERATOR_CONFIG_DIR = os.path.join('sparta', 'specializer', 'configs', 'operators')
 

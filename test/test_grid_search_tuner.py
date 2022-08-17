@@ -7,11 +7,7 @@ os.sys.path.append(os.getcwd())
 from sparta.specializer import specializer, tuners
 
 np.random.seed(2022)
-shape = {
-    'GLOBAL_M_VALUE': 4096,
-    'GLOBAL_K_VALUE': 768,
-    'GLOBAL_N_VALUE': 3072,
-}
+
 space = {
     'BLOCK_SIZE_M_VALUE': [32, 64],
     'BLOCK_SIZE_K_VALUE': [32, 64],
@@ -21,11 +17,16 @@ space = {
     'THREAD_SIZE_N_VALUE': [2, 4],
 }
 
-A_mask = np.random.uniform(size=(shape['GLOBAL_M_VALUE'], shape['GLOBAL_K_VALUE'])) < 0.01
+M, K, N = 4096, 768, 3072
+shape = {
+    'GLOBAL_M_VALUE': M,
+    'GLOBAL_K_VALUE': K,
+    'GLOBAL_N_VALUE': N,
+}
 
-op_specializer = specializer.Specializer(op_name='sparse_linear_dsd', **shape)
+B_mask = np.random.uniform(size=(K, N)) < 0.01
 
-best_config = op_specializer.find_best_config(search_space=space, mask={'A': A_mask})
-
+linear_specializer = specializer.Specializer(op_name='sparse_linear_dsd', **shape)
+best_config = linear_specializer.find_best_config(search_space=space, mask={'B': B_mask})
 if best_config is not None:
-    our_matmul = op_specializer.get_module(best_config, mask={'A': A_mask})
+    our_linear = linear_specializer.get_module(best_config, mask={'B': B_mask})

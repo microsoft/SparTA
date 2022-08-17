@@ -3,19 +3,14 @@
 
 import abc
 import subprocess
-from typing import Dict, List, Optional, Generator
+from typing import Any, Dict, List, Optional, Generator
 
 import numpy as np
-
-from sparta.specializer import specializer
 
 
 class TunerBase(abc.ABC):
 
-    def __init__(
-            self, specializer: specializer.Specializer,
-            search_space: Optional[Dict[str, List[int]]] = None
-        ):
+    def __init__(self, specializer: Any, search_space: Optional[Dict[str, List[int]]] = None):
         self._specializer = specializer
         self._search_space = specializer.search_space if search_space is None else search_space
 
