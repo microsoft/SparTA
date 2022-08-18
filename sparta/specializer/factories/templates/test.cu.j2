@@ -89,7 +89,8 @@ int main(int argc, char** argv) { // iteration number, correction check
     float msecPerMatrixMul = msecTotal / nIter;
     fprintf(stdout, "%f", msecPerMatrixMul);
 
-    double eps = 1.e-4;
+    double abs_eps = 1e-5;
+    double rel_eps = 1e-4;
 
 {% for OUTPUT in OUTPUTS %}
     {{ OUTPUT.type }}* h_{{ OUTPUT.name }} = ({{ OUTPUT.type }}*)malloc(mem_size_{{ OUTPUT.name }});
@@ -99,9 +100,10 @@ int main(int argc, char** argv) { // iteration number, correction check
             float result = (float)h_{{ OUTPUT.name }}[i];
             float target = (float)h_{{ OUTPUT.name }}_tgt[i];
             float abs_err = abs(result - target);
-            if (abs_err > eps) {
+            float rel_err = abs_err / abs(target);
+            if (abs_err > abs_eps && rel_err > rel_eps) {
                 fprintf(stderr, "Error on {{ OUTPUT.name }}[%d]: ", i);
-                fprintf(stderr, "result=%f, target=%f, abs_err=%f\n", result, target, abs_err);
+                fprintf(stderr, "result=%f, target=%f, abs_err=%f, rel_err=%f\n", result, target, abs_err, rel_err);
                 break;
             }
         }

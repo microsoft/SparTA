@@ -168,7 +168,6 @@ class KernelInterface(abc.ABC):
         stdout = stdout.decode("utf-8").replace('\\n', '\n')
         stderr = stderr.decode("utf-8").replace('\\n', '\n')
         if len(stderr) > 0:
-            print(stderr)
             raise subprocess.SubprocessError(stderr)
         return stdout
 
@@ -214,7 +213,7 @@ class TestInterface(KernelInterface, Callable):
                 raise ValueError(
                     f'{desc["name"]} formula and shape do not match')
         else:
-            val = np.random.normal(size=desc['shape'])
+            val = np.random.uniform(0, 1, size=desc['shape'])
         return val.astype(f'{desc["type"]}32')
 
     def _import_data(self, desc: Dict, val: np.ndarray):
@@ -262,7 +261,6 @@ class ModuleInterface(KernelInterface):
             self._get_tesa_data(input_desc, 'INPUTS')
         for output_desc in self._outputs.values():
             self._get_tesa_data(output_desc, 'OUTPUTS')
-        # print(self._config)
 
     def _get_tesa_data(self, desc: Dict[str, dict], category: str):
         fake_val = np.zeros(shape=desc['shape'])
