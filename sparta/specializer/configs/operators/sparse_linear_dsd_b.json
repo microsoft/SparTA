@@ -1,5 +1,5 @@
 {
-    "op_name": "sparse_matmul_sdd",
+    "op_name": "sparse_matmul_dsd_biased",
     "default_shape": {
         "GLOBAL_M_VALUE": 4096,
         "GLOBAL_K_VALUE": 3072,
@@ -21,12 +21,6 @@
         "BLOCK_SIZE_K_VALUE > THREAD_SIZE_K_VALUE",
         "BLOCK_SIZE_N_VALUE > THREAD_SIZE_N_VALUE"
     ],
-    "special_kernels": {
-        "sparse_linear_openai_sdd": [
-            "BLOCK_SIZE_M_VALUE == 32",
-            "BLOCK_SIZE_K_VALUE == 64",
-            "BLOCK_SIZE_N_VALUE == 32"
-        ]
-    },
-    "default_kernel": "sparse_linear_sdd"
+    "special_kernels": {},
+    "default_kernel": "sparse_linear_dsd_b"
 }

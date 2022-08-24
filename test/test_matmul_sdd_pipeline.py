@@ -7,7 +7,7 @@ import numpy as np
 os.sys.path.append(os.getcwd())
 
 from sparta.common import tesa
-from sparta.specializer import specializer
+from sparta import specializer
 
 np.random.seed(2022)
 
@@ -27,7 +27,7 @@ factory = specializer.get_factory('sparse_linear_sdd_b_t')
 
 # Prepare Data
 def prepare_data():
-    A = np.random.normal(size=(cfg['GLOBAL_M_VALUE'], cfg['GLOBAL_K_VALUE'])).astype(np.float32)
+    A = np.random.uniform(size=(cfg['GLOBAL_M_VALUE'], cfg['GLOBAL_K_VALUE'])).astype(np.float32)
     A_mask = np.random.uniform(size=(
         cfg['GLOBAL_M_VALUE'] // cfg['BLOCK_SIZE_M_VALUE'],
         cfg['GLOBAL_K_VALUE'] // cfg['BLOCK_SIZE_K_VALUE'],
@@ -38,8 +38,8 @@ def prepare_data():
         block_size=(cfg['BLOCK_SIZE_M_VALUE'], cfg['BLOCK_SIZE_K_VALUE'])
     ).sparse
     A_val = A_tesa['val']
-    B = np.random.normal(size=(cfg['GLOBAL_N_VALUE'], cfg['GLOBAL_K_VALUE'])).astype(np.float32)
-    bias = np.random.normal(size=(cfg['GLOBAL_N_VALUE'], )).astype(np.float32)
+    B = np.random.uniform(size=(cfg['GLOBAL_N_VALUE'], cfg['GLOBAL_K_VALUE'])).astype(np.float32)
+    bias = np.random.uniform(size=(cfg['GLOBAL_N_VALUE'], )).astype(np.float32)
 
     A_mask_tiled = np.zeros((cfg['GLOBAL_M_VALUE'], cfg['GLOBAL_K_VALUE']))
     for row_idx in range(A_mask.shape[0]):
@@ -57,15 +57,16 @@ def prepare_data():
 A, A_val, A_mask, B, bias, C_tgt = prepare_data()
 
 # Test Function
-test_func = factory.get_test_func(cfg, mask={'A': A_mask})
+test_func = factory.get_test_interface(cfg, mask={'A': A_mask})
 print(f'NVCC Latency: {test_func(inputs={"A": A, "B": B, "bias": bias}, num_iters=1000)} ms')
 
 # PyTorch Module
-module_code = factory.get_module_code(cfg, mask={'A': A_mask})
+module_interface = factory.get_module_interface(cfg, mask={'A': A_mask})
+module_code = module_interface.get_module_code()
 with open('./test/module.cu', 'w') as f:
     f.write(module_code)
 
-f = factory.get_module(cfg, mask={'A': A_mask}).forward
+f = module_interface.get_module().forward
 
 device = torch.device(f'cuda:3')
 A_val = torch.from_numpy(A_val).to(device)

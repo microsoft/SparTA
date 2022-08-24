@@ -1,10 +1,10 @@
 {
     "op_name": "sparse_matmul_sdd_transpose",
-    "hyper_params": [
-        "GLOBAL_M_VALUE",
-        "GLOBAL_K_VALUE",
-        "GLOBAL_N_VALUE"
-    ],
+    "default_shape": {
+        "GLOBAL_M_VALUE": 4096,
+        "GLOBAL_K_VALUE": 3072,
+        "GLOBAL_N_VALUE": 768
+    },
     "search_space": {
         "BLOCK_SIZE_M_VALUE": [8, 16, 32, 64, 128, 256],
         "BLOCK_SIZE_K_VALUE": [8, 16, 32, 64, 128, 256],

@@ -4,7 +4,7 @@ import numpy as np
 
 os.sys.path.append(os.getcwd())
 
-from sparta.specializer import specializer
+from sparta import specializer
 
 np.random.seed(2022)
 
@@ -24,7 +24,7 @@ tile_cfg = {
 
 def test_kernel(kernel_name, cfg):
     factory = specializer.get_factory(kernel_name)
-    print(f'{kernel_name}: {factory.get_test_func(cfg)(num_iters=1000)} ms')
+    print(f'{kernel_name}: {factory.get_test_interface(cfg)(num_iters=1000)} ms')
 
 for kernel_type in ['sdd', 'dsd']:
     for kernel_cfg in ['', '_b', '_t', '_b_t']:

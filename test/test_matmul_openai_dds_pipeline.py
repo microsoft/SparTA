@@ -7,7 +7,7 @@ import numpy as np
 os.sys.path.append(os.getcwd())
 
 from sparta.common import tesa
-from sparta.specializer import specializer
+from sparta import specializer
 
 np.random.seed(2022)
 
@@ -17,12 +17,12 @@ cfg = {
     'GLOBAL_N_VALUE': 512,
 }
 
-factory = specializer.get_factory('sparse_linear_openai_dds')
+factory = specializer.get_factory('sparse_linear_openai_dds_t')
 
 # Prepare Data
 def prepare_data():
-    A = np.random.normal(size=(cfg['GLOBAL_M_VALUE'], cfg['GLOBAL_K_VALUE'])).astype(np.float32)
-    B = np.random.normal(size=(cfg['GLOBAL_N_VALUE'], cfg['GLOBAL_K_VALUE'])).astype(np.float32)
+    A = np.random.uniform(size=(cfg['GLOBAL_M_VALUE'], cfg['GLOBAL_K_VALUE'])).astype(np.float32)
+    B = np.random.uniform(size=(cfg['GLOBAL_N_VALUE'], cfg['GLOBAL_K_VALUE'])).astype(np.float32)
 
     C_tgt = (A @ B.T).astype(np.float32)
     C_mask = np.random.uniform(size=(
@@ -42,15 +42,16 @@ def prepare_data():
 A, B, C_val, C_mask, C_tgt = prepare_data()
 
 # Test Function
-test_func = factory.get_test_func(cfg, mask={'C': C_mask})
+test_func = factory.get_test_interface(cfg, mask={'C': C_mask})
 print(f'NVCC Latency: {test_func(inputs={"A": A, "B": B}, num_iters=1000)} ms')
 
 # PyTorch Module
-module_code = factory.get_module_code(cfg, mask={'C': C_mask})
+module_interface = factory.get_module_interface(cfg, mask={'C': C_mask})
+module_code = module_interface.get_module_code()
 with open('./test/module.cu', 'w') as f:
     f.write(module_code)
 
-f = factory.get_module(cfg, mask={'C': C_mask}).forward
+f = module_interface.get_module().forward
 
 device = torch.device(f'cuda:3')
 A = torch.from_numpy(A).to(device)

@@ -17,7 +17,7 @@ class TeSABase(abc.ABC):
 
     @staticmethod
     @abc.abstractmethod
-    def desc(**kwargs) -> dict[str, dict]:
+    def desc(**kwargs) -> Dict[str, Dict]:
         '''
         Describe TeSA components
         '''

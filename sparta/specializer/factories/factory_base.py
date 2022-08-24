@@ -4,10 +4,11 @@
 import os
 import abc
 import copy
+import glob
 import shutil
 import hashlib
 import subprocess
-from typing import Any, List, Dict, Callable
+from typing import Any, List, Dict, Callable, Optional
 
 import torch
 import jinja2
@@ -44,14 +45,15 @@ class FactoryBase(abc.ABC):
         Get CUDA code of the kernel
         '''
 
-    def get_test_func(self, shape_config: Dict, mask: Dict[str, np.ndarray] = None) -> 'TestInterface':
+    def get_test_interface(
+        self, shape_config: Dict, mask: Optional[Dict[str, np.ndarray]] = None
+    ) -> 'TestInterface':
         return TestInterface(self, shape_config, mask)
 
-    def get_module(self, shape_config: Dict, mask: Dict[str, np.ndarray] = None) -> torch.nn.Module:
-        return ModuleInterface(self, shape_config, mask).get_module()
-
-    def get_module_code(self, shape_config: Dict, mask: Dict[str, np.ndarray] = None) -> str:
-        return ModuleInterface(self, shape_config, mask).get_module_code()
+    def get_module_interface(
+        self, shape_config: Dict, mask: Optional[Dict[str, np.ndarray]] = None
+    ) -> 'ModuleInterface':
+        return ModuleInterface(self, shape_config, mask)
 
 
 class KernelInterface(abc.ABC):
@@ -217,8 +219,8 @@ class TestInterface(KernelInterface, Callable):
         return val.astype(f'{desc["type"]}32')
 
     def _import_data(self, desc: Dict, val: np.ndarray):
-        self._data[desc["name"]] = val
-        for k, v in self._convert_dense_data(desc, val).items():
+        self._data[desc["name"]] = val.copy()
+        for k, v in self._convert_dense_data(desc, self._data[desc["name"]]).items():
             self._save_data(k, v)
             self._data[k] = v if v.size > 1 else v[0]  # TODO
 
@@ -246,8 +248,10 @@ class TestInterface(KernelInterface, Callable):
         )
         return float(result)
 
-    # def __del__(self):
-    #     shutil.rmtree(self._dir, ignore_errors=True)
+    def __del__(self):
+        for file in glob.glob(f'{self._dir}/*'):
+            os.remove(file)
+        # shutil.rmtree(self._dir, ignore_errors=True)
 
 
 class ModuleInterface(KernelInterface):
@@ -272,6 +276,12 @@ class ModuleInterface(KernelInterface):
                         data_cfg['val'] = v.flatten().tolist()
                         self._data[k] = v if v.size > 1 else v[0]  # TODO
                     break
+
+    def convert_dense_input(self, name: str, value: np.ndarray) -> np.ndarray:
+        for k, v in self._convert_dense_data(self._inputs[name], value).items():
+            for data_cfg in self._config['INPUTS']:
+                if data_cfg['name'] == k and data_cfg['role'] == 'data':
+                    return v
 
     def get_module_code(self) -> str:
         with open(os.path.join(COMMON_TEMPLATE_DIR, 'module.cu.j2')) as f:
