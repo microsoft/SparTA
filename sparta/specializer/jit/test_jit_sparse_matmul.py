@@ -1,9 +1,15 @@
 import torch
 from sparta.specializer.jit import kernels as jk
 import numpy as np
+import time
 
 from sparta.common import tesa
 from sparta import specializer
+
+import pycuda.autoinit
+import pycuda.driver as drv
+import pycuda.gpuarray as ga
+from pycuda.compiler import SourceModule
 
 def prepare_data(cfg):
     A = np.random.uniform(size=(cfg['GLOBAL_M_VALUE'], cfg['GLOBAL_K_VALUE'])).astype(np.float32)
@@ -48,15 +54,30 @@ cfg = {
 
 A, B, B_tesa, B_mask, bias, C_tgt = prepare_data(cfg)
 TG = torch.from_numpy(C_tgt).cuda()
-
 AG = torch.from_numpy(A).cuda()
 BG = {k:torch.from_numpy(v).cuda() for k,v in B_tesa.items()}
+VALG = torch.from_numpy(B_tesa['val']).cuda()
+PTRG = torch.from_numpy(B_tesa['row_ptr']).cuda()
+IDXG = torch.from_numpy(B_tesa['col_idx']).cuda()
 CG = torch.empty(C_tgt.shape).cuda()
 
 s = jk.SparseMatMul('dsd', transpose=True)
 s.set_parameters(cfg)
 s.compile()
 
-s(AG, BG, CG)
+s.matmul(AG, VALG, PTRG, IDXG, CG, bias)
 torch.cuda.synchronize()
 torch.testing.assert_close(CG,TG)
+
+for _ in range(10):
+    s.matmul(AG, VALG, PTRG, IDXG, CG, bias)
+
+torch.cuda.synchronize()
+
+
+start = time.time()
+for _ in range(1000):
+    s.matmul(AG, VALG, PTRG, IDXG, CG, bias)
+torch.cuda.synchronize()
+print(f'PyCuda Latency: {(time.time() - start)} ms')
+

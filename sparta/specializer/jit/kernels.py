@@ -7,10 +7,9 @@ import jinja2
 import numpy as np
 import torch
 
-import cutex
-# import pycuda.autoinit
-# import pycuda.driver as drv
-# from pycuda.compiler import SourceModule
+# import cutex
+from pycuda.compiler import SourceModule
+
 
 @dataclass
 class _Parameter:
@@ -55,11 +54,21 @@ class _Tensor:
         pass
 
 
+@dataclass
+class _GridCfg:
+    threads_per_block: tuple
+    blocks_per_grid: tuple
+
+    def __post_init__(self):
+        assert len(self.threads_per_block) == 3
+
+
 class KernelBase:
 
     def __init__(self):
         self.parameters: dict[_Parameter] = {}
         self.ports: list = []
+        self.grid: _GridCfg = None
 
     def add_parameter(self, name: str, value: Any = None, is_tunable: bool=False, search_space = None):
         self.parameters[name] = _Parameter(name, value, is_tunable, search_space)
@@ -70,6 +79,9 @@ class KernelBase:
     def set_parameters(self, dic: dict):
         for name, value in dic.items():
             self.parameters[name].value = value
+
+    def pre_kernel_launch(self):
+        pass
 
     def get_parameters(self):
         return {k:v.value for k,v in self.parameters.items()}
@@ -109,9 +121,11 @@ class TemplateKernelBase(KernelBase):
 
     def compile(self, params: Optional[dict]=None):
         src = self.get_kernel_code(params)
-        kernels = cutex.SourceModule(src, float_bits=32)
-        self.kernel_func_call = getattr(kernels, self.kernel_func_name)
-        return kernels
+        # kernels = cutex.SourceModule(src, options=['-O3'])
+        # self.kernel_func_call = getattr(kernels, self.kernel_func_name)
+        self.kernel_func_call = SourceModule(src, options=['-O3']).get_function(self.kernel_func_name)
+        self.pre_kernel_launch()
+
 
 class MatMulKernelBase(TemplateKernelBase):
 
@@ -142,10 +156,10 @@ class MatMulKernelBase(TemplateKernelBase):
         self.threads_per_block = _Expr.from_str(["BLOCK_SIZE_N_VALUE // THREAD_SIZE_N_VALUE", "BLOCK_SIZE_M_VALUE // THREAD_SIZE_M_VALUE"])
         self.blocks_per_grid = _Expr.from_str(["GLOBAL_N_VALUE // BLOCK_SIZE_N_VALUE", "GLOBAL_M_VALUE // BLOCK_SIZE_M_VALUE"])
 
-    def get_grid(self):
+    def pre_kernel_launch(self):
         threads_per_block = (self.parameters['BLOCK_SIZE_N_VALUE'].value // self.parameters['THREAD_SIZE_N_VALUE'].value, self.parameters['BLOCK_SIZE_M_VALUE'].value // self.parameters['THREAD_SIZE_M_VALUE'].value, 1)
         blocks_per_grid = (self.parameters['GLOBAL_N_VALUE'].value // self.parameters['BLOCK_SIZE_N_VALUE'].value, self.parameters['GLOBAL_M_VALUE'].value // self.parameters['BLOCK_SIZE_M_VALUE'].value, 1)
-        return threads_per_block, blocks_per_grid
+        self.grid = _GridCfg(threads_per_block, blocks_per_grid)
 
 
 class SparseMatMul(MatMulKernelBase):
@@ -160,12 +174,17 @@ class SparseMatMul(MatMulKernelBase):
         if mode == 'dsd':
             self.template_name = f'sparse_matmul_{mode}'
             self.kernel_func_name = 'BLOCK_SPARSE_MATMUL'
+            if bias:
+                setattr(self, 'matmul', getattr(self, '__dsd_bias_call__'))
+            else:
+                setattr(self, 'matmul', getattr(self, '__dsd_call__'))
             self.get_port('B').to_sparse()
 
-    def __call__(self, A:torch.Tensor, B: dict, C: torch.Tensor, bias=None):
-        threads_per_block, blocks_per_grid = self.get_grid()
-        if self.mode == 'dsd':
-            if self.get_parameter('BIASED'):
-                self.kernel_func_call(A, B['val'], B['row_ptr'], B['col_idx'], C, bias, block=threads_per_block, grid=blocks_per_grid)
-            else:
-                self.kernel_func_call(A, B['val'], B['row_ptr'], B['col_idx'], C, block=threads_per_block, grid=blocks_per_grid)
+    def __dsd_call__(self, A, VAL, PTR, IDX, C, bias=None):
+        self.kernel_func_call(A, VAL, PTR, IDX, C, block=self.grid.threads_per_block, grid=self.grid.blocks_per_grid)
+
+    def __dsd_bias_call__(self, A, VAL, PTR, IDX, C, bias):
+        self.kernel_func_call(A, VAL, PTR, IDX, C, bias, block=self.grid.threads_per_block, grid=self.grid.blocks_per_grid)
+
+    # def __call__(self, A:torch.Tensor, B: dict, C: torch.Tensor, bias=None):
+        # self.kernel_func_call(A, B['val'], B['row_ptr'], B['col_idx'], C, block=self.grid.threads_per_block, grid=self.grid.blocks_per_grid)

@@ -1,17 +1,6 @@
 {# Copyright (c) Microsoft Corporation. #}
 {# Licensed under the MIT license. #}
 
-
-
-__global__ void BLOCK_SPARSE_MATMUL(
-    Tensor<float, 2>* input_A,
-    Tensor<float, 1>* input_B_val,
-    Tensor<int, 1>* input_B_block_ptr,
-    Tensor<int, 1>* input_B_block_idx,
-    {% if BIASED %}Tensor<float, 2>* input_bias,{% endif %}
-    Tensor<float, 2>* output_C
-) {
-
 const int M = {{ GLOBAL_M_VALUE }};
 const int K = {{ GLOBAL_K_VALUE }};
 const int N = {{ GLOBAL_N_VALUE }};
@@ -22,12 +11,20 @@ const int TM = {{ THREAD_SIZE_M_VALUE }};
 const int TK = {{ THREAD_SIZE_K_VALUE }};
 const int TN = {{ THREAD_SIZE_N_VALUE }};
 
-    float * A = reinterpret_cast<float*>(input_A->base);
-    float * B_val = reinterpret_cast<float*>(input_B_val->base);
-    int * B_block_ptr = reinterpret_cast<int*>(input_B_block_ptr->base);
-    int * B_block_idx = reinterpret_cast<int*>(input_B_block_idx->base);
+__global__ void BLOCK_SPARSE_MATMUL(
+    float* input_A,
+    float* input_B_val,
+    int* input_B_block_ptr,
+    int* input_B_block_idx,
+    {% if BIASED %}float* input_bias,{% endif %}
+    float* output_C
+) {
+    float * A = reinterpret_cast<float*>(input_A);
+    float * B_val = reinterpret_cast<float*>(input_B_val);
+    int * B_block_ptr = reinterpret_cast<int*>(input_B_block_ptr);
+    int * B_block_idx = reinterpret_cast<int*>(input_B_block_idx);
     {% if BIASED %}float * bias = reinterpret_cast<float*>(input_bias);{% endif %}
-    float * C = reinterpret_cast<float*>(output_C->base);
+    float * C = reinterpret_cast<float*>(output_C);
 
     int by = blockIdx.y;
     int bx = blockIdx.x;
