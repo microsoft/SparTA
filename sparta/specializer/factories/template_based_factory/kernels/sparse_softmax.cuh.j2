@@ -1,0 +1,104 @@
+{# Copyright (c) Microsoft Corporation. #}
+{# Licensed under the MIT license. #}
+
+{#
+{% if BLOCK_SIZE_W_VALUE < 32 %}
+#define FULL_MASK 0x{% for _ in range(BLOCK_SIZE_W_VALUE // 4) %}f{% endfor %}
+{% else %}
+#define FULL_MASK 0xffffffff
+{% endif %}
+#}
+#define FULL_MASK 0xffffffff
+
+const int H = {{ GLOBAL_H_VALUE }};
+const int W = {{ GLOBAL_W_VALUE }};
+const int block_h = {{ BLOCK_SIZE_H_VALUE }};
+const int block_w = {{ BLOCK_SIZE_W_VALUE }};
+const int row_tile = {{ ROW_TILE_VALUE }};
+
+__global__ void SPARSE_SOFTMAX(
+    float* C_in,
+    int* row_ptr,
+    int* col_idx,
+    float* C_out
+) {
+    int num_nnz = row_ptr[H / block_h];
+    C_in += blockIdx.y * num_nnz * block_h * block_w;
+
+    uint blk_row_idx = blockIdx.x / (block_h/row_tile) ;
+    int block_inter_row = (blockIdx.x % (block_h/row_tile)) * row_tile;
+    uint bm = threadIdx.x / block_w;
+    uint bn = threadIdx.x % block_w;
+    float regC = 0.0f;
+    float regSum = 0.0f;
+    float regMax = -100000.0;
+    int block_seq_start = row_ptr[blk_row_idx];
+    int block_seq_end = row_ptr[blk_row_idx+1];
+
+    __shared__ float Cs[2][row_tile * block_w];
+    uint row_start = bm * block_w;
+
+    for (int block_seq = block_seq_start; block_seq < block_seq_end; block_seq++) {
+        {% if COMPRESSED %}
+        uint index = block_h * block_w * block_seq + (block_inter_row + bm) * block_w + bn;
+        {% else %}
+        uint index = (blk_row_idx * block_h + block_inter_row + bm) * W + (col_idx[block_seq] * block_w + bn);
+        {% endif %}
+        // regMax = max(regMax, C_in[index] * C_in_mask[index]);
+        regMax = max(regMax, C_in[index]);
+    }
+
+    {#
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        regMax = max(regMax, __shfl_down_sync(FULL_MASK, regMax, offset));
+    }
+    regMax = __shfl_sync(FULL_MASK, regMax, 0);
+    #}
+
+    {# TODO: ~10% overhead; error on block_w=128, row_tile=16 #}
+    Cs[0][row_start + bn] = regMax;
+    int i = 0, o = 1;
+    for (int offset = {{ BLOCK_SIZE_W_VALUE // 2 }}; offset > 0; offset >>= 1, o = i, i = 1 - i) {
+        __syncthreads();
+        Cs[o][row_start + bn] = max(Cs[i][row_start + bn], Cs[i][row_start + (bn ^ offset)]);
+    }
+    __syncthreads();
+    regMax = Cs[i][row_start + bn];
+
+    for (int block_seq = block_seq_start; block_seq < block_seq_end; block_seq++) {
+        {% if COMPRESSED %}
+        uint index = block_h * block_w * block_seq + (block_inter_row + bm) * block_w + bn;
+        {% else %}
+        uint index = (blk_row_idx * block_h + block_inter_row + bm) * W + (col_idx[block_seq] * block_w + bn);
+        {% endif %}
+        regC = expf(C_in[index] - regMax);
+        regSum += regC;
+    }
+
+    {#
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        regSum += __shfl_down_sync(FULL_MASK, regSum, offset);
+    }
+    regSum = __shfl_sync(FULL_MASK, regSum, 0);
+    #}
+
+    {# TODO: ~10% overhead; error on block_w=128, row_tile=16 #}
+    Cs[0][row_start + bn] = regSum;
+    i = 0, o = 1;
+    for (int offset = {{ BLOCK_SIZE_W_VALUE // 2 }}; offset > 0; offset >>= 1, o = i, i = 1 - i) {
+        __syncthreads();
+        Cs[o][row_start + bn] = Cs[i][row_start + bn] + Cs[i][row_start + (bn ^ offset)];
+    }
+    __syncthreads();
+    regSum = Cs[i][row_start + bn];
+
+    for (int block_seq = block_seq_start; block_seq < block_seq_end; block_seq++) {
+        uint index_out = (blk_row_idx * block_h + block_inter_row + bm) * W + (col_idx[block_seq] * block_w + bn);
+        {% if COMPRESSED %}
+        uint index_in = block_h * block_w * block_seq + (block_inter_row + bm) * block_w + bn;
+        {% else %}
+        uint index_in = index_out;
+        {% endif %}
+        C_out[index_out] = expf(C_in[index_in] - regMax) / regSum;
+    }
+}

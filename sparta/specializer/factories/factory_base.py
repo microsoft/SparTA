@@ -248,10 +248,10 @@ class TestInterface(KernelInterface, Callable):
         )
         return float(result)
 
-    def __del__(self):
-        for file in glob.glob(f'{self._dir}/*'):
-            os.remove(file)
-        # shutil.rmtree(self._dir, ignore_errors=True)
+    # def __del__(self):
+    #     for file in glob.glob(f'{self._dir}/*'):
+    #         os.remove(file)
+    #     # shutil.rmtree(self._dir, ignore_errors=True)
 
 
 class ModuleInterface(KernelInterface):

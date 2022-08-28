@@ -9,7 +9,9 @@
         "GLOBAL_K_VALUE"
     ],
     "fixed_dims": {
-        "TRANSPOSE": false
+        "BIASED": false,
+        "TRANSPOSE": false,
+        "COMPRESSED": true
     },
     "inputs": {
         "A": {

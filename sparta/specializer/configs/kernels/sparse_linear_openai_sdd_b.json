@@ -8,8 +8,8 @@
         "GLOBAL_K_VALUE"
     ],
     "fixed_dims": {
-        "BIASED": false,
-        "TRANSPOSE": true,
+        "BIASED": true,
+        "TRANSPOSE": false,
         "COMPRESSED": true
     },
     "inputs": {
@@ -22,7 +22,12 @@
         },
         "B": {
             "type": "float",
-            "shape": ["GLOBAL_N_VALUE", "GLOBAL_K_VALUE"],
+            "shape": ["GLOBAL_K_VALUE", "GLOBAL_N_VALUE"],
+            "layout": "dense"
+        },
+        "bias": {
+            "type":"float",
+            "shape": ["GLOBAL_N_VALUE"],
             "layout": "dense"
         }
     },
@@ -31,7 +36,7 @@
             "type": "float",
             "shape": ["GLOBAL_M_VALUE", "GLOBAL_N_VALUE"],
             "layout": "dense",
-            "formula": "A @ B.T"
+            "formula": "A @ B + bias"
         }
     },
     "tiles": {

@@ -38,9 +38,9 @@ class BCSR(TeSABase):
 
     @staticmethod
     def _select_vars(data: Dict, mode: str = 'H'):
-        if mode == 'H':
+        if mode.startswith('H'):
             keys = ['val', 'row_ptr', 'col_idx']
-        elif mode == 'V':
+        elif mode.startswith('V'):
             keys = ['val', 'col_ptr', 'row_idx']
         else:
             keys = ['val', 'row_idx', 'col_idx', 'nnz']
@@ -84,7 +84,7 @@ class BCSR(TeSABase):
                 dense[block_start_i:block_end_i, block_start_j:block_end_j] = 0
             return val, row_idx, col_idx
 
-        if mode == 'H':
+        if mode.startswith('H'):
             for block_i in range(row_num):
                 for block_j in range(col_num):
                     val, row_idx, col_idx = read_block(block_i, block_j, val, row_idx, col_idx)
@@ -94,6 +94,9 @@ class BCSR(TeSABase):
                 for block_i in range(row_num):
                     val, row_idx, col_idx = read_block(block_i, block_j, val, row_idx, col_idx)
                 col_ptr.append(len(row_idx))
+
+        if mode.endswith('D'):
+            val = dense
 
         sparse = {
             'val': np.array(val).astype(dense.dtype),
@@ -116,21 +119,17 @@ class BCSR(TeSABase):
         row_num = height // block_height
         col_num = width // block_width
 
-        def check_arr(arr: Optional[np.ndarray], key: str, dtype: Optional[str] = None):
+        def check_int_arr(arr: Optional[np.ndarray], key: str):
             if arr is not None:
                 if len(arr.shape) != 1:
                     raise ValueError(f'BCSR {key} should be an 1D-array')
                 if not str(arr.dtype).startswith('int'):
                     raise ValueError(f'BCSR {key} should be an interger array')
-                if dtype is not None:
-                    if not str(arr.dtype).startswith(dtype):
-                        raise ValueError(f'BCSR {key} should be an {dtype} array')
 
-        check_arr(val, 'val')
-        check_arr(row_idx, 'row_idx', 'int')
-        check_arr(col_idx, 'col_idx', 'int')
-        check_arr(row_ptr, 'row_ptr', 'int')
-        check_arr(col_ptr, 'col_ptr', 'int')
+        check_int_arr(row_idx, 'row_idx')
+        check_int_arr(col_idx, 'col_idx')
+        check_int_arr(row_ptr, 'row_ptr')
+        check_int_arr(col_ptr, 'col_ptr')
 
         if row_idx is None:
             if col_idx is None or row_ptr is None:
@@ -163,22 +162,29 @@ class BCSR(TeSABase):
         else:
             mode = 'X'
 
-        if nnz * block_width * block_height != val.size:
+        if len(val.shape) == 1:
+            if nnz * block_width * block_height != val.size:
+                raise ValueError('BCSR variable size mismatches')
+            block_flatten_size = block_height * block_width
+            dense = np.zeros((height, width)).astype(val.dtype)
+            block_i = 0
+            block_cnt = 0
+            block_start = 0
+            for block_i, block_j in zip(row_idx, col_idx):
+                row_start = block_i * block_height
+                col_start = block_j * block_width
+                block = val[block_start:block_start + block_flatten_size]
+                block = block.reshape((block_width, block_height))
+                dense[row_start:row_start + block_height, col_start:col_start + block_width] = block
+                block_start += block_flatten_size
+                block_cnt += 1
+        elif len(val.shape) == 2:
+            if val.shape != (height, width):
+                raise ValueError('BCSR variable size mismatches')
+            dense = val
+            mode += 'D'
+        else:
             raise ValueError('BCSR variable size mismatches')
-
-        block_flatten_size = block_height * block_width
-        dense = np.zeros((height, width)).astype(val.dtype)
-        block_i = 0
-        block_cnt = 0
-        block_start = 0
-        for block_i, block_j in zip(row_idx, col_idx):
-            row_start = block_i * block_height
-            col_start = block_j * block_width
-            block = val[block_start:block_start + block_flatten_size]
-            block = block.reshape((block_width, block_height))
-            dense[row_start:row_start + block_height, col_start:col_start + block_width] = block
-            block_start += block_flatten_size
-            block_cnt += 1
 
         sparse = {
             'val': val,

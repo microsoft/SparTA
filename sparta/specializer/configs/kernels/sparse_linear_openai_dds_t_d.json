@@ -1,7 +1,8 @@
+
 {
-    "op_name": "sparse_matmul_sdd",
+    "op_name": "sparse_matmul_dds",
     "factory_type": "template",
-    "kernel_name": "sparse_matmul_openai_sdd",
+    "kernel_name": "sparse_matmul_openai_dds",
     "dynamic_dims": [
         "GLOBAL_M_VALUE",
         "GLOBAL_N_VALUE",
@@ -10,15 +11,13 @@
     "fixed_dims": {
         "BIASED": false,
         "TRANSPOSE": true,
-        "COMPRESSED": true
+        "COMPRESSED": false
     },
     "inputs": {
         "A": {
             "type": "float",
             "shape": ["GLOBAL_M_VALUE", "GLOBAL_K_VALUE"],
-            "layout": "bcsr",
-            "mode": "H",
-            "block_size": [32, 64]
+            "layout": "dense"
         },
         "B": {
             "type": "float",
@@ -30,12 +29,14 @@
         "C": {
             "type": "float",
             "shape": ["GLOBAL_M_VALUE", "GLOBAL_N_VALUE"],
-            "layout": "dense",
+            "layout": "bcsr",
+            "mode": "XD",
+            "block_size": [32, 32],
             "formula": "A @ B.T"
         }
     },
     "tiles": {
         "block": [256],
-        "grid": ["GLOBAL_N_VALUE // 32", "GLOBAL_M_VALUE // 32"]
+        "grid": ["C_nnz"]
     }
 }
