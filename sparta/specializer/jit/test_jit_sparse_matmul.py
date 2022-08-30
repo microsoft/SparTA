@@ -1,8 +1,10 @@
+import os
+os.sys.path.append(os.getcwd())
+
 import torch
 from sparta.specializer.jit import kernels as jk
 import numpy as np
 import time
-
 from sparta.common import tesa
 from sparta import specializer
 
