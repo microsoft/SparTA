@@ -27,11 +27,11 @@ def test_kernel(kernel_name, cfg):
     print(f'{kernel_name}: {factory.get_test_interface(cfg)(num_iters=1000)} ms')
 
 for kernel_type in ['sdd', 'dsd']:
-    for kernel_cfg in ['', '_b', '_t', '_b_t']:
+    for kernel_cfg in ['', '_b', '_t', '_b_t', '_d', '_b_d', '_t_d', '_b_t_d']:
         kernel_name = f'sparse_linear_{kernel_type}{kernel_cfg}'
         test_kernel(kernel_name, shape_cfg | tile_cfg)
 
 for kernel_type in ['sdd', 'dsd', 'dds']:
-    for kernel_cfg in ['', '_t']:
+    for kernel_cfg in ['', '_b', '_t', '_b_t', '_d', '_b_d', '_t_d', '_b_t_d']:
         openai_kernel_name = f'sparse_linear_openai_{kernel_type}{kernel_cfg}'
         test_kernel(openai_kernel_name, shape_cfg)

@@ -1,8 +1,8 @@
 
 {
-    "op_name": "sparse_matmul_sdd_biased_transpose",
+    "op_name": "sparse_matmul_dsd_readdense",
     "factory_type": "template",
-    "kernel_name": "sparse_matmul_sdd",
+    "kernel_name": "sparse_matmul_dsd",
     "dynamic_dims": [
         "GLOBAL_M_VALUE",
         "GLOBAL_N_VALUE",
@@ -15,27 +15,22 @@
         "THREAD_SIZE_K_VALUE"
     ],
     "fixed_dims": {
-        "BIASED": true,
-        "TRANSPOSE": true,
-        "COMPRESSED": true
+        "BIASED": false,
+        "TRANSPOSE": false,
+        "COMPRESSED": false
     },
     "inputs": {
         "A": {
             "type": "float",
             "shape": ["GLOBAL_M_VALUE", "GLOBAL_K_VALUE"],
-            "layout": "bcsr",
-            "mode": "H",
-            "block_size": ["BLOCK_SIZE_M_VALUE", "BLOCK_SIZE_K_VALUE"]
+            "layout": "dense"
         },
         "B": {
             "type": "float",
-            "shape": ["GLOBAL_N_VALUE", "GLOBAL_K_VALUE"],
-            "layout": "dense"
-        },
-        "bias": {
-            "type":"float",
-            "shape": ["GLOBAL_N_VALUE"],
-            "layout": "dense"
+            "shape": ["GLOBAL_K_VALUE", "GLOBAL_N_VALUE"],
+            "layout": "bcsr",
+            "mode": "VD",
+            "block_size": ["BLOCK_SIZE_K_VALUE", "BLOCK_SIZE_N_VALUE"]
         }
     },
     "outputs": {
@@ -43,7 +38,7 @@
             "type": "float",
             "shape": ["GLOBAL_M_VALUE", "GLOBAL_N_VALUE"],
             "layout": "dense",
-            "formula": "A @ B.T + bias"
+            "formula": "A @ B"
         }
     },
     "tiles": {

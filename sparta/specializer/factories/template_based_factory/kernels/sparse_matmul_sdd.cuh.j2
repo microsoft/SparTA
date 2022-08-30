@@ -67,7 +67,11 @@ __global__ void BLOCK_SPARSE_MATMUL(
         #pragma unroll
         for (int k = 0; k < BM; k += A_TILE_ROW_STRIDE) {
             *((float4 *)(&As[(k+A_BLOCK_ROW_START) * BK + A_BLOCK_COL_START])) =
+                {% if COMPRESSED %}
                 *((float4 *)(&A_val[tile_block_idx * BM * BK + (k+A_BLOCK_ROW_START) * BK + A_BLOCK_COL_START]));
+                {% else %}
+                *((float4 *)(&A_val[(by*BM+k+A_BLOCK_ROW_START) * K + tile_idx+A_BLOCK_COL_START]));
+                {% endif %}
         }
 
         #pragma unroll

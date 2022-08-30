@@ -73,14 +73,22 @@ __global__ void BLOCK_SPARSE_MATMUL(
         #pragma unroll
         for (int k = 0; k < {% if TRANSPOSE %}BN{% else %}BK{% endif %}; k += B_TILE_ROW_STRIDE) {
             {% if TRANSPOSE %}
+                {% if COMPRESSED %}
             tmp_float4 = (reinterpret_cast<float4*>(&B_val[tile_block_idx * BN * BK + (k+B_BLOCK_ROW_START) * BK + B_BLOCK_COL_START]))[0];
+                {% else %}
+            tmp_float4 = (reinterpret_cast<float4*>(&B_val[(bx*BN + B_BLOCK_ROW_START+k) * K + tile_idx + B_BLOCK_COL_START]))[0];
+                {% endif %}
             Bs[(B_BLOCK_COL_START+0) * BN + k+B_BLOCK_ROW_START] = tmp_float4.x;
             Bs[(B_BLOCK_COL_START+1) * BN + k+B_BLOCK_ROW_START] = tmp_float4.y;
             Bs[(B_BLOCK_COL_START+2) * BN + k+B_BLOCK_ROW_START] = tmp_float4.z;
             Bs[(B_BLOCK_COL_START+3) * BN + k+B_BLOCK_ROW_START] = tmp_float4.w;
             {% else %}
             *((float4 *)(&Bs[(k+B_BLOCK_ROW_START) * BN + B_BLOCK_COL_START])) =
+                {% if COMPRESSED %}
                 *((float4 *)(&B_val[tile_block_idx * BN * BK + (k+B_BLOCK_ROW_START) * BN + B_BLOCK_COL_START]));
+                {% else %}
+                *((float4 *)(&B_val[(tile_idx + B_BLOCK_ROW_START+k) * N + bx*BN + B_BLOCK_COL_START]));
+                {% endif %}
             {% endif %}
         }
 

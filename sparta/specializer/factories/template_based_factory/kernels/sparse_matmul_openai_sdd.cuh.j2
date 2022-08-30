@@ -2,7 +2,7 @@ const int M = {{ GLOBAL_M_VALUE }};
 const int K = {{ GLOBAL_K_VALUE }};
 const int N = {{ GLOBAL_N_VALUE }};
 
-__device__ __forceinline__ const float* add_ptr_u(const float* src, int offset) \
+__device__ __forceinline__ const float* add_ptr_f(const float* src, int offset) \
 {                                                                               \
     const float* dst;                                                           \
     asm("{                       \n\t"                                          \
@@ -16,11 +16,20 @@ __device__ __forceinline__ const float* add_ptr_u(const float* src, int offset) 
     return dst;                                                                 \
 }
 
+__device__ __forceinline__ float2 _add(float2 x, float2 y) \
+{                                                          \
+    float2 res;                                            \
+    res.x = x.x + y.x;                                     \
+    res.y = x.y + y.y;                                     \
+    return res;                                            \
+}
+
 __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
     float* A_val,
     int* A_block_ptr,
     int* A_block_idx,
     float* B,
+    {% if BIASED %}float* bias,{% endif %}
     float* C
 ) {
     /*
@@ -36,7 +45,11 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
     const int BLOCK_SIZE_N = 32;  //128
     const int THREAD_SIZE_K = 64;
 
+    {% if COMPRESSED %}
     A_val += A_block_ptr[M/32]*64*32*blockIdx.z;
+    {% else %}
+    A_val += M*K*blockIdx.z;
+    {% endif %}
     B += K*N*blockIdx.z;
     C += M*N*blockIdx.z;
 
@@ -49,18 +62,29 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
     assert(BLOCK_SIZE_M == BLOCK_SIZE_N);
     __shared__ float fShare[65 * 32 * 2];
     char* bShare = (char*)fShare;
+    {% if BIASED %}__shared__ float bias_share[BLOCK_SIZE_N];{% endif %}
 
     uint tid = threadIdx.x;
     uint bx = blockIdx.x; // N
     uint by = blockIdx.y; // M
-
+    {% if BIASED %}
+    if (tid < BLOCK_SIZE_N) {
+        bias_share[tid] = bias[bx * BLOCK_SIZE_N + tid % 32]; 
+    }
+    {% endif %}
     uint tx = tid % 16;
     uint ty = tid / 16;
     assert(THREAD_SIZE_K % 16 == 0);
 
+    {% if COMPRESSED %}
     // A is stored in sparse format
     uint offsetA00 = A_block_ptr[by] * BLOCK_SIZE_M * BLOCK_SIZE_K + ty * BLOCK_SIZE_K + tx * 4;
     uint offsetA16 = offsetA00 + BLOCK_SIZE_K * 16;
+    {% else %}
+    // A is stored in dense format
+    uint ori_offsetA00 = (by * 32 + ty) * K + tx * 4;
+    uint ori_offsetA16 = ori_offsetA00 + K * 16;
+    {% endif %}
 
     // B is stored in dense format
     {% if TRANSPOSE %}
@@ -95,6 +119,10 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
     int index_start = A_block_ptr[by], index_end = A_block_ptr[by+1];
     for (int bcsr_col_idx = index_start; bcsr_col_idx < index_end; bcsr_col_idx += 1)
     {
+        {% if not COMPRESSED %}
+        uint offsetA00 = ori_offsetA00 + 64 * A_block_idx[bcsr_col_idx];
+        uint offsetA16 = ori_offsetA16 + 64 * A_block_idx[bcsr_col_idx];
+        {% endif %}
         {% if TRANSPOSE %}
         uint offsetB00 = ori_offsetB00 + 64 * A_block_idx[bcsr_col_idx];
         uint offsetB16 = ori_offsetB16 + 64 * A_block_idx[bcsr_col_idx];
@@ -105,10 +133,10 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
 
         float4 a00 = {0}, a16 = {0};
         float4 b00 = {0}, b16 = {0};
-        a00 = __ldg((const float4*)(add_ptr_u(A_val, offsetA00)));
-        a16 = __ldg((const float4*)(add_ptr_u(A_val, offsetA16)));
-        b00 = __ldg((const float4*)(add_ptr_u(B, offsetB00)));
-        b16 = __ldg((const float4*)(add_ptr_u(B, offsetB16)));
+        a00 = __ldg((const float4*)(add_ptr_f(A_val, offsetA00)));
+        a16 = __ldg((const float4*)(add_ptr_f(A_val, offsetA16)));
+        b00 = __ldg((const float4*)(add_ptr_f(B, offsetB00)));
+        b16 = __ldg((const float4*)(add_ptr_f(B, offsetB16)));
 
         offsetA00 += BLOCK_SIZE_M * BLOCK_SIZE_K;
         offsetA16 += BLOCK_SIZE_M * BLOCK_SIZE_K;
@@ -206,11 +234,14 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
     // Tree reduce
     for (int j = 4; j > 0; j >>= 1)
         for (int i = 0; i < j; i++) {
-            c2[i].x += c2[i+j].x;
-            c2[i].y += c2[i+j].y;
+            c2[i] = _add(c2[i], c2[i+j]);
         }
 
+    {% if BIASED %}
+    *(float2*)C = _add(c2[0], *(float2*)(bias_share + tx*2));
+    {% else %}
     *(float2*)C = c2[0];
+    {% endif %}
 
     __syncthreads();
     *(float4*)&fShare[storC + 0*32*8] = *(float4*)regC[4];
@@ -225,10 +256,13 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
     // Tree reduce
     for (int j = 4; j > 0; j >>= 1)
         for (int i = 0; i < j; i++) {
-            c2[i].x += c2[i+j].x;
-            c2[i].y += c2[i+j].y;
+            c2[i] = _add(c2[i], c2[i+j]);
         }
 
     C += 16 * N;
+    {% if BIASED %}
+    *(float2*)C = _add(c2[0], *(float2*)(bias_share + tx*2));
+    {% else %}
     *(float2*)C = c2[0];
+    {% endif %}
 }

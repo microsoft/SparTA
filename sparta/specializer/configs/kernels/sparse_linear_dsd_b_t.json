@@ -16,7 +16,8 @@
     ],
     "fixed_dims": {
         "BIASED": true,
-        "TRANSPOSE": true
+        "TRANSPOSE": true,
+        "COMPRESSED": true
     },
     "inputs": {
         "A": {
