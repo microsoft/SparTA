@@ -23,7 +23,6 @@ class OperatorBase(torch.nn.Module):
         self.ready = False
 
     def build(self, config: dict, jit: bool = True):
-        print('Building PyTorch Module, it will take about one minute...')
         forward_kernel = self._get_forward_kernel()
         self._forward_function = forward_kernel.compile(config, self._mask, jit).forward
         self._set_parameters(forward_kernel)

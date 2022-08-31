@@ -81,13 +81,13 @@ class MatMulKernelBase(KernelBase):
         '''
 
     @abc.abstractmethod
-    def blocks_per_grid(self) -> list[int]:
+    def blocks_per_grid(self) -> tuple[int]:
         '''
         Get launch config: number of blocks per grid
         '''
 
     @abc.abstractmethod
-    def threads_per_block(self) -> list[int]:
+    def threads_per_block(self) -> tuple[int]:
         '''
         Get launch config: number of threads per block
         '''
@@ -177,19 +177,19 @@ class OurTemplateSparseMatMulKernel(MatMulKernelBase):
                 'block_size': [BM, BN],
             })
 
-    def blocks_per_grid(self) -> list[int]:
+    def blocks_per_grid(self) -> tuple[int]:
         M = self.get_parameter('GLOBAL_M_VALUE')
         N = self.get_parameter('GLOBAL_N_VALUE')
         BM = self.get_parameter('BLOCK_SIZE_M_VALUE')
         BN = self.get_parameter('BLOCK_SIZE_N_VALUE')
-        return [N // BN, M // BM]
+        return (N // BN, M // BM)
 
-    def threads_per_block(self) -> list[int]:
+    def threads_per_block(self) -> tuple[int]:
         BM = self.get_parameter('BLOCK_SIZE_M_VALUE')
         BN = self.get_parameter('BLOCK_SIZE_N_VALUE')
         TM = self.get_parameter('THREAD_SIZE_M_VALUE')
         TN = self.get_parameter('THREAD_SIZE_N_VALUE')
-        return [BN // TN, BM // TM]
+        return (BN // TN, BM // TM)
 
 
 class OpenAITemplateSparseMatMulKernel(MatMulKernelBase):
@@ -233,13 +233,13 @@ class OpenAITemplateSparseMatMulKernel(MatMulKernelBase):
                 'block_size': [BM, BN],
             })
 
-    def blocks_per_grid(self) -> list[int]:
+    def blocks_per_grid(self) -> tuple[int]:
         if self._stype == 'dds':
-            return [self.get_output('C').sparse()['nnz'][0]]
+            return (int(self.get_output('C').sparse()['nnz'][0]), )
         else:
             M = self.get_parameter('GLOBAL_M_VALUE')
             N = self.get_parameter('GLOBAL_N_VALUE')
-            return [N // 32, M // 32]
+            return (N // 32, M // 32)
 
-    def threads_per_block(self) -> list[int]:
-        return [256]
+    def threads_per_block(self) -> tuple[int]:
+        return (256, )

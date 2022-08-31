@@ -9,7 +9,7 @@ from sparta.specializer import operators
 
 np.random.seed(2022)
 torch.manual_seed(2022)
-device = torch.device('cuda:0')
+device = torch.device('cuda')
 
 space = {
     'our': {

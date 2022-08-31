@@ -7,13 +7,15 @@ import copy
 import glob
 import hashlib
 import subprocess
-from typing import Any, Union, Optional, Callable, Iterable
+from typing import Any, Optional, Callable, Iterable
 from dataclasses import dataclass
 
 import torch
 import jinja2
 import numpy as np
 from torch.utils import cpp_extension
+import pycuda.autoprimaryctx
+from pycuda.compiler import SourceModule
 
 from sparta.common import tesa, utils
 
@@ -249,7 +251,8 @@ class KernelBase:
             input_tensor.generate_data()
         for output_tensor in self.outputs.values():
             output_tensor.generate_data()
-        return ModuleInterface(
+        module_factory = JITInterface if jit else ModuleInterface
+        return module_factory(
             unique_id,
             self.get_kernel_code(),
             config,
@@ -302,13 +305,13 @@ class KernelBase:
         '''
 
     @abc.abstractmethod
-    def blocks_per_grid(self) -> list[int]:
+    def blocks_per_grid(self) -> tuple[int]:
         '''
         Get launch config: number of blocks per grid
         '''
 
     @abc.abstractmethod
-    def threads_per_block(self) -> list[int]:
+    def threads_per_block(self) -> tuple[int]:
         '''
         Get launch config: number of threads per block
         '''
@@ -324,7 +327,7 @@ class KernelInterface(abc.ABC):
 
     def __init__(
         self, unique_id: str, kernel_code: str, shape: dict[str, Any],
-        threads_per_block: list[int], blocks_per_grid: list[int],
+        threads_per_block: tuple[int], blocks_per_grid: tuple[int],
         inputs: Iterable[_Tensor], outputs: Iterable[_Tensor]
     ):
         self._id = unique_id
@@ -453,6 +456,7 @@ class TestInterface(KernelInterface, Callable):
 class ModuleInterface(KernelInterface):
 
     def _build(self):
+        print('Building PyTorch Module, it will take about one minute...')
         self._module = cpp_extension.load_inline(
             self._id,
             '',
@@ -467,3 +471,77 @@ class ModuleInterface(KernelInterface):
 
     def get_module(self) -> torch.nn.Module:
         return self._module
+
+
+class JITInterface(KernelInterface):
+
+    def _build(self):
+        self._kernel_func_name = self._config['KERNEL_FUNC_NAME']
+        self._kernel_func_body = self._config['KERNEL_FUNC_BODY']
+        self._threads_per_block = self._config['DIM_BLOCK']
+        self._blocks_per_grid = self._config['DIM_GRID']
+        self._input_mask = []
+        self._fixed_inputs = []
+        for x in self._config['INPUTS']:
+            if x['role'] == 'data':
+                self._input_mask.append(True)
+            else:
+                self._input_mask.append(False)
+                val = np.array(x['val']).astype(f'{x["type"]}32')
+                self._fixed_inputs.append(torch.from_numpy(val))
+        self._output_placeholder = []
+        for y in self._config['OUTPUTS']:
+            val = np.zeros(y['shape'], dtype=f'{y["type"]}32')
+            self._output_placeholder.append(torch.from_numpy(val))
+
+    def get_module(self) -> torch.nn.Module:
+        return JITModule(
+            self._kernel_func_name,
+            self._kernel_func_body,
+            self._blocks_per_grid,
+            self._threads_per_block,
+            self._input_mask,
+            self._fixed_inputs,
+            self._output_placeholder,
+        )
+
+class JITModule(torch.nn.Module):
+
+    def __init__(
+        self, kernel_func_name: str, kernel_func_body: str,
+        blocks_per_grid: tuple[int], threads_per_block: tuple[int],
+        input_mask: list[bool], fixed_inputs: list[torch.Tensor],
+        output_placeholder: list[torch.Tensor]
+    ):
+        super().__init__()
+        params = [torch.nn.Parameter(x, requires_grad=False) for x in fixed_inputs]
+        self._params = torch.nn.ParameterList(params)
+        source_module = SourceModule(kernel_func_body, options=['-O3'])
+        self._kernel_func_call = source_module.get_function(kernel_func_name)
+        self._blocks_per_grid = blocks_per_grid + tuple(1 for _ in range(3 - len(blocks_per_grid)))
+        self._threads_per_block = threads_per_block + tuple(1 for _ in range(3 - len(threads_per_block)))
+        self._input_mask = input_mask
+        self._outputs = output_placeholder
+
+    def forward(self, *args):
+        self._params.to(args[0].device)
+        self._outputs = [y.to(args[0].device) for y in self._outputs]
+        inputs = []
+        arg_idx = 0
+        param_idx = 0
+        for is_arg in self._input_mask:
+            if is_arg:
+                inputs.append(args[arg_idx])
+                arg_idx += 1
+            else:
+                inputs.append(self._params[param_idx])
+                param_idx += 1
+        self._kernel_func_call(
+            *inputs, *(self._outputs),
+            block=self._threads_per_block,
+            grid=self._blocks_per_grid
+        )
+        if len(self._outputs) == 1:
+            return self._outputs[0]
+        else:
+            return self._outputs

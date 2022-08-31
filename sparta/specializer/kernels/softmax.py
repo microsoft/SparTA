@@ -58,13 +58,13 @@ class SoftmaxKernelBase(KernelBase):
         '''
 
     @abc.abstractmethod
-    def blocks_per_grid(self) -> list[int]:
+    def blocks_per_grid(self) -> tuple[int]:
         '''
         Get launch config: number of blocks per grid
         '''
 
     @abc.abstractmethod
-    def threads_per_block(self) -> list[int]:
+    def threads_per_block(self) -> tuple[int]:
         '''
         Get launch config: number of threads per block
         '''
@@ -120,12 +120,12 @@ class OurTemplateSparseSoftmaxKernel(SoftmaxKernelBase):
             'block_size': [BH, BW],
         })
 
-    def blocks_per_grid(self) -> list[int]:
+    def blocks_per_grid(self) -> tuple[int]:
         H = self.get_parameter('GLOBAL_H_VALUE')
         T = self.get_parameter('ROW_TILE_VALUE')
-        return [H // T]
+        return (H // T, )
 
-    def threads_per_block(self) -> list[int]:
+    def threads_per_block(self) -> tuple[int]:
         BW = self.get_parameter('BLOCK_SIZE_W_VALUE')
         T = self.get_parameter('ROW_TILE_VALUE')
-        return [T * BW]
+        return (T * BW, )

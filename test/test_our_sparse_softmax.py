@@ -62,7 +62,7 @@ print(f'NVCC Latency: {test_latency} ms')
 # PyTorch Module
 f = kernel.compile(cfg, mask={'C_in': C_mask}).forward
 
-device = torch.device(f'cuda:3')
+device = torch.device(f'cuda')
 C_in = torch.from_numpy(C_val).to(device)
 
 for _ in range(10):
