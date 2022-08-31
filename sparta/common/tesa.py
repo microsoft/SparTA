@@ -5,7 +5,7 @@ import abc
 from typing import Any, Dict, Tuple, Iterable, Optional, Union
 
 import numpy as np
-
+import torch
 
 class TeSABase(abc.ABC):
 
@@ -206,3 +206,21 @@ class BCSR(TeSABase):
             'col_ptr': {'role': 'tesa', 'type': 'int'},
             'nnz': {'role': 'tesa', 'type': 'int'},
         }, mode)
+
+
+class BCSRObj:
+
+    def __init__(self, mode: str = 'H', block_size: tuple[int] = None) -> None:
+        self.mode = mode
+        self.block_size = block_size
+
+    def to_sparse(self, dense: torch.tensor, mask: torch.tensor):
+        sp = BCSR(
+            dense=dense.cpu().numpy() if dense.is_cuda else dense.numpy(),
+            mask=mask.cpu().numpy() if mask.is_cuda else mask.numpy(),
+            block_size=self.block_size
+        ).sparse
+        val = torch.from_numpy(sp['val']).cuda()
+        ptr = torch.from_numpy(sp['row_ptr']).cuda()
+        idx = torch.from_numpy(sp['col_idx']).cuda()        
+        return val, ptr, idx
