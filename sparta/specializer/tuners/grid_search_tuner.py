@@ -8,7 +8,7 @@ from sparta.specializer import tuners
 
 class GridSearchTunner(tuners.TunerBase):
 
-    def _generate_all_cfgs(self, keys: List[str], cfg: Dict[str, int] = {}):
+    def _generate_all_cfgs(self, keys: List[str], cfg: Dict[str, int]):
         if len(keys) == 0:
             return [copy.deepcopy(cfg)]
         key = keys.pop()
@@ -18,6 +18,6 @@ class GridSearchTunner(tuners.TunerBase):
         return cfgs
 
     def _configs(self):
-        cfg_space = self._generate_all_cfgs(list(self._search_space.keys()))
+        cfg_space = self._generate_all_cfgs(list(self._search_space.keys()), {})
         for cfg in cfg_space:
             yield cfg

@@ -3,7 +3,6 @@ from typing import Optional
 import torch
 import numpy as np
 import time
-
 from sparta.common import tesa
 from sparta import specializer
 from sparta.specializer.jit import kernels as jk
