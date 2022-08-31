@@ -1,16 +1,52 @@
-# Project
+# SparTA
 
-> This repo has been populated by an initial template to help get you started. Please
-> make sure to update the content to build a great experience for community-building.
+> *This repo is current an **alpha** version and under active development. We're trying to make it stable and user-friendly, but it is not surprising to meet problems in current phase. Please open issue or contact the authors when you need help.*
 
-As the maintainer of this project, please make a few updates:
+`SparTA` is an end-to-end system to harvest the speeding up gain from the model sparsity.
 
-- Improving this README.MD file to provide a great experience
-- Updating SUPPORT.MD with content about this project's support experience
-- Understanding the security reporting process in SECURITY.MD
-- Remove this section from the README
+## Installation 
+Currently we're suggesting installing through a cloned repo to better match the local computing environments. 
+```bash
+git clone git@github.com:microsoft/SparTA.git
+pip install SparTA
+```
+The installation includes loading some predefined operators via `torch.utils.cpp_extension`, which may take a longer time (one more more minutes). We will provide a faster installation and installation through PyPI in next version soon.
 
-## Contributing
+## Usage
+
+### Tune a sparse operator
+
+```python
+import torch
+import sparta.nn as snn
+from sparta.testing import rand_block_mask
+M, N, K = 1024, 1024, 1024
+X = torch.rand((M,K))
+linear_op = torch.nn.Linear(K, N)
+w_mask = rand_block_mask(sparsity)
+sparse_linear_op = snn.SparseLinear(linear_op, weight_mask = w_mask)
+best_config = sparse_linear_op.tune()
+Y = sparse_linear_op(X)
+```
+
+## Cite
+If SparTA is helpful in your projects, please cite our paper as below
+```
+@inproceedings {SparTA2022,
+    author = {Ningxin Zheng and Bin Lin and Quanlu Zhang and Lingxiao Ma and Yuqing Yang and Fan Yang and Yang Wang and Mao Yang and Lidong Zhou},
+    title = {{SparTA}: {Deep-Learning} Model Sparsity via {Tensor-with-Sparsity-Attribute}},
+    booktitle = {16th USENIX Symposium on Operating Systems Design and Implementation (OSDI 22)},
+    year = {2022},
+    isbn = {978-1-939133-28-1},
+    address = {Carlsbad, CA},
+    pages = {213--232},
+    url = {https://www.usenix.org/conference/osdi22/presentation/zheng-ningxin},
+    publisher = {USENIX Association},
+    month = jul,
+}
+```
+
+## Contributor License Agreement
 
 This project welcomes contributions and suggestions.  Most contributions require you to agree to a
 Contributor License Agreement (CLA) declaring that you have the right to, and actually do, grant us
@@ -23,11 +59,3 @@ provided by the bot. You will only need to do this once across all repos using o
 This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/).
 For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or
 contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
-
-## Trademarks
-
-This project may contain trademarks or logos for projects, products, or services. Authorized use of Microsoft 
-trademarks or logos is subject to and must follow 
-[Microsoft's Trademark & Brand Guidelines](https://www.microsoft.com/en-us/legal/intellectualproperty/trademarks/usage/general).
-Use of Microsoft trademarks or logos in modified versions of this project must not cause confusion or imply Microsoft sponsorship.
-Any use of third-party trademarks or logos are subject to those third-party's policies.
