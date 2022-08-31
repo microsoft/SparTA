@@ -12,6 +12,8 @@ import torch
 import pycuda.autoinit
 from pycuda.compiler import SourceModule
 
+from sparta.common import tesa
+
 @dataclass
 class _Parameter:
 
@@ -177,22 +179,29 @@ class TemplateKernelBase(KernelBase):
 class MatMulKernelBase(TemplateKernelBase):
     __supported_modes__: str = ['dsd']
 
-    def __init__(self, mode: str, transpose: bool=False, bias: bool=False):
-        super().__init__()
-        assert mode in self.__supported_modes__
-        self.mode = mode
-
-        # add parameters
+    def _declare_parameters(self):
+        super()._declare_parameters()
         self._add_parameter(_Parameter(name="GLOBAL_M_VALUE"))
         self._add_parameter(_Parameter(name="GLOBAL_N_VALUE"))
         self._add_parameter(_Parameter(name="GLOBAL_K_VALUE"))
-        self._add_parameter(_Parameter(name="BIASED", value=bias))
-        self._add_parameter(_Parameter(name="TRANSPOSE", value=transpose))
+        self._add_parameter(_Parameter(name="BIASED"))
+        self._add_parameter(_Parameter(name="TRANSPOSE"))
+
+        self._add_parameter(_Parameter(name="BLOCK_SIZE_M_VALUE" , mode=_Parameter._ParameterMode.tunable, default_space=('choice', [8, 16, 32, 64, 128, 256])))
+        self._add_parameter(_Parameter(name="BLOCK_SIZE_N_VALUE" , mode=_Parameter._ParameterMode.tunable, default_space=('choice', [8, 16, 32, 64, 128, 256])))
+        self._add_parameter(_Parameter(name="BLOCK_SIZE_K_VALUE" , mode=_Parameter._ParameterMode.tunable, default_space=('choice', [8, 16, 32, 64, 128, 256])))
 
         # add inputs and outputs
         self.add_port('A', 'input', _Expr.from_str(["GLOBAL_M_VALUE", "GLOBAL_K_VALUE"]), 'float', 'dense')
         self.add_port('B', 'input', _Expr.from_str(["GLOBAL_K_VALUE", "GLOBAL_K_VALUE"]), 'float', 'dense')
         self.add_port('C', 'output', _Expr.from_str(["GLOBAL_M_VALUE", "GLOBAL_N_VALUE"]), 'float', 'dense', 'A @ B')
+
+    def __init__(self, mode: str, transpose: bool=False, bias: bool=False):
+        assert mode in self.__supported_modes__
+        self.mode = mode
+        super().__init__()
+        self._set_parameter('BIASED', bias)
+        self._set_parameter('TRANSPOSE', transpose)
 
         if mode == 'dsd':
             if bias:
@@ -210,6 +219,10 @@ class MatMulKernelBase(TemplateKernelBase):
             np.int32(self.get_parameter('GLOBAL_N_VALUE')), 
             np.int32(self.get_parameter('GLOBAL_K_VALUE')), 
         )
+        if self.mode == 'dsd':
+            blk = (self.get_parameter('BLOCK_SIZE_N_VALUE'), self.get_parameter('BLOCK_SIZE_K_VALUE'))
+            self.converter = tesa.BCSRObj('H', blk if self.get_parameter('TRANSPOSE') else (blk[1], blk[0]))
+
 
     @abstractmethod
     def __dsd_call__(self, *args):
@@ -223,16 +236,13 @@ class MatMulKernelBase(TemplateKernelBase):
 class SparseMatMul(MatMulKernelBase):
     '''Template based sparse matmul kernel'''
 
-    def __init__(self, mode: str, transpose: bool=False, bias: bool=False):
-        super().__init__(mode, transpose, bias)
+    def _declare_parameters(self):
+        super()._declare_parameters()
 
-        self.template_name = f'sparse_matmul_{mode}'
+        self.template_name = f'sparse_matmul_{self.mode}'
         self.kernel_func_name = 'BLOCK_SPARSE_MATMUL'
 
         # add tunable parameters
-        self._add_parameter(_Parameter(name="BLOCK_SIZE_M_VALUE" , mode=_Parameter._ParameterMode.tunable, default_space=('choice', [8, 16, 32, 64, 128, 256])))
-        self._add_parameter(_Parameter(name="BLOCK_SIZE_N_VALUE" , mode=_Parameter._ParameterMode.tunable, default_space=('choice', [8, 16, 32, 64, 128, 256])))
-        self._add_parameter(_Parameter(name="BLOCK_SIZE_K_VALUE" , mode=_Parameter._ParameterMode.tunable, default_space=('choice', [8, 16, 32, 64, 128, 256])))
         self._add_parameter(_Parameter(name="THREAD_SIZE_M_VALUE", mode=_Parameter._ParameterMode.tunable, default_space=('choice', [2, 4, 8, 16, 32])))
         self._add_parameter(_Parameter(name="THREAD_SIZE_N_VALUE", mode=_Parameter._ParameterMode.tunable, default_space=('choice', [2, 4, 8, 16, 32])))
         self._add_parameter(_Parameter(name="THREAD_SIZE_K_VALUE", mode=_Parameter._ParameterMode.tunable, default_space=('choice', [2, 4, 8, 16, 32])))

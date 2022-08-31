@@ -116,8 +116,9 @@ cfg = {
     'THREAD_SIZE_N_VALUE': 16
 }
 
-test = MatmulDSDTest(cfg, 0.8, transpose=True, bias=False)
-s = jk.SparseMatMul('dsd', transpose=True)
+bias = True
+test = MatmulDSDTest(cfg, 0.8, transpose=True, bias=bias)
+s = jk.SparseMatMul('dsd', transpose=True, bias=bias)
 s.set_parameters(cfg)
 s.compile()
 test.test_matmul_kernel(s)
