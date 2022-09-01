@@ -1,0 +1,65 @@
+{# Copyright (c) Microsoft Corporation. #}
+{# Licensed under the MIT license. #}
+
+#include <ATen/ATen.h>
+#include <torch/torch.h>
+
+#include <cuda.h>
+
+#include <vector>
+
+namespace {
+    {{ KERNEL_FUNC_BODY }}
+}
+
+{% if OUTPUTS|length > 1 %}
+    std::vector<torch::Tensor>
+{% else %}
+    torch::Tensor
+{% endif %}
+{{ MODULE_NAME }}(
+    torch::Tensor {{ INPUTS|selectattr('role', 'equalto', 'data')|map(attribute='name')|join(', torch::Tensor ') }}
+) {
+    cudaSetDevice({{ INPUTS[0].name }}.get_device());
+    {% for INPUT in INPUTS %}
+        {% if INPUT.role == 'tesa' %}
+            std::vector<{{ INPUT.type }}> {{ INPUT.name }}_vec = { {{ INPUT.val|join(', ') }} };
+            torch::Tensor {{ INPUT.name }} = torch::from_blob(
+                {{ INPUT.name }}_vec.data(),
+                { {{ INPUT.shape|join(', ') }} },
+                torch::k{{ INPUT.type|capitalize }}32
+            ).to({{ INPUTS[0].name }}.options().dtype(torch::k{{ INPUT.type|capitalize }}32));
+        {% endif %}
+    {% endfor %}
+    {% for OUTPUT in OUTPUTS %}
+        torch::Tensor {{ OUTPUT.name }} = torch::empty(
+            { {{ OUTPUT.shape|join(', ') }} },
+            {{ INPUTS[0].name }}.options().dtype(torch::k{{ OUTPUT.type|capitalize }}32)
+        );
+    {% endfor %}
+
+    const dim3 dimBlock({{ DIM_BLOCK|join(', ') }});
+    const dim3 dimGrid({{ DIM_GRID|join(', ') }});
+
+    {{ KERNEL_FUNC_NAME }}<<<dimGrid, dimBlock>>>(
+        {% for INPUT in INPUTS %}
+            {{ INPUT.name }}.data_ptr<{{ INPUT.type }}>(),
+        {% endfor %}
+        {% for OUTPUT in OUTPUTS %}
+            {{ OUTPUT.name }}.data_ptr<{{ OUTPUT.type }}>(){{ '' if loop.last else ',' }}
+        {% endfor %}
+    );
+
+    // AT_DISPATCH_FLOATING_TYPES(A.type(), "{{ BIND_FUNC_NAME }}", ([&]{FUNC_CALL}));
+
+    {% if OUTPUTS|length > 1 %}
+        return { {{ OUTPUTS|join(', ', attribute='name') }} };
+    {% else %}
+        return {{ OUTPUTS[0].name }};
+    {% endif %}
+}
+
+{# TODO backward #}
+PYBIND11_MODULE({{ MODULE_NAME }}, m) {
+    m.def("forward", &{{ MODULE_NAME }}, "{{ MODULE_NAME }} forward function");
+}

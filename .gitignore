@@ -1,2 +1,8 @@
+build
+dist
+tmp
 __pycache__
-/tmp/
+.vscode
+*.egg-info
+_build
+generated
