@@ -4,7 +4,7 @@
 import os
 import abc
 import copy
-import glob
+import shutil
 import hashlib
 import subprocess
 from typing import Any, Optional, Callable, Iterable
@@ -20,7 +20,7 @@ from pycuda.compiler import SourceModule
 from sparta.common import tesa, utils
 
 
-TEMPLATE_DIR = os.path.join('sparta', 'specializer', 'kernels', 'templates')
+TEMPLATE_DIR = os.path.join(os.path.split(os.path.realpath(__file__))[0], "templates")
 
 @dataclass
 class _Parameter:
@@ -398,7 +398,7 @@ class KernelInterface(abc.ABC):
 class TestInterface(KernelInterface, Callable):
 
     def _build(self):
-        self._dir = os.path.join('tmp', self._id)
+        self._dir = os.path.join('/tmp/sparta', self._id)
         if not os.path.exists(self._dir):
             os.makedirs(self._dir)
         self._specify_data_path(self._config['INPUTS'])
@@ -445,12 +445,8 @@ class TestInterface(KernelInterface, Callable):
             f'{self._exec_path} {num_warmups} {num_iters} {int(check_results)}',
             timeout = 1 + 0.01 * num_iters
         )
+        shutil.rmtree(self._dir, ignore_errors=True)
         return float(result)
-
-    def __del__(self):
-        for file in glob.glob(f'{self._dir}/*'):
-            os.remove(file)
-        # shutil.rmtree(self._dir, ignore_errors=True)
 
 
 class ModuleInterface(KernelInterface):

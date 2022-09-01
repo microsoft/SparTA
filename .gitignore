@@ -1,4 +1,6 @@
 build
+dist
 tmp
 __pycache__
 .vscode
+*.egg-info
