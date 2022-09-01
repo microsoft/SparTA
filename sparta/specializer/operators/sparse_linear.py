@@ -5,7 +5,6 @@ import copy
 from typing import Optional
 
 import torch
-import numpy as np
 
 from sparta.specializer import kernels
 from sparta.specializer.operators.operator_base import OperatorBase
@@ -15,14 +14,11 @@ class SparseLinear(OperatorBase):
     """this is the docstring """
 
     def __init__(
-        self, raw_module: torch.nn.Linear, dtype: str = 'float', implementation: str = 'our',
-        input_mask: Optional[np.ndarray] = None, weight_mask: Optional[np.ndarray] = None,
-        output_mask: Optional[np.ndarray] = None
+        self, raw_module: torch.nn.Linear,
+        input_mask: Optional[torch.Tensor] = None, weight_mask: Optional[torch.Tensor] = None,
+        output_mask: Optional[torch.Tensor] = None
     ):
-        super().__init__(implementation)
-        if type(raw_module) is not torch.nn.modules.linear.Linear:
-            raise ValueError(f'expected a torch.nn.Linear module')
-        self._raw_module = raw_module
+        super().__init__(raw_module, torch.nn.Linear)
         N, K = raw_module.weight.shape
         M = None
         if sum(map(lambda x: x is not None, [input_mask, weight_mask, output_mask])) > 1:
@@ -30,6 +26,7 @@ class SparseLinear(OperatorBase):
         if input_mask is not None:
             self._stype = 'sdd'
             self._compressed = False
+            input_mask = input_mask.cpu().detach().numpy()
             if input_mask.shape[0] == K:
                 M = input_mask.shape[1]
                 self._mask = {'A': input_mask.T}
@@ -41,6 +38,7 @@ class SparseLinear(OperatorBase):
         elif weight_mask is not None:
             self._stype = 'dsd'
             self._compressed = True
+            weight_mask = weight_mask.cpu().detach().numpy()
             if weight_mask.shape == (N, K):
                 self._mask = {'B': weight_mask}
             elif weight_mask.shape == (K, N):
@@ -50,6 +48,7 @@ class SparseLinear(OperatorBase):
         elif output_mask is not None:
             self._stype = 'dds'
             self._compressed = False
+            output_mask = output_mask.cpu().detach().numpy()
             if output_mask.shape[0] == N:
                 M = output_mask.shape[1]
                 self._mask = {'A': output_mask.T}
@@ -65,7 +64,7 @@ class SparseLinear(OperatorBase):
             self._shape |= {'GLOBAL_M_VALUE': M}
         self._biased = raw_module.bias is not None
         self._transpose = True
-        self._dtype = dtype
+        self._dtype = 'int' if 'int' in str(raw_module.weight.dtype) else 'float'
 
     def _create_forward_kernel(self, kernel_class: type[kernels.MatMulKernelBase]) -> kernels.KernelBase:
         return kernel_class(self._stype, self._dtype, self._biased, self._transpose, self._compressed)
@@ -86,7 +85,7 @@ class SparseLinear(OperatorBase):
 
     def _possible_implementations(self):
         return {
-            'our': kernels.OurTemplateSparseMatMulKernel,
+            'sparta': kernels.OurTemplateSparseMatMulKernel,
             'openai': kernels.OpenAITemplateSparseMatMulKernel,
         }
 

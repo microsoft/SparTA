@@ -7,23 +7,24 @@ import subprocess
 from typing import Optional, Iterable
 
 import torch
-import numpy as np
 
 from sparta.specializer import kernels, tuners
 
 
 class OperatorBase(torch.nn.Module):
 
-    def __init__(self, implementation: str):
+    def __init__(self, raw_module: torch.nn.Module, base_class: type[torch.nn.Module]):
+        if type(raw_module) is not base_class:
+            raise ValueError(f'expected a {base_class} module')
         super().__init__()
-        self.set_implementation(implementation)
+        self._raw_module = raw_module
         self._forward_kernel = None
         self._forward_function = None
         self._mask = None
         self.ready = False
 
-    def build(self, config: dict, jit: bool = True):
-        forward_kernel = self._get_forward_kernel()
+    def build(self, impl: str, config: dict, jit: bool = True):
+        forward_kernel = self._get_forward_kernel(impl)
         self._forward_function = forward_kernel.compile(config, self._mask, jit).forward
         self._set_parameters(forward_kernel)
         self.ready = True
@@ -35,16 +36,13 @@ class OperatorBase(torch.nn.Module):
             warnings.warn('the sparse module is not compiled, using the dense module to forward')
             return self._raw_module.forward(*args)
 
-    def set_implementation(self, implementation: str):
-        if implementation.lower() in self._possible_implementations():
-            self._implementation = implementation.lower()
-        else:
-            raise ValueError(f'invalid implementation: {implementation}')
-
-    def _get_forward_kernel(self):
+    def _get_forward_kernel(self, impl: str):
+        impl_id = impl.strip().lower()
+        impls = self._possible_implementations()
+        if impl_id not in impls:
+            raise ValueError(f'invalid implementation: {impl}')
         if self._forward_kernel is None:
-            kernel_class = self._possible_implementations()[self._implementation]
-            self._forward_kernel = self._create_forward_kernel(kernel_class)
+            self._forward_kernel = self._create_forward_kernel(impls[impl_id])
         return self._forward_kernel
 
     @abc.abstractmethod
@@ -123,8 +121,7 @@ class OperatorBase(torch.nn.Module):
             best_cfg |= shape
             print(f'Best implementation: {best_impl}')
             print(f'Best config: {", ".join([f"{k}={v}" for k, v in best_cfg.items()])}')
-            self.set_implementation(best_impl)
         else:
             print('All configs test failed')
         print(f'================================================')
-        return best_cfg
+        return best_impl, best_cfg
