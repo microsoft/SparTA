@@ -29,7 +29,7 @@ best_config = sparse_linear_op.tune()
 Y = sparse_linear_op(X)
 ```
 
-## Cite
+## Citing SparTA
 If SparTA is helpful in your projects, please cite our paper as below
 ```
 @inproceedings {SparTA2022,

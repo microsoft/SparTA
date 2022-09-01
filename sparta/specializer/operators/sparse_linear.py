@@ -31,11 +31,11 @@ class SparseLinear(OperatorBase):
 
     Args:
         raw_module (torch.nn.Linear): The corresponding dense linear operator.
-        input_mask (torch.Tensor): The input mask tensor with shape (*, in_features).
+        input_mask (torch.Tensor): The input mask tensor with shape (\*, in_features).
             The kernel mode will be "sparse x dense => dense" if the input mask is set.
         weight_mask (torch.Tensor): The weight mask tensor with shape (out_features, in_features).
             The kernel mode will be "dense x sparse => dense" if the input mask is set.
-        output_mask (torch.Tensor): The output mask tensor with shape (*, out_features).
+        output_mask (torch.Tensor): The output mask tensor with shape (\*, out_features).
             The kernel mode will be "dense x dense => sparse" if the input mask is set.
     '''
 

@@ -71,7 +71,14 @@ exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store', 'README.md']
 html_theme = "sphinx_book_theme"
 
 html_sidebars = {
-    # "**": ["sbt-sidebar-nav.html"]
+    # "**": ["sbt-sidebar-nav.html"],
+}
+
+html_theme_options = {
+    "announcement": "It is currently an <i>alpha</i> version and under active development",
+    "repository_url": "https://github.com/microsoft/SparTA",
+    "use_repository_button": True,
+    "use_fullscreen_button": False,
 }
 
 # Add any paths that contain custom static files (such as style sheets) here,
