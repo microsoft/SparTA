@@ -4,9 +4,10 @@
 import abc
 import warnings
 import subprocess
-from typing import Optional, Iterable
+from typing import Optional
 
 import torch
+import numpy as np
 
 from sparta.specializer import kernels, tuners
 
@@ -110,7 +111,8 @@ class OperatorBase(torch.nn.Module):
                 Return (None, None) if all trials fail.
         '''
         # TODO: Set search space by op.get_parameter('...').search_space = [...]
-        search_space = self._search_space if search_space is None else search_space
+        search_space = {} if search_space is None else search_space
+        max_trials = np.Inf if max_trials < 0 else max_trials
         if algo.strip().lower() == 'grid':
             tuner_class = tuners.GridSearchTunner
         else:
@@ -118,16 +120,18 @@ class OperatorBase(torch.nn.Module):
         shape, inputs = self._read_sample_inputs(*sample_inputs)
         best_impl = None
         best_cfg = None
-        best_latency = float('inf')
+        best_latency = np.Inf
         print(f'==================== Tuning ====================')
         for implementation, kernel_class in self._possible_implementations().items():
-            print(f'---------- Implementation: {implementation} ----------')
             kernel = self._create_forward_kernel(kernel_class)
             if implementation in search_space:
                 kernel.set_search_space(search_space[implementation])
-            tuner = tuner_class(kernel.get_search_space())
+            space = kernel.get_search_space()
+            tuner = tuner_class(space)
+            space_size = int(np.ceil(np.exp(np.sum(np.log([len(s) for s in space.values()])))))
+            print(f'----- Implementation: {implementation}; Search space: {space_size} -----')
             impl_best_cfg = None
-            impl_best_latency = float('inf')
+            impl_best_latency = np.Inf
             num = 0
             for cfg in tuner._configs():
                 num += 1
@@ -144,6 +148,8 @@ class OperatorBase(torch.nn.Module):
                     impl_best_cfg = cfg
                     impl_best_latency = latency
                 print(f'Latency: {latency} ms')
+                if num >= max_trials:
+                    break
             if impl_best_latency < best_latency:
                 best_latency = impl_best_latency
                 best_cfg = impl_best_cfg
@@ -151,7 +157,7 @@ class OperatorBase(torch.nn.Module):
         if best_impl is not None and best_cfg is not None:
             best_cfg |= shape
             print(f'Best implementation: {best_impl}')
-            print(f'Best config: {", ".join([f"{k}={v}" for k, v in best_cfg.items()])}')
+            print(f'Best config: {best_cfg}')
         else:
             print('All configs test failed')
         print(f'================================================')

@@ -103,7 +103,7 @@ class SparseLinear(OperatorBase):
         device = self._raw_module.weight.device
         if self._biased:
             bias = self._raw_module.bias.cpu().detach().numpy().astype(f'{self._dtype}32')
-            self.bias = torch.nn.Parameter(torch.from_numpy(bias)).to(device)
+            self.bias = torch.nn.Parameter(torch.from_numpy(bias), requires_grad=False).to(device)
         else:
             self.bias = None
         weight = self._raw_module.weight.cpu().detach().numpy().astype(f'{self._dtype}32')
@@ -111,7 +111,7 @@ class SparseLinear(OperatorBase):
             B_tensor = forward_kernel.get_input('B')
             B_tensor.set_data(weight)
             weight = B_tensor.sparse()['val']
-        self.weight = torch.nn.Parameter(torch.from_numpy(weight)).to(device)
+        self.weight = torch.nn.Parameter(torch.from_numpy(weight), requires_grad=False).to(device)
 
     def _possible_implementations(self):
         '''Get possible implementations.
@@ -138,9 +138,9 @@ class SparseLinear(OperatorBase):
             A (torch.Tensor): The input tensor.
         '''
         if self._biased:
-            return self._forward_function(A.to(self.weight.dtype), self.weight, self.bias)
+            return self._forward_function(A.detach().to(self.weight.dtype), self.weight, self.bias)
         else:
-            return self._forward_function(A.to(self.weight.dtype), self.weight)
+            return self._forward_function(A.detach().to(self.weight.dtype), self.weight)
 
     def _read_sample_inputs(self, A: torch.Tensor):
         '''Read shape config and convert sample inputs to test inputs.
