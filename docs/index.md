@@ -3,8 +3,13 @@ SparTA
 
 ```{toctree}
 :maxdepth: 2
-:caption: Overview
+:caption: Get STarted
 0-overview
+```
+
+```{toctree}
+:maxdepth: 2
+:caption: Tutorials
 ```
 
 ```{toctree}

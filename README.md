@@ -5,12 +5,21 @@
 `SparTA` is an end-to-end system to harvest the speeding up gain from the model sparsity.
 
 ## Installation 
-Currently we're suggesting installing through a cloned repo to better match the local computing environments. 
+SparTA depends on user's local CUDA environments. Here are some requirements
+- [PyTorch](https://pytorch.org/)
+- [PyCuda](https://pypi.org/project/pycuda/)
+
+Please make sure that the CUDA version matches the version used to compile PyTorch binaries.
+
+User could install through `pip` command as below (*The PyPI install path is coming soon*)
+```bash
+pip install git+https://github.com/microsoft/SparTA.git
+```
+or
 ```bash
 git clone git@github.com:microsoft/SparTA.git
 pip install SparTA
 ```
-The installation includes loading some predefined operators via `torch.utils.cpp_extension`, which may take a longer time (one more more minutes). We will provide a faster installation and installation through PyPI in next version soon.
 
 ## Usage
 
