@@ -4,3 +4,5 @@ tmp
 __pycache__
 .vscode
 *.egg-info
+_build
+generated

@@ -12,6 +12,7 @@ from sparta.specializer.operators.operator_base import OperatorBase
 
 
 class SparseLinear(OperatorBase):
+    """this is the docstring """
 
     def __init__(
         self, raw_module: torch.nn.Linear, dtype: str = 'float', implementation: str = 'our',

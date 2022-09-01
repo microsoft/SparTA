@@ -8,9 +8,10 @@ import jinja2
 import numpy as np
 import torch
 
-# import cutex
-import pycuda.autoinit
-from pycuda.compiler import SourceModule
+if torch.cuda.is_available():
+    # we may need to dry run without GPU (e.g., for document generation)
+    import pycuda.autoinit
+    from pycuda.compiler import SourceModule
 
 from sparta.common import tesa
 
