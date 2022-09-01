@@ -12,6 +12,12 @@ from sparta.specializer import kernels, tuners
 
 
 class OperatorBase(torch.nn.Module):
+    '''Base class of sparse operators.
+
+    Args:
+        raw_module (torch.nn.Module): The corresponding dense operator.
+        base_class (type[torch.nn.Module]): Class of the dense operator.
+    '''
 
     def __init__(self, raw_module: torch.nn.Module, base_class: type[torch.nn.Module]):
         if type(raw_module) is not base_class:
@@ -24,12 +30,20 @@ class OperatorBase(torch.nn.Module):
         self.ready = False
 
     def build(self, impl: str, config: dict, jit: bool = True):
+        '''Build the sparse kernel using the specified implementation and configs.
+
+        Args:
+            impl (str): Implementation. Can be extracted from the tuning result.
+            config (str): Kernel config. Can be extracted from the tuning result.
+            jit (bool): Determine whether to build the kernel using JIT mode.
+        '''
         forward_kernel = self._get_forward_kernel(impl)
         self._forward_function = forward_kernel.compile(config, self._mask, jit).forward
         self._set_parameters(forward_kernel)
         self.ready = True
 
     def forward(self, *args):
+        '''Forward function. Calls the corresponding dense operator if not built.'''
         if self.ready:
             return self._sparse_forward(*args)
         else:
@@ -37,6 +51,7 @@ class OperatorBase(torch.nn.Module):
             return self._raw_module.forward(*args)
 
     def _get_forward_kernel(self, impl: str):
+        '''Get the sparse forward kernel using the specified implementation.'''
         impl_id = impl.strip().lower()
         impls = self._possible_implementations()
         if impl_id not in impls:
@@ -47,43 +62,59 @@ class OperatorBase(torch.nn.Module):
 
     @abc.abstractmethod
     def _sparse_forward(self, *args):
-        '''
-        forward using the sparse kernel if ready
-        '''
+        '''Calls the sparse forward kernel.'''
 
     @abc.abstractmethod
     def _set_parameters(self, forward_kernel: kernels.KernelBase):
-        '''
-        set PyTorch parameters
+        '''Set PyTorch module parameters according to the dense operator.
+
+        Args:
+            forward_kernel (kernels.KernelBase): The forward kernel object
+                which provides the sparsify function.
         '''
 
     @abc.abstractmethod
     def _possible_implementations(self) -> dict[str, type[kernels.KernelBase]]:
-        '''
-        get possible implementations
+        '''Get possible implementations.
+
+        Returns:
+            dict: Key is the implementation name, value is the corresponding kernel class.
         '''
 
     @abc.abstractmethod
     def _create_forward_kernel(self, kernel_class: type[kernels.KernelBase]) -> kernels.KernelBase:
-        '''
-        instantiate the forward kernel
-        '''
+        '''Instantiate a forward kernel object using the specified kernel class.'''
 
     @abc.abstractmethod
     def _read_sample_inputs(self, *args) -> tuple[dict, dict]:
-        '''
-        read shape config and convert sample inputs into test inputs
-        '''
+        '''Read shape config and convert sample inputs to test inputs.'''
 
     def tune(
-        self, sample_inputs: Iterable[torch.Tensor], tuner_type: str = 'grid',
+        self, sample_inputs: list[torch.Tensor],
+        algo: str = 'grid', max_trials: int = -1,
         search_space: Optional[dict[str, dict[str, list]]] = None
     ):
+        '''Go through all possible implementations and corresponding search spaces,
+        find the best implementation and the best configuration.
+
+        Args:
+            sample_inputs (list[torch.Tensor]): Sample input tensors to determine shape
+                parameters which cannot be tuned.
+            algo (str): The tuning algorithm. Only grid search is supported now.
+            max_trials (int): Maximum trial number. Negative value means infinity.
+            search_space (dict): Key is the tuning algorithm, value is a dictionary whose keys are
+                tunable parameters and values are lists of possible values.
+
+        Returns:
+            tuple: The first value is the best implementation, the second value is the best config.
+                Return (None, None) if all trials fail.
+        '''
+        # TODO: Set search space by op.get_parameter('...').search_space = [...]
         search_space = self._search_space if search_space is None else search_space
-        if tuner_type == 'grid':
+        if algo.strip().lower() == 'grid':
             tuner_class = tuners.GridSearchTunner
         else:
-            raise ValueError(f'unsupported tuner: {tuner_type}')
+            raise ValueError(f'unsupported tuning algorithm: {algo}')
         shape, inputs = self._read_sample_inputs(*sample_inputs)
         best_impl = None
         best_cfg = None

@@ -11,7 +11,33 @@ from sparta.specializer.operators.operator_base import OperatorBase
 
 
 class SparseLinear(OperatorBase):
-    """this is the docstring """
+    '''Sparse linear operator.
+
+    Examples:
+
+        .. code-block:: python
+
+            # Create a dense linear layer
+            dense_linear = torch.nn.Linear(1024, 2048)
+
+            # Create a mask
+            weight_mask = torch.rand((2048, 1024)) > 0.99
+
+            # Create a sparse linear layer using the dense layer and the mask
+            sparse_linear = sparta.nn.SparseLinear(dense_linear, weight_mask=weight_mask)
+
+            # Tune the sparse linear layer
+            sparta.tune(sparse_linear, sample_inputs=[torch.rand((512, 1024))])
+
+    Args:
+        raw_module (torch.nn.Linear): The corresponding dense linear operator.
+        input_mask (torch.Tensor): The input mask tensor with shape (*, in_features).
+            The kernel mode will be "sparse x dense => dense" if the input mask is set.
+        weight_mask (torch.Tensor): The weight mask tensor with shape (out_features, in_features).
+            The kernel mode will be "dense x sparse => dense" if the input mask is set.
+        output_mask (torch.Tensor): The output mask tensor with shape (*, out_features).
+            The kernel mode will be "dense x dense => sparse" if the input mask is set.
+    '''
 
     def __init__(
         self, raw_module: torch.nn.Linear,
@@ -27,36 +53,28 @@ class SparseLinear(OperatorBase):
             self._stype = 'sdd'
             self._compressed = False
             input_mask = input_mask.cpu().detach().numpy()
-            if input_mask.shape[0] == K:
-                M = input_mask.shape[1]
-                self._mask = {'A': input_mask.T}
-            elif input_mask.shape[1] == K:
+            if input_mask.shape[1] == K:
                 M = input_mask.shape[0]
                 self._mask = {'A': input_mask}
             else:
-                raise ValueError(f'invalid input mask shape {input_mask.shape}')
+                raise ValueError(f'expected input mask shape (?, {K}), got {input_mask.shape}')
         elif weight_mask is not None:
             self._stype = 'dsd'
             self._compressed = True
             weight_mask = weight_mask.cpu().detach().numpy()
             if weight_mask.shape == (N, K):
                 self._mask = {'B': weight_mask}
-            elif weight_mask.shape == (K, N):
-                self._mask = {'B': weight_mask.T}
             else:
-                raise ValueError(f'invalid weight mask shape: {weight_mask.shape}')
+                raise ValueError(f'expected weight mask shape ({N}, {K}), got {weight_mask.shape}')
         elif output_mask is not None:
             self._stype = 'dds'
             self._compressed = False
             output_mask = output_mask.cpu().detach().numpy()
-            if output_mask.shape[0] == N:
-                M = output_mask.shape[1]
-                self._mask = {'A': output_mask.T}
-            elif output_mask.shape[1] == N:
+            if output_mask.shape[1] == N:
                 M = output_mask.shape[0]
                 self._mask = {'A': output_mask}
             else:
-                raise ValueError(f'invalid output mask shape {output_mask.shape}')
+                raise ValueError(f'expected output mask shape (?, {N}), got {output_mask.shape}')
         else:
             raise ValueError(f'expected a sparse mask on input / weight / output')
         self._shape = {'GLOBAL_N_VALUE': N, 'GLOBAL_K_VALUE': K}
@@ -67,9 +85,21 @@ class SparseLinear(OperatorBase):
         self._dtype = 'int' if 'int' in str(raw_module.weight.dtype) else 'float'
 
     def _create_forward_kernel(self, kernel_class: type[kernels.MatMulKernelBase]) -> kernels.KernelBase:
+        '''Instantiate a forward kernel object using the specified matmul kernel class.
+
+        Args:
+            kernel_class (type[kernels.MatMulKernelBase]): A matmul kernel class which belongs to
+                possible implementations.
+        '''
         return kernel_class(self._stype, self._dtype, self._biased, self._transpose, self._compressed)
 
-    def _set_parameters(self, forward_kernel: kernels.KernelBase):
+    def _set_parameters(self, forward_kernel: kernels.MatMulKernelBase):
+        '''Set PyTorch module parameters: weight and bias (if exists).
+
+        Args:
+            forward_kernel (kernels.MatMulKernelBase): A matmul kernel object which provides the
+                function to sparsify the weight tensor in "dense x sparse => dense" mode.
+        '''
         device = self._raw_module.weight.device
         if self._biased:
             bias = self._raw_module.bias.cpu().detach().numpy().astype(f'{self._dtype}32')
@@ -84,18 +114,43 @@ class SparseLinear(OperatorBase):
         self.weight = torch.nn.Parameter(torch.from_numpy(weight)).to(device)
 
     def _possible_implementations(self):
-        return {
-            'sparta': kernels.OurTemplateSparseMatMulKernel,
-            'openai': kernels.OpenAITemplateSparseMatMulKernel,
-        }
+        '''Get possible implementations.
+
+        Returns:
+            dict: In "sparse x dense => dense" mode and "dense x sparse => dense" mode, we provide
+                two backend kernels: SparTA (our implementation) and OpenAI's kernels.
+                In "dense x dense => sparse" mode, only OpenAI's kernel is supported.
+        '''
+        if self._stype == 'dds':
+            return {
+                'openai': kernels.OpenAITemplateSparseMatMulKernel,
+            }
+        else:
+            return {
+                'sparta': kernels.OurTemplateSparseMatMulKernel,
+                'openai': kernels.OpenAITemplateSparseMatMulKernel,
+            }
 
     def _sparse_forward(self, A: torch.Tensor):
+        '''Calls the sparse forward kernel.
+
+        Args:
+            A (torch.Tensor): The input tensor.
+        '''
         if self._biased:
             return self._forward_function(A.to(self.weight.dtype), self.weight, self.bias)
         else:
             return self._forward_function(A.to(self.weight.dtype), self.weight)
 
     def _read_sample_inputs(self, A: torch.Tensor):
+        '''Read shape config and convert sample inputs to test inputs.
+
+        Args:
+            A (torch.Tensor): The sample input tensor.
+
+        Returns:
+            tuple: The first value is the shape dict, the second value is the test input dict.
+        '''
         M, K = A.shape
         shape = copy.deepcopy(self._shape)
         shape.update({
