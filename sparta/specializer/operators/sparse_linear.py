@@ -72,7 +72,7 @@ class SparseLinear(OperatorBase):
             output_mask = output_mask.cpu().detach().numpy()
             if output_mask.shape[1] == N:
                 M = output_mask.shape[0]
-                self._mask = {'A': output_mask}
+                self._mask = {'C': output_mask}
             else:
                 raise ValueError(f'expected output mask shape (?, {N}), got {output_mask.shape}')
         else:
@@ -127,7 +127,7 @@ class SparseLinear(OperatorBase):
             }
         else:
             return {
-                'sparta': kernels.OurTemplateSparseMatMulKernel,
+                'sparta': kernels.SparTATemplateSparseMatMulKernel,
                 'openai': kernels.OpenAITemplateSparseMatMulKernel,
             }
 

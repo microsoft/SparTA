@@ -13,7 +13,7 @@ setup(
     description='Deployment tool',
     author='MSRA',
     author_email="Ningxin.Zheng@microsoft.com",
-    packages=find_packages(exclude=["test", "test.*"]),
+    packages=find_packages(exclude=["test", "test.*", "examples", "examples.*"]),
     include_package_data=True,
     package_data={
         "sparta.specializer.kernels": ["templates/*.j2"],

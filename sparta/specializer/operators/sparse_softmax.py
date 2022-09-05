@@ -60,7 +60,7 @@ class SparseSoftmax(OperatorBase):
             dict: Only SparTA's softmax kernel is supported.
         '''
         return {
-            'sparta': kernels.OurTemplateSparseSoftmaxKernel,
+            'sparta': kernels.SparTATemplateSparseSoftmaxKernel,
         }
 
     def _sparse_forward(self, C_in: torch.Tensor):

@@ -128,7 +128,7 @@ class OperatorBase(torch.nn.Module):
                 kernel.set_search_space(search_space[implementation])
             space = kernel.get_search_space()
             tuner = tuner_class(space)
-            space_size = int(np.ceil(np.exp(np.sum(np.log([len(s) for s in space.values()])))))
+            space_size = round(np.exp(np.sum(np.log([len(s) for s in space.values()]))))
             print(f'----- Implementation: {implementation}; Search space: {space_size} -----')
             impl_best_cfg = None
             impl_best_latency = np.Inf

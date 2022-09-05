@@ -14,13 +14,12 @@ import torch
 import sparta 
  
 M, N, K, sparsity = 1024, 1024, 1024, 0.5
-A = torch.Tensor((M,K)).cuda()
+A = torch.Tensor((M, K)).cuda()
 # ! TODO complete the example
-w_mask = sparta.testing.block_mask(shape=B.shape, block=(32,32), sparsity=sparsity, algo='rand')
+w_mask = sparta.testing.block_mask(shape=(N, K), block=(32, 32), sparsity=sparsity, algo='rand')
 dense_op = torch.nn.Linear(K, N)
-sparse_op = sparta.nn.SparseLinear(dense_op, weight_tesa=w_mask)
-# above is equal to 
-# sparse_op = sparta.nn.SparseLinear(dense_op, weight_tesa=sparta.tesa(w_mask))
+dense_op.weight *= w_mask
+sparse_op = sparta.nn.SparseLinear(dense_op, weight_mask=w_mask)
 sparse_op.tune(inputs=(A))
 torch.testing.assert_allclose(sparse_op(A), dense_op(A))
 ```

@@ -34,4 +34,4 @@ def tune_sparse_module(operator: OperatorBase, sample_inputs: list[torch.Tensor]
     if best_impl is None or best_config is None:
         warnings.warn('All trails failed, please re-tune with a different search space.')
     else:
-        operator.build(best_impl, best_config)
+        operator.build(best_impl, best_config, jit=False)

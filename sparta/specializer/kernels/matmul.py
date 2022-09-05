@@ -103,13 +103,13 @@ class MatMulKernelBase(KernelBase):
         self.set_target_output('C', C)
 
 
-class OurTemplateSparseMatMulKernel(MatMulKernelBase):
+class SparTATemplateSparseMatMulKernel(MatMulKernelBase):
 
     def get_kernel_name(self) -> str:
-        return f'our_{super().get_kernel_name()}'
+        return f'sparta_{super().get_kernel_name()}'
 
     def get_kernel_code(self) -> str:
-        with open(os.path.join(TEMPLATE_DIR, f'our_sparse_matmul_{self._stype}.cuh.j2')) as f:
+        with open(os.path.join(TEMPLATE_DIR, f'sparta_sparse_matmul_{self._stype}.cuh.j2')) as f:
             kernel_template = f.read()
         return jinja2.Template(kernel_template).render(self.get_parameters())
 

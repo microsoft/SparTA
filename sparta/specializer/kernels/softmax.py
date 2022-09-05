@@ -80,20 +80,20 @@ class SoftmaxKernelBase(KernelBase):
         self.set_target_output('C_out', C_out)
 
 
-class OurTemplateSparseSoftmaxKernel(SoftmaxKernelBase):
+class SparTATemplateSparseSoftmaxKernel(SoftmaxKernelBase):
 
     def get_kernel_name(self) -> str:
-        return f'our_{super().get_kernel_name()}'
+        return f'sparta_{super().get_kernel_name()}'
 
     def get_kernel_code(self) -> str:
-        with open(os.path.join(TEMPLATE_DIR, f'our_sparse_softmax.cuh.j2')) as f:
+        with open(os.path.join(TEMPLATE_DIR, f'sparta_sparse_softmax.cuh.j2')) as f:
             kernel_template = f.read()
         return jinja2.Template(kernel_template).render(self.get_parameters())
 
     def add_parameters(self):
         super().add_parameters()
-        self.add_parameter("BLOCK_SIZE_H_VALUE" , is_tunable=True, search_space=[8, 16, 32, 64, 128, 256])
-        self.add_parameter("BLOCK_SIZE_W_VALUE" , is_tunable=True, search_space=[8, 16, 32, 64, 128, 256])
+        self.add_parameter("BLOCK_SIZE_H_VALUE" , is_tunable=True, search_space=[8, 16, 32, 64])
+        self.add_parameter("BLOCK_SIZE_W_VALUE" , is_tunable=True, search_space=[8, 16, 32, 64])
         self.add_parameter("ROW_TILE_VALUE", is_tunable=True, search_space=[4, 8, 16, 32])
 
     def check_parameters(self):
