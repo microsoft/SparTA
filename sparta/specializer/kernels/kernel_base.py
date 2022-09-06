@@ -26,6 +26,7 @@ from sparta.common import tesa, utils
 
 TEMPLATE_DIR = os.path.join(os.path.split(os.path.realpath(__file__))[0], "templates")
 
+
 @dataclass
 class _Parameter:
     name: str
@@ -504,6 +505,7 @@ class JITInterface(KernelInterface):
             self._fixed_inputs,
             self._output_placeholder,
         )
+
 
 class JITModule(torch.nn.Module):
 

@@ -12,6 +12,7 @@ from sparta.specializer.kernels.kernel_base import KernelBase
 
 TEMPLATE_DIR = os.path.join(os.path.split(os.path.realpath(__file__))[0], "templates")
 
+
 class MatMulKernelBase(KernelBase):
 
     def __init__(

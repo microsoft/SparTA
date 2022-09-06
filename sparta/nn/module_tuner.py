@@ -17,11 +17,19 @@ def tune_combined_module(module: torch.nn.Module, sample_inputs: list[torch.Tens
     '''
     if isinstance(module, OperatorBase):
         tune_sparse_module(module, sample_inputs)
-    else:  # TODO: Input hook
-        for name, operator in module.named_children():
-            if isinstance(operator, OperatorBase):
-                print(f'########## {type(operator)} {name} ##########')
-                tune_sparse_module(operator, sample_inputs)
+    else:
+        sample_inputs_dict = {}
+        for child_name, child_module in module.named_children():
+            sample_inputs_dict[child_name] = []
+            child_module.register_forward_hook(get_input_hook(sample_inputs_dict, child_name))
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            module.forward(*sample_inputs)
+        for child_name, child_module in module.named_children():
+            if isinstance(child_module, OperatorBase):
+                print(f'########## {type(child_module)} {child_name} ##########')
+                tune_sparse_module(child_module, sample_inputs_dict[child_name])
+
 
 def tune_sparse_module(operator: OperatorBase, sample_inputs: list[torch.Tensor]):
     '''Tune and build the given sparse operator.
@@ -35,3 +43,19 @@ def tune_sparse_module(operator: OperatorBase, sample_inputs: list[torch.Tensor]
         warnings.warn('All trails failed, please re-tune with a different search space.')
     else:
         operator.build(best_impl, best_config)
+
+
+def get_input_hook(input_dict: dict[str, list], module_name: str):
+    '''Create a hook to capture the input tensor(s) and save to a dictionary
+
+    Args:
+        input_dict (dict): The dictionary to save input tensor(s).
+        module_name (str): Module name as the index of the input dictionary.
+
+    Returns:
+        Callable: The input hook function.
+    '''
+    def input_hook(module, fea_in, fea_out):
+        input_dict[module_name] = list(fea_in)
+
+    return input_hook

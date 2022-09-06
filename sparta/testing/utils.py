@@ -34,6 +34,7 @@ def test_latency(
     torch.cuda.synchronize()
     return start.elapsed_time(end) / num_iters
 
+
 def test_correctness(func: Callable, inputs: list, target_outputs: list):
     '''Test correctness of a CUDA function.
 

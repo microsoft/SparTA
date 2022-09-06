@@ -12,6 +12,7 @@ from sparta.specializer.kernels.kernel_base import KernelBase
 
 TEMPLATE_DIR = os.path.join(os.path.split(os.path.realpath(__file__))[0], "templates")
 
+
 class SoftmaxKernelBase(KernelBase):
 
     def __init__(self, dtype: str = 'float', compressed: bool = True):

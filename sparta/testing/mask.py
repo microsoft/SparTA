@@ -3,6 +3,7 @@
 
 import torch
 
+
 def block_mask(
     shape: tuple[int], block: tuple[int] = (1, 1),
     sparsity: float = 0.99, algo: str = 'rand'
@@ -24,6 +25,7 @@ def block_mask(
     else:
         raise ValueError(f'unsupported mask generator: {algo}')
 
+
 def random_block_mask(shape: tuple[int], block: tuple[int], sparsity: float = 0.99):
     '''Randomly generate a 2D bool tensor as block mask.
 
@@ -36,6 +38,7 @@ def random_block_mask(shape: tuple[int], block: tuple[int], sparsity: float = 0.
     mask = random_mask(compressed_shape, sparsity)
     mask = mask.reshape(compressed_shape + (1, 1)).tile((1, 1) + block)
     return mask.swapaxes(1, 2).reshape(shape)
+
 
 def random_mask(shape: tuple[int], sparsity: float = 0.99):
     '''Randomly generate a 2D bool tensor as finegrained mask.
