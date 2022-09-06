@@ -5,7 +5,7 @@ import warnings
 
 import torch
 
-from sparta.specializer import OperatorBase, SparseLinear, SparseSoftmax
+from sparta.specializer import OperatorBase
 
 
 def tune_combined_module(module: torch.nn.Module, sample_inputs: list[torch.Tensor]):
@@ -34,4 +34,4 @@ def tune_sparse_module(operator: OperatorBase, sample_inputs: list[torch.Tensor]
     if best_impl is None or best_config is None:
         warnings.warn('All trails failed, please re-tune with a different search space.')
     else:
-        operator.build(best_impl, best_config, jit=False)
+        operator.build(best_impl, best_config)

@@ -138,9 +138,9 @@ class SparseLinear(OperatorBase):
             A (torch.Tensor): The input tensor.
         '''
         if self._biased:
-            return self._forward_function(A.detach().to(self.weight.dtype), self.weight, self.bias)
+            return self._forward_function(A, self.weight, self.bias)
         else:
-            return self._forward_function(A.detach().to(self.weight.dtype), self.weight)
+            return self._forward_function(A, self.weight)
 
     def _read_sample_inputs(self, A: torch.Tensor):
         '''Read shape config and convert sample inputs to test inputs.

@@ -515,17 +515,15 @@ class JITModule(torch.nn.Module):
     ):
         super().__init__()
         params = [torch.nn.Parameter(x, requires_grad=False) for x in fixed_inputs]
-        self._params = torch.nn.ParameterList(params)
+        self._params = torch.nn.ParameterList(params).cuda()
         source_module = SourceModule(kernel_func_body, options=['-O3'])
         self._kernel_func_call = source_module.get_function(kernel_func_name)
         self._blocks_per_grid = blocks_per_grid + tuple(1 for _ in range(3 - len(blocks_per_grid)))
         self._threads_per_block = threads_per_block + tuple(1 for _ in range(3 - len(threads_per_block)))
         self._input_mask = input_mask
-        self._outputs = output_placeholder
+        self._outputs = [y.cuda() for y in output_placeholder]
 
     def forward(self, *args):
-        self._params.to(args[0].device)
-        self._outputs = [y.to(args[0].device) for y in self._outputs]
         inputs = []
         arg_idx = 0
         param_idx = 0

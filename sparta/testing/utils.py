@@ -8,7 +8,7 @@ import torch
 
 def test_latency(
     func: Callable, inputs: list, target_outputs: Optional[list] = None,
-    num_warmups: int = 10, num_iters: int = 10
+    num_warmups: int = 1000, num_iters: int = 1000
 ):
     '''Test latency of a CUDA function.
 

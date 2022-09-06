@@ -69,7 +69,7 @@ class SparseSoftmax(OperatorBase):
         Args:
             C_in (torch.Tensor): The input tensor.
         '''
-        return self._forward_function(C_in.to(torch.float32))
+        return self._forward_function(C_in)
 
     def _read_sample_inputs(self, C_in: torch.Tensor):
         '''Read shape config and convert sample inputs to test inputs.
