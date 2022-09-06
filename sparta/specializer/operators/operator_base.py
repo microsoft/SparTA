@@ -27,6 +27,7 @@ class OperatorBase(torch.nn.Module):
         self._raw_module = raw_module
         self._forward_kernel = None
         self._forward_function = None
+        self._custom_search_space = {}
         self._mask = None
         self.ready = False
 
@@ -90,11 +91,44 @@ class OperatorBase(torch.nn.Module):
     def _read_sample_inputs(self, *args) -> tuple[dict, dict]:
         '''Read shape config and convert sample inputs to test inputs.'''
 
-    def tune(
-        self, sample_inputs: list[torch.Tensor],
-        algo: str = 'grid', max_trials: int = -1,
-        search_space: Optional[dict[str, dict[str, list]]] = None
-    ):
+    def set_search_space(self, search_space: dict[str, dict[str, list]]):
+        '''Input a custom search space to override the default one before tuning.
+
+        Examples:
+
+            .. code-block:: python
+
+                # Create a dense linear layer
+                dense_linear = torch.nn.Linear(1024, 2048)
+
+                # Create a mask
+                weight_mask = torch.rand((2048, 1024)) > 0.99
+
+                # Create a sparse linear layer using the dense layer and the mask
+                sparse_linear = sparta.nn.SparseLinear(dense_linear, weight_mask=weight_mask)
+
+                # Set custom search space
+                sparse_softmax.set_search_space({
+                    'sparta': {
+                        'BLOCK_SIZE_M_VALUE': [32, 64],
+                        'BLOCK_SIZE_K_VALUE': [32, 64],
+                        'BLOCK_SIZE_N_VALUE': [32, 64],
+                        'THREAD_SIZE_M_VALUE': [4],
+                        'THREAD_SIZE_K_VALUE': [4],
+                        'THREAD_SIZE_N_VALUE': [4],
+                    }
+                })
+
+                # Tune the sparse linear layer
+                sparta.tune(sparse_linear, sample_inputs=[torch.rand((512, 1024))])
+
+        Args:
+            search_space (dict): Key is the tuning algorithm, value is a dictionary whose keys are
+                tunable parameters and values are lists of possible values.
+        '''
+        self._custom_search_space = search_space
+
+    def tune(self, sample_inputs: list[torch.Tensor], algo: str = 'grid', max_trials: int = -1):
         '''Go through all possible implementations and corresponding search spaces,
         find the best implementation and the best configuration.
 
@@ -103,15 +137,11 @@ class OperatorBase(torch.nn.Module):
                 parameters which cannot be tuned.
             algo (str): The tuning algorithm. Only grid search is supported now.
             max_trials (int): Maximum trial number. Negative value means infinity.
-            search_space (dict): Key is the tuning algorithm, value is a dictionary whose keys are
-                tunable parameters and values are lists of possible values.
 
         Returns:
             tuple: The first value is the best implementation, the second value is the best config.
                 Return (None, None) if all trials fail.
         '''
-        # TODO: Set search space by op.get_parameter('...').search_space = [...]
-        search_space = {} if search_space is None else search_space
         max_trials = np.Inf if max_trials < 0 else max_trials
         if algo.strip().lower() == 'grid':
             tuner_class = tuners.GridSearchTunner
@@ -124,8 +154,8 @@ class OperatorBase(torch.nn.Module):
         print(f'==================== Tuning ====================')
         for implementation, kernel_class in self._possible_implementations().items():
             kernel = self._create_forward_kernel(kernel_class)
-            if implementation in search_space:
-                kernel.set_search_space(search_space[implementation])
+            if implementation in self._custom_search_space:
+                kernel.set_search_space(self._custom_search_space[implementation])
             space = kernel.get_search_space()
             tuner = tuner_class(space)
             space_size = round(np.exp(np.sum(np.log([len(s) for s in space.values()]))))

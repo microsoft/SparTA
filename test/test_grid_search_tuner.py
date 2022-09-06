@@ -30,9 +30,9 @@ class TestGridSearchTuner(unittest.TestCase):
         dense_op = torch.nn.Linear(K, N).cuda()
         dense_op.weight = torch.nn.Parameter(dense_op.weight.detach() * weight_mask)
         sparse_op = sparta.nn.SparseLinear(dense_op, weight_mask=weight_mask)
+        sparse_op.set_search_space(SEARCH_SPACE)
         impl, config = sparse_op.tune(
             sample_inputs=[dense_input],
-            search_space=SEARCH_SPACE,
             algo='grid'
         )
         self.assertIsNotNone(impl)
