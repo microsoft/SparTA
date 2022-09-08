@@ -18,7 +18,7 @@ pip install git+https://github.com/microsoft/SparTA.git
 or
 ```bash
 git clone git@github.com:microsoft/SparTA.git
-pip install SparTA
+pip install -e SparTA
 ```
 
 ## Usage
@@ -43,7 +43,7 @@ If SparTA is helpful in your projects, please cite our paper as below
 ```
 @inproceedings {SparTA2022,
     author = {Ningxin Zheng and Bin Lin and Quanlu Zhang and Lingxiao Ma and Yuqing Yang and Fan Yang and Yang Wang and Mao Yang and Lidong Zhou},
-    title = {{SparTA}: {Deep-Learning} Model Sparsity via {Tensor-with-Sparsity-Attribute}},
+    title = {SparTA: Deep-Learning Model Sparsity via Tensor-with-Sparsity-Attribute},
     booktitle = {16th USENIX Symposium on Operating Systems Design and Implementation (OSDI 22)},
     year = {2022},
     isbn = {978-1-939133-28-1},

@@ -7,7 +7,7 @@ import copy
 import shutil
 import hashlib
 import subprocess
-from typing import Any, Optional, Callable, Iterable
+from typing import Any, Optional, Callable, Iterable, Union
 from dataclasses import dataclass
 
 import torch
@@ -44,6 +44,7 @@ class _Tensor:
     name: str
     dtype: str
     layout: str
+    layout_parent: Optional['_Tensor'] = None
     shape: Optional[tuple[str]] = None
     mask: Optional[np.ndarray] = None
     layout_config: Optional[dict] = None
@@ -59,21 +60,25 @@ class _Tensor:
 
     def generate_data(self):
         assert self.shape is not None
-        self.dense_data = np.random.uniform(size=self.shape).astype(f'{self.dtype}32')
+        if self.dense_data is None:
+            self.dense_data = np.random.uniform(size=self.shape).astype(f'{self.dtype}32')
         if self.layout != 'dense':
             if self.mask is None:
                 self.generate_mask()
 
-    def generate_mask(self):
+    def generate_mask(self, sparsity: float = 0.8):
         assert self.shape is not None
         assert self.layout_config is not None
         if self.layout == 'BCSR':
-            block_size = self.layout_config['block_size']
-            row_num = self.shape[-2] // block_size[0]
-            col_num = self.shape[-1] // block_size[1]
-            mask = np.random.uniform(size=(row_num, col_num)) < 0.2
-            mask = np.tile(mask.reshape((row_num, col_num, 1, 1)), [1, 1] + block_size)
-            self.mask = mask.swapaxes(1, 2).reshape(self.shape)
+            if self.layout_parent is None:
+                block_size = self.layout_config['block_size']
+                row_num = self.shape[-2] // block_size[0]
+                col_num = self.shape[-1] // block_size[1]
+                mask = np.random.uniform(size=(row_num, col_num)) > sparsity
+                mask = np.tile(mask.reshape((row_num, col_num, 1, 1)), [1, 1] + block_size)
+                self.mask = mask.swapaxes(1, 2).reshape(self.shape)
+            else:
+                self.mask = self.layout_parent.mask
         else:
             raise ValueError(f'invalid layout: {self.layout}')
         if self.dense_data is not None:
@@ -157,8 +162,12 @@ class KernelBase:
     def set_input_shape(self, name: str, shape: tuple[str]):
         self.inputs[name].shape = shape
 
-    def set_input_layout(self, name: str, layout_config: dict):
-        self.inputs[name].layout_config = layout_config
+    def set_input_layout(self, name: str, layout: Union[dict, _Tensor]):
+        if isinstance(layout, _Tensor):
+            self.inputs[name].layout_config = layout.layout_config
+            self.inputs[name].layout_parent = layout
+        else:
+            self.inputs[name].layout_config = layout
 
     def set_input(self, name: str, data: np.ndarray):
         self.inputs[name].set_data(data)
@@ -172,8 +181,12 @@ class KernelBase:
     def set_output_shape(self, name: str, shape: tuple[str]):
         self.outputs[name].shape = shape
 
-    def set_output_layout(self, name: str, layout_config: dict):
-        self.outputs[name].layout_config = layout_config
+    def set_output_layout(self, name: str, layout: Union[dict, _Tensor]):
+        if isinstance(layout, _Tensor):
+            self.outputs[name].layout_config = layout.layout_config
+            self.outputs[name].layout_parent = layout
+        else:
+            self.outputs[name].layout_config = layout
 
     def set_target_output(self, name: str, data: np.ndarray):
         self.outputs[name].set_data(data)
@@ -248,7 +261,8 @@ class KernelBase:
             inputs = self.inputs.values(),
             outputs = self.outputs.values()
         )
-        return test_func(test_inputs, test_outputs, num_warmups, num_iters, check_results)
+        lat = test_func(test_inputs, test_outputs, num_warmups, num_iters, check_results)
+        return lat
 
     def compile(self, config: dict, mask: dict[str, np.ndarray], jit: bool = True):
         unique_id = self.configure(config, mask, False)
@@ -378,6 +392,8 @@ class KernelInterface(abc.ABC):
                     sparse_desc[k]['shape'] = v.shape
                     if sparse_desc[k]['role'] == 'tesa':
                         sparse_desc[k]['val'] = v.tolist()
+            if tensor.layout_parent is not None:
+                sparse_desc = {k: v for k, v in sparse_desc.items() if v['role'] == 'data'}
             return sparse_desc.values()
 
     def _run_cmd(self, cmd: str, timeout: float) -> str:

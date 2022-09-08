@@ -119,9 +119,9 @@ class SparTATemplateSparseMatMulKernel(MatMulKernelBase):
         self.add_parameter("BLOCK_SIZE_M_VALUE" , is_tunable=True, search_space=[16, 32, 64])
         self.add_parameter("BLOCK_SIZE_N_VALUE" , is_tunable=True, search_space=[16, 32, 64])
         self.add_parameter("BLOCK_SIZE_K_VALUE" , is_tunable=True, search_space=[16, 32, 64])
-        self.add_parameter("THREAD_SIZE_M_VALUE", is_tunable=True, search_space=[2, 4, 8])
-        self.add_parameter("THREAD_SIZE_N_VALUE", is_tunable=True, search_space=[2, 4, 8])
-        self.add_parameter("THREAD_SIZE_K_VALUE", is_tunable=True, search_space=[2, 4, 8])
+        self.add_parameter("THREAD_SIZE_M_VALUE", is_tunable=True, search_space=[4, 8])
+        self.add_parameter("THREAD_SIZE_N_VALUE", is_tunable=True, search_space=[4, 8])
+        self.add_parameter("THREAD_SIZE_K_VALUE", is_tunable=True, search_space=[4, 8])
 
     def check_parameters(self):
         M = self.get_parameter('GLOBAL_M_VALUE')
