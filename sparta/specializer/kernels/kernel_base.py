@@ -95,7 +95,8 @@ class _Tensor:
             self.dense_data = tesa.BCSR(
                 size = self.shape,
                 mask = self.mask,
-                **(self.sparse_data | self.layout_config)
+                **self.sparse_data,
+                **self.layout_config
             ).dense
             return self.dense_data
         else:
@@ -361,7 +362,7 @@ class KernelInterface(abc.ABC):
                     output_desc_list.append(desc)
                 else:
                     input_desc_list.append(desc)
-        self._config |= {
+        self._config.update({
             'MODULE_NAME': unique_id,
             'KERNEL_FUNC_NAME': kernel_name,
             'KERNEL_FUNC_BODY': kernel_code,
@@ -369,7 +370,7 @@ class KernelInterface(abc.ABC):
             'DIM_GRID': blocks_per_grid,
             'INPUTS': input_desc_list,
             'OUTPUTS': output_desc_list,
-        }
+        })
         self._build()
 
     def _load_tensor(self, tensor: _Tensor) -> Iterable[Dict]:

@@ -41,7 +41,7 @@ class TestSparseMatmulKernels(unittest.TestCase):
                         test_matmul_kernel(
                             kernels.SparTATemplateSparseMatMulKernel,
                             stype, biased, transpose, compressed,
-                            SHAPE_CONFIG | TILE_CONFIG
+                            dict(SHAPE_CONFIG, **TILE_CONFIG)
                         )
 
     def test_openai_sparse_matmul(self):

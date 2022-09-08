@@ -79,7 +79,7 @@ class SparseLinear(OperatorBase):
             raise ValueError(f'expected a sparse mask on input / weight / output')
         self._shape = {'GLOBAL_N_VALUE': N, 'GLOBAL_K_VALUE': K}
         if M is not None:
-            self._shape |= {'GLOBAL_M_VALUE': M}
+            self._shape.update({'GLOBAL_M_VALUE': M})
         self._biased = raw_module.bias is not None
         self._transpose = True
         self._dtype = 'int' if 'int' in str(raw_module.weight.dtype) else 'float'

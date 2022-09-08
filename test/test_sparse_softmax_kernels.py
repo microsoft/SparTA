@@ -31,7 +31,7 @@ class TestSparseSoftmaxKernels(unittest.TestCase):
         print('==================== Testing SparTA Sparse Softmax Kernels ====================')
         kernels.SparTATemplateSparseSoftmaxKernel()
         for compressed in [False, True]:
-            test_softmax_kernel(compressed, SHAPE_CONFIG | TILE_CONFIG)
+            test_softmax_kernel(compressed, dict(SHAPE_CONFIG, **TILE_CONFIG))
 
 
 if __name__ == '__main__':

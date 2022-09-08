@@ -33,7 +33,7 @@ def test_sparse_linear_sdd(impl: str):
     sparse_input = torch.rand((M, K)).cuda() * input_mask
     dense_op = torch.nn.Linear(K, N).cuda()
     sparse_op = sparta.nn.SparseLinear(dense_op, input_mask=input_mask)
-    sparse_op.build(impl, (SHAPE_CONFIG | TILE_CONFIG) if impl == 'sparta' else SHAPE_CONFIG)
+    sparse_op.build(impl, dict(SHAPE_CONFIG, **TILE_CONFIG) if impl == 'sparta' else SHAPE_CONFIG)
     torch.testing.assert_allclose(sparse_op(sparse_input), dense_op(sparse_input))
     print('PASS')
 
@@ -45,7 +45,7 @@ def test_sparse_linear_dsd(impl: str):
     dense_op = torch.nn.Linear(K, N).cuda()
     dense_op.weight = torch.nn.Parameter(dense_op.weight.detach() * weight_mask)
     sparse_op = sparta.nn.SparseLinear(dense_op, weight_mask=weight_mask)
-    sparse_op.build(impl, (SHAPE_CONFIG | TILE_CONFIG) if impl == 'sparta' else SHAPE_CONFIG)
+    sparse_op.build(impl, dict(SHAPE_CONFIG, **TILE_CONFIG) if impl == 'sparta' else SHAPE_CONFIG)
     torch.testing.assert_allclose(sparse_op(dense_input), dense_op(dense_input))
     print('PASS')
 
@@ -56,7 +56,7 @@ def test_sparse_linear_dds(impl: str):
     dense_input = torch.rand((M, K)).cuda()
     dense_op = torch.nn.Linear(K, N).cuda()
     sparse_op = sparta.nn.SparseLinear(dense_op, output_mask=output_mask)
-    sparse_op.build(impl, (SHAPE_CONFIG | TILE_CONFIG) if impl == 'sparta' else SHAPE_CONFIG)
+    sparse_op.build(impl, dict(SHAPE_CONFIG, **TILE_CONFIG) if impl == 'sparta' else SHAPE_CONFIG)
     torch.testing.assert_allclose(
         sparse_op(dense_input) * output_mask,
         dense_op(dense_input) * output_mask
