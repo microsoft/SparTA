@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-from typing import Optional
+from typing import Optional, Type
 
 import torch
 
@@ -41,11 +41,11 @@ class SparseSoftmax(OperatorBase):
         self._compressed = False
         self._dtype = 'float'
 
-    def _create_forward_kernel(self, kernel_class: type[kernels.SoftmaxKernelBase]) -> kernels.KernelBase:
+    def _create_forward_kernel(self, kernel_class: Type[kernels.SoftmaxKernelBase]) -> kernels.KernelBase:
         '''Instantiate a forward kernel object using the specified softmax kernel class.
 
         Args:
-            kernel_class (type[kernels.SoftmaxKernelBase]): A softmax kernel class which belongs to
+            kernel_class (Type[kernels.SoftmaxKernelBase]): A softmax kernel class which belongs to
                 possible implementations.
         '''
         return kernel_class(self._dtype, self._compressed)

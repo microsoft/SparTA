@@ -4,7 +4,7 @@
 import abc
 import warnings
 import subprocess
-from typing import Optional, Tuple, List, Dict
+from typing import Type, Tuple, List, Dict
 
 import torch
 import numpy as np
@@ -17,10 +17,10 @@ class OperatorBase(torch.nn.Module):
 
     Args:
         raw_module (torch.nn.Module): The corresponding dense operator.
-        base_class (type[torch.nn.Module]): Class of the dense operator.
+        base_class (Type[torch.nn.Module]): Class of the dense operator.
     '''
 
-    def __init__(self, raw_module: torch.nn.Module, base_class: type[torch.nn.Module]):
+    def __init__(self, raw_module: torch.nn.Module, base_class: Type[torch.nn.Module]):
         if type(raw_module) is not base_class:
             raise ValueError(f'expected a {base_class} module')
         super().__init__()
@@ -76,7 +76,7 @@ class OperatorBase(torch.nn.Module):
         '''
 
     @abc.abstractmethod
-    def _possible_implementations(self) -> Dict[str, type[kernels.KernelBase]]:
+    def _possible_implementations(self) -> Dict[str, Type[kernels.KernelBase]]:
         '''Get possible implementations.
 
         Returns:
@@ -84,7 +84,7 @@ class OperatorBase(torch.nn.Module):
         '''
 
     @abc.abstractmethod
-    def _create_forward_kernel(self, kernel_class: type[kernels.KernelBase]) -> kernels.KernelBase:
+    def _create_forward_kernel(self, kernel_class: Type[kernels.KernelBase]) -> kernels.KernelBase:
         '''Instantiate a forward kernel object using the specified kernel class.'''
 
     @abc.abstractmethod
