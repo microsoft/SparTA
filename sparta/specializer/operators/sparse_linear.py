@@ -117,7 +117,7 @@ class SparseLinear(OperatorBase):
         '''Get possible implementations.
 
         Returns:
-            dict: In "sparse x dense => dense" mode and "dense x sparse => dense" mode, we provide
+            Dict: In "sparse x dense => dense" mode and "dense x sparse => dense" mode, we provide
                 two backend kernels: SparTA (our implementation) and OpenAI's kernels.
                 In "dense x dense => sparse" mode, only OpenAI's kernel is supported.
         '''
@@ -149,7 +149,7 @@ class SparseLinear(OperatorBase):
             A (torch.Tensor): The sample input tensor.
 
         Returns:
-            tuple: The first value is the shape dict, the second value is the test input dict.
+            Tuple: The first value is the shape dict, the second value is the test input dict.
         '''
         M, K = A.shape
         shape = copy.deepcopy(self._shape)

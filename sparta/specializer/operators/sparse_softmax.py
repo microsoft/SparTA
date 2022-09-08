@@ -59,7 +59,7 @@ class SparseSoftmax(OperatorBase):
         '''Get possible implementations.
 
         Returns:
-            dict: Only SparTA's softmax kernel is supported.
+            Dict: Only SparTA's softmax kernel is supported.
         '''
         return {
             'sparta': kernels.SparTATemplateSparseSoftmaxKernel,
@@ -80,7 +80,7 @@ class SparseSoftmax(OperatorBase):
             C_in (torch.Tensor): The sample input tensor.
 
         Returns:
-            tuple: The first value is the shape dict, the second value is the test input dict.
+            Tuple: The first value is the shape dict, the second value is the test input dict.
         '''
         H, W = C_in.shape
         shape = {

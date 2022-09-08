@@ -32,7 +32,7 @@ class _Parameter:
     name: str
     value: Any
     is_tunable: bool
-    search_space: Optional[list[Any]] = None
+    search_space: Optional[List[Any]] = None
 
     def __post_init__(self):
         if self.search_space is not None:
@@ -45,11 +45,11 @@ class _Tensor:
     dtype: str
     layout: str
     layout_parent: Optional['_Tensor'] = None
-    shape: Optional[tuple[str]] = None
+    shape: Optional[Tuple[str]] = None
     mask: Optional[np.ndarray] = None
-    layout_config: Optional[dict] = None
+    layout_config: Optional[Dict] = None
     dense_data: Optional[np.ndarray] = None
-    sparse_data: Optional[dict[str, np.ndarray]] = None
+    sparse_data: Optional[Dict[str, np.ndarray]] = None
 
     def set_data(self, data: np.ndarray):
         assert data.shape == self.shape
@@ -136,11 +136,11 @@ class KernelBase:
 
     def add_parameter(
         self, name: str, value: Any = None, is_tunable: bool = False,
-        search_space: Optional[list[Any]] = None
+        search_space: Optional[List[Any]] = None
     ):
         self.parameters[name] = _Parameter(name, value, is_tunable, search_space)
 
-    def set_search_space(self, search_space: Dict[str, list[Any]]):
+    def set_search_space(self, search_space: Dict[str, List[Any]]):
         for name, space in search_space.items():
             self.parameters[name].search_space = space
 
@@ -162,7 +162,7 @@ class KernelBase:
     def set_input_shape(self, name: str, shape: Tuple[str]):
         self.inputs[name].shape = shape
 
-    def set_input_layout(self, name: str, layout: Union[dict, _Tensor]):
+    def set_input_layout(self, name: str, layout: Union[Dict, _Tensor]):
         if isinstance(layout, _Tensor):
             self.inputs[name].layout_config = layout.layout_config
             self.inputs[name].layout_parent = layout
@@ -181,7 +181,7 @@ class KernelBase:
     def set_output_shape(self, name: str, shape: Tuple[str]):
         self.outputs[name].shape = shape
 
-    def set_output_layout(self, name: str, layout: Union[dict, _Tensor]):
+    def set_output_layout(self, name: str, layout: Union[Dict, _Tensor]):
         if isinstance(layout, _Tensor):
             self.outputs[name].layout_config = layout.layout_config
             self.outputs[name].layout_parent = layout
@@ -194,7 +194,7 @@ class KernelBase:
     def get_output(self, name: str):
         return self.outputs[name]
 
-    def set_mask(self, mask: Optional[dict[str, np.ndarray]] = None, generate_if_missing = True):
+    def set_mask(self, mask: Optional[Dict[str, np.ndarray]] = None, generate_if_missing = True):
         if mask is not None:
             for k, v in mask.items():
                 if k in self.inputs:
@@ -215,7 +215,7 @@ class KernelBase:
                     raise ValueError(f'Missing mask on output tensor {output_tensor.name}')
 
     def configure(
-        self, config: Dict, mask: Optional[dict[str, np.ndarray]],
+        self, config: Dict, mask: Optional[Dict[str, np.ndarray]],
         generate_mask_if_missing: bool
     ) -> str:
         for k, v in config.items():
@@ -234,7 +234,7 @@ class KernelBase:
         return unique_id
 
     def test(
-        self, config: Dict, mask: Optional[dict[str, np.ndarray]] = None,
+        self, config: Dict, mask: Optional[Dict[str, np.ndarray]] = None,
         inputs: Dict[str, np.ndarray] = None, target_outputs: Dict[str, np.ndarray] = None,
         num_warmups: int = 10, num_iters: int = 10, check_results: bool = True
     ) -> float:
@@ -372,7 +372,7 @@ class KernelInterface(abc.ABC):
         }
         self._build()
 
-    def _load_tensor(self, tensor: _Tensor) -> Iterable[dict]:
+    def _load_tensor(self, tensor: _Tensor) -> Iterable[Dict]:
         if tensor.layout == 'dense':
             return [{
                 'name': tensor.name,
