@@ -1,11 +1,13 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
+from typing import Tuple
+
 import torch
 
 
 def block_mask(
-    shape: tuple[int], block: tuple[int] = (1, 1),
+    shape: Tuple[int], block: Tuple[int] = (1, 1),
     sparsity: float = 0.99, algo: str = 'rand'
 ):
     '''Generate a 2D bool tensor as block mask.
@@ -26,7 +28,7 @@ def block_mask(
         raise ValueError(f'unsupported mask generator: {algo}')
 
 
-def random_block_mask(shape: tuple[int], block: tuple[int], sparsity: float = 0.99):
+def random_block_mask(shape: Tuple[int], block: Tuple[int], sparsity: float = 0.99):
     '''Randomly generate a 2D bool tensor as block mask.
 
     Args:
@@ -40,7 +42,7 @@ def random_block_mask(shape: tuple[int], block: tuple[int], sparsity: float = 0.
     return mask.swapaxes(1, 2).reshape(shape)
 
 
-def random_mask(shape: tuple[int], sparsity: float = 0.99):
+def random_mask(shape: Tuple[int], sparsity: float = 0.99):
     '''Randomly generate a 2D bool tensor as finegrained mask.
 
     Args:

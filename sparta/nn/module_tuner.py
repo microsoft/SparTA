@@ -2,13 +2,14 @@
 # Licensed under the MIT license.
 
 import warnings
+from typing import List, Dict
 
 import torch
 
 from sparta.specializer import OperatorBase
 
 
-def tune_combined_module(module: torch.nn.Module, sample_inputs: list[torch.Tensor]):
+def tune_combined_module(module: torch.nn.Module, sample_inputs: List[torch.Tensor]):
     '''Find, tune and build all sparse operators in the model.
 
     Args:
@@ -31,7 +32,7 @@ def tune_combined_module(module: torch.nn.Module, sample_inputs: list[torch.Tens
                 tune_sparse_module(child_module, sample_inputs_dict[child_name])
 
 
-def tune_sparse_module(operator: OperatorBase, sample_inputs: list[torch.Tensor]):
+def tune_sparse_module(operator: OperatorBase, sample_inputs: List[torch.Tensor]):
     '''Tune and build the given sparse operator.
 
     Args:
@@ -45,7 +46,7 @@ def tune_sparse_module(operator: OperatorBase, sample_inputs: list[torch.Tensor]
         operator.build(best_impl, best_config)
 
 
-def get_input_hook(input_dict: dict[str, list], module_name: str):
+def get_input_hook(input_dict: Dict[str, list], module_name: str):
     '''Create a hook to capture the input tensor(s) and save to a dictionary
 
     Args:

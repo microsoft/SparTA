@@ -7,7 +7,7 @@ import copy
 import shutil
 import hashlib
 import subprocess
-from typing import Any, Optional, Callable, Iterable
+from typing import Any, Optional, Callable, Iterable, Union, Tuple, List, Dict
 from dataclasses import dataclass
 
 import torch
@@ -44,6 +44,7 @@ class _Tensor:
     name: str
     dtype: str
     layout: str
+    layout_parent: Optional['_Tensor'] = None
     shape: Optional[tuple[str]] = None
     mask: Optional[np.ndarray] = None
     layout_config: Optional[dict] = None
@@ -59,21 +60,25 @@ class _Tensor:
 
     def generate_data(self):
         assert self.shape is not None
-        self.dense_data = np.random.uniform(size=self.shape).astype(f'{self.dtype}32')
+        if self.dense_data is None:
+            self.dense_data = np.random.uniform(size=self.shape).astype(f'{self.dtype}32')
         if self.layout != 'dense':
             if self.mask is None:
                 self.generate_mask()
 
-    def generate_mask(self):
+    def generate_mask(self, sparsity: float = 0.8):
         assert self.shape is not None
         assert self.layout_config is not None
         if self.layout == 'BCSR':
-            block_size = self.layout_config['block_size']
-            row_num = self.shape[-2] // block_size[0]
-            col_num = self.shape[-1] // block_size[1]
-            mask = np.random.uniform(size=(row_num, col_num)) < 0.2
-            mask = np.tile(mask.reshape((row_num, col_num, 1, 1)), [1, 1] + block_size)
-            self.mask = mask.swapaxes(1, 2).reshape(self.shape)
+            if self.layout_parent is None:
+                block_size = self.layout_config['block_size']
+                row_num = self.shape[-2] // block_size[0]
+                col_num = self.shape[-1] // block_size[1]
+                mask = np.random.uniform(size=(row_num, col_num)) > sparsity
+                mask = np.tile(mask.reshape((row_num, col_num, 1, 1)), [1, 1] + block_size)
+                self.mask = mask.swapaxes(1, 2).reshape(self.shape)
+            else:
+                self.mask = self.layout_parent.mask
         else:
             raise ValueError(f'invalid layout: {self.layout}')
         if self.dense_data is not None:
@@ -123,9 +128,9 @@ class _Tensor:
 class KernelBase:
 
     def __init__(self):
-        self.parameters: dict[str, _Parameter] = {}
-        self.inputs: dict[str, _Tensor] = {}
-        self.outputs: dict[str, _Tensor] = {}
+        self.parameters: Dict[str, _Parameter] = {}
+        self.inputs: Dict[str, _Tensor] = {}
+        self.outputs: Dict[str, _Tensor] = {}
         self.add_parameters()
         self.add_ports()
 
@@ -135,7 +140,7 @@ class KernelBase:
     ):
         self.parameters[name] = _Parameter(name, value, is_tunable, search_space)
 
-    def set_search_space(self, search_space: dict[str, list[Any]]):
+    def set_search_space(self, search_space: Dict[str, list[Any]]):
         for name, space in search_space.items():
             self.parameters[name].search_space = space
 
@@ -154,11 +159,15 @@ class KernelBase:
     def add_input(self, name: str, dtype: str, layout: str = 'dense'):
         self.inputs[name] = _Tensor(name, dtype, layout)
 
-    def set_input_shape(self, name: str, shape: tuple[str]):
+    def set_input_shape(self, name: str, shape: Tuple[str]):
         self.inputs[name].shape = shape
 
-    def set_input_layout(self, name: str, layout_config: dict):
-        self.inputs[name].layout_config = layout_config
+    def set_input_layout(self, name: str, layout: Union[dict, _Tensor]):
+        if isinstance(layout, _Tensor):
+            self.inputs[name].layout_config = layout.layout_config
+            self.inputs[name].layout_parent = layout
+        else:
+            self.inputs[name].layout_config = layout
 
     def set_input(self, name: str, data: np.ndarray):
         self.inputs[name].set_data(data)
@@ -169,11 +178,15 @@ class KernelBase:
     def add_output(self, name: str, dtype: str, layout: str = 'dense'):
         self.outputs[name] = _Tensor(name, dtype, layout)
 
-    def set_output_shape(self, name: str, shape: tuple[str]):
+    def set_output_shape(self, name: str, shape: Tuple[str]):
         self.outputs[name].shape = shape
 
-    def set_output_layout(self, name: str, layout_config: dict):
-        self.outputs[name].layout_config = layout_config
+    def set_output_layout(self, name: str, layout: Union[dict, _Tensor]):
+        if isinstance(layout, _Tensor):
+            self.outputs[name].layout_config = layout.layout_config
+            self.outputs[name].layout_parent = layout
+        else:
+            self.outputs[name].layout_config = layout
 
     def set_target_output(self, name: str, data: np.ndarray):
         self.outputs[name].set_data(data)
@@ -202,7 +215,7 @@ class KernelBase:
                     raise ValueError(f'Missing mask on output tensor {output_tensor.name}')
 
     def configure(
-        self, config: dict, mask: Optional[dict[str, np.ndarray]],
+        self, config: Dict, mask: Optional[dict[str, np.ndarray]],
         generate_mask_if_missing: bool
     ) -> str:
         for k, v in config.items():
@@ -221,8 +234,8 @@ class KernelBase:
         return unique_id
 
     def test(
-        self, config: dict, mask: Optional[dict[str, np.ndarray]] = None,
-        inputs: dict[str, np.ndarray] = None, target_outputs: dict[str, np.ndarray] = None,
+        self, config: Dict, mask: Optional[dict[str, np.ndarray]] = None,
+        inputs: Dict[str, np.ndarray] = None, target_outputs: Dict[str, np.ndarray] = None,
         num_warmups: int = 10, num_iters: int = 10, check_results: bool = True
     ) -> float:
         unique_id = self.configure(config, mask, True)
@@ -248,9 +261,10 @@ class KernelBase:
             inputs = self.inputs.values(),
             outputs = self.outputs.values()
         )
-        return test_func(test_inputs, test_outputs, num_warmups, num_iters, check_results)
+        lat = test_func(test_inputs, test_outputs, num_warmups, num_iters, check_results)
+        return lat
 
-    def compile(self, config: dict, mask: dict[str, np.ndarray], jit: bool = True):
+    def compile(self, config: Dict, mask: Dict[str, np.ndarray], jit: bool = True):
         unique_id = self.configure(config, mask, False)
         for input_tensor in self.inputs.values():
             input_tensor.generate_data()
@@ -310,13 +324,13 @@ class KernelBase:
         '''
 
     @abc.abstractmethod
-    def blocks_per_grid(self) -> tuple[int]:
+    def blocks_per_grid(self) -> Tuple[int]:
         '''
         Get launch config: number of blocks per grid
         '''
 
     @abc.abstractmethod
-    def threads_per_block(self) -> tuple[int]:
+    def threads_per_block(self) -> Tuple[int]:
         '''
         Get launch config: number of threads per block
         '''
@@ -331,8 +345,8 @@ class KernelBase:
 class KernelInterface(abc.ABC):
 
     def __init__(
-        self, unique_id: str, kernel_code: str, shape: dict[str, Any],
-        threads_per_block: tuple[int], blocks_per_grid: tuple[int],
+        self, unique_id: str, kernel_code: str, shape: Dict[str, Any],
+        threads_per_block: Tuple[int], blocks_per_grid: Tuple[int],
         inputs: Iterable[_Tensor], outputs: Iterable[_Tensor]
     ):
         self._id = unique_id
@@ -378,6 +392,8 @@ class KernelInterface(abc.ABC):
                     sparse_desc[k]['shape'] = v.shape
                     if sparse_desc[k]['role'] == 'tesa':
                         sparse_desc[k]['val'] = v.tolist()
+            if tensor.layout_parent is not None:
+                sparse_desc = {k: v for k, v in sparse_desc.items() if v['role'] == 'data'}
             return sparse_desc.values()
 
     def _run_cmd(self, cmd: str, timeout: float) -> str:
@@ -423,7 +439,7 @@ class TestInterface(KernelInterface, Callable):
             timeout=5
         )
 
-    def _specify_data_path(self, desc_list: dict):
+    def _specify_data_path(self, desc_list: Dict):
         for desc in desc_list:
             desc['filepath'] = os.path.join(self._dir, f'{desc["name"]}.dat')
 
@@ -511,9 +527,9 @@ class JITModule(torch.nn.Module):
 
     def __init__(
         self, kernel_func_name: str, kernel_func_body: str,
-        blocks_per_grid: tuple[int], threads_per_block: tuple[int],
-        input_mask: list[bool], fixed_inputs: list[torch.Tensor],
-        output_placeholder: list[torch.Tensor]
+        blocks_per_grid: Tuple[int], threads_per_block: Tuple[int],
+        input_mask: List[bool], fixed_inputs: List[torch.Tensor],
+        output_placeholder: List[torch.Tensor]
     ):
         super().__init__()
         params = [torch.nn.Parameter(x, requires_grad=False) for x in fixed_inputs]

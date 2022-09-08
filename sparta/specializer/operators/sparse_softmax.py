@@ -36,7 +36,8 @@ class SparseSoftmax(OperatorBase):
     def __init__(self, raw_module: torch.nn.Softmax, mask: Optional[torch.Tensor] = None):
         super().__init__(raw_module, torch.nn.Softmax)
         self._raw_module = raw_module
-        self._mask = {'C_in': mask.cpu().detach().numpy()}
+        numpy_mask = mask.cpu().detach().numpy()
+        self._mask = {'C_in': numpy_mask, 'C_mask': numpy_mask, 'C_out': numpy_mask}
         self._compressed = False
         self._dtype = 'float'
 
@@ -51,7 +52,8 @@ class SparseSoftmax(OperatorBase):
 
     def _set_parameters(self, forward_kernel: kernels.KernelBase):
         '''No parameters need to be set here.'''
-        pass
+        mask = torch.from_numpy(self._mask['C_mask'].astype('int32'))
+        self.C_mask = torch.nn.Parameter(mask, requires_grad=False).cuda()
 
     def _possible_implementations(self):
         '''Get possible implementations.
@@ -69,7 +71,7 @@ class SparseSoftmax(OperatorBase):
         Args:
             C_in (torch.Tensor): The input tensor.
         '''
-        return self._forward_function(C_in)
+        return self._forward_function(C_in, self.C_mask)
 
     def _read_sample_inputs(self, C_in: torch.Tensor):
         '''Read shape config and convert sample inputs to test inputs.
