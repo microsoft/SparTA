@@ -3,7 +3,7 @@
 
 import os
 import abc
-from typing import Optional
+from typing import Optional, Tuple, Dict
 
 import jinja2
 import numpy as np
@@ -62,13 +62,13 @@ class SoftmaxKernelBase(KernelBase):
         '''
 
     @abc.abstractmethod
-    def blocks_per_grid(self) -> tuple[int]:
+    def blocks_per_grid(self) -> Tuple[int]:
         '''
         Get launch config: number of blocks per grid
         '''
 
     @abc.abstractmethod
-    def threads_per_block(self) -> tuple[int]:
+    def threads_per_block(self) -> Tuple[int]:
         '''
         Get launch config: number of threads per block
         '''
@@ -77,7 +77,7 @@ class SoftmaxKernelBase(KernelBase):
         super().set_mask(mask, generate_if_missing)
         self.get_input('C_mask').set_data(self.get_input('C_in').mask.astype('int32'))
 
-    def calc_target_outputs(self) -> dict[str, np.ndarray]:
+    def calc_target_outputs(self) -> Dict[str, np.ndarray]:
         C_in = self.get_input('C_in').dense()
         C_mask = self.get_input('C_mask').dense()
         C_max = C_in.max(axis=-1).reshape((-1, 1))
@@ -130,12 +130,12 @@ class SparTATemplateSparseSoftmaxKernel(SoftmaxKernelBase):
         self.set_input_layout('C_mask', self.get_input('C_in'))
         self.set_output_layout('C_out', self.get_input('C_in'))
 
-    def blocks_per_grid(self) -> tuple[int]:
+    def blocks_per_grid(self) -> Tuple[int]:
         H = self.get_parameter('GLOBAL_H_VALUE')
         T = self.get_parameter('ROW_TILE_VALUE')
         return (H // T, )
 
-    def threads_per_block(self) -> tuple[int]:
+    def threads_per_block(self) -> Tuple[int]:
         BW = self.get_parameter('BLOCK_SIZE_W_VALUE')
         T = self.get_parameter('ROW_TILE_VALUE')
         return (T * BW, )

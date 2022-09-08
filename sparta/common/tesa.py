@@ -209,7 +209,7 @@ class BCSR(TeSABase):
 
 class BCSRObj:
 
-    def __init__(self, mode: str = 'H', block_size: tuple[int] = None) -> None:
+    def __init__(self, mode: str = 'H', block_size: Tuple[int] = None) -> None:
         self.mode = mode
         self.block_size = block_size
 

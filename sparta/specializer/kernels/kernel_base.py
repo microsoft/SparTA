@@ -7,7 +7,7 @@ import copy
 import shutil
 import hashlib
 import subprocess
-from typing import Any, Optional, Callable, Iterable, Union
+from typing import Any, Optional, Callable, Iterable, Union, Tuple, List, Dict
 from dataclasses import dataclass
 
 import torch
@@ -128,9 +128,9 @@ class _Tensor:
 class KernelBase:
 
     def __init__(self):
-        self.parameters: dict[str, _Parameter] = {}
-        self.inputs: dict[str, _Tensor] = {}
-        self.outputs: dict[str, _Tensor] = {}
+        self.parameters: Dict[str, _Parameter] = {}
+        self.inputs: Dict[str, _Tensor] = {}
+        self.outputs: Dict[str, _Tensor] = {}
         self.add_parameters()
         self.add_ports()
 
@@ -140,7 +140,7 @@ class KernelBase:
     ):
         self.parameters[name] = _Parameter(name, value, is_tunable, search_space)
 
-    def set_search_space(self, search_space: dict[str, list[Any]]):
+    def set_search_space(self, search_space: Dict[str, list[Any]]):
         for name, space in search_space.items():
             self.parameters[name].search_space = space
 
@@ -159,7 +159,7 @@ class KernelBase:
     def add_input(self, name: str, dtype: str, layout: str = 'dense'):
         self.inputs[name] = _Tensor(name, dtype, layout)
 
-    def set_input_shape(self, name: str, shape: tuple[str]):
+    def set_input_shape(self, name: str, shape: Tuple[str]):
         self.inputs[name].shape = shape
 
     def set_input_layout(self, name: str, layout: Union[dict, _Tensor]):
@@ -178,7 +178,7 @@ class KernelBase:
     def add_output(self, name: str, dtype: str, layout: str = 'dense'):
         self.outputs[name] = _Tensor(name, dtype, layout)
 
-    def set_output_shape(self, name: str, shape: tuple[str]):
+    def set_output_shape(self, name: str, shape: Tuple[str]):
         self.outputs[name].shape = shape
 
     def set_output_layout(self, name: str, layout: Union[dict, _Tensor]):
@@ -215,7 +215,7 @@ class KernelBase:
                     raise ValueError(f'Missing mask on output tensor {output_tensor.name}')
 
     def configure(
-        self, config: dict, mask: Optional[dict[str, np.ndarray]],
+        self, config: Dict, mask: Optional[dict[str, np.ndarray]],
         generate_mask_if_missing: bool
     ) -> str:
         for k, v in config.items():
@@ -234,8 +234,8 @@ class KernelBase:
         return unique_id
 
     def test(
-        self, config: dict, mask: Optional[dict[str, np.ndarray]] = None,
-        inputs: dict[str, np.ndarray] = None, target_outputs: dict[str, np.ndarray] = None,
+        self, config: Dict, mask: Optional[dict[str, np.ndarray]] = None,
+        inputs: Dict[str, np.ndarray] = None, target_outputs: Dict[str, np.ndarray] = None,
         num_warmups: int = 10, num_iters: int = 10, check_results: bool = True
     ) -> float:
         unique_id = self.configure(config, mask, True)
@@ -264,7 +264,7 @@ class KernelBase:
         lat = test_func(test_inputs, test_outputs, num_warmups, num_iters, check_results)
         return lat
 
-    def compile(self, config: dict, mask: dict[str, np.ndarray], jit: bool = True):
+    def compile(self, config: Dict, mask: Dict[str, np.ndarray], jit: bool = True):
         unique_id = self.configure(config, mask, False)
         for input_tensor in self.inputs.values():
             input_tensor.generate_data()
@@ -324,13 +324,13 @@ class KernelBase:
         '''
 
     @abc.abstractmethod
-    def blocks_per_grid(self) -> tuple[int]:
+    def blocks_per_grid(self) -> Tuple[int]:
         '''
         Get launch config: number of blocks per grid
         '''
 
     @abc.abstractmethod
-    def threads_per_block(self) -> tuple[int]:
+    def threads_per_block(self) -> Tuple[int]:
         '''
         Get launch config: number of threads per block
         '''
@@ -345,8 +345,8 @@ class KernelBase:
 class KernelInterface(abc.ABC):
 
     def __init__(
-        self, unique_id: str, kernel_code: str, shape: dict[str, Any],
-        threads_per_block: tuple[int], blocks_per_grid: tuple[int],
+        self, unique_id: str, kernel_code: str, shape: Dict[str, Any],
+        threads_per_block: Tuple[int], blocks_per_grid: Tuple[int],
         inputs: Iterable[_Tensor], outputs: Iterable[_Tensor]
     ):
         self._id = unique_id
@@ -439,7 +439,7 @@ class TestInterface(KernelInterface, Callable):
             timeout=5
         )
 
-    def _specify_data_path(self, desc_list: dict):
+    def _specify_data_path(self, desc_list: Dict):
         for desc in desc_list:
             desc['filepath'] = os.path.join(self._dir, f'{desc["name"]}.dat')
 
@@ -527,9 +527,9 @@ class JITModule(torch.nn.Module):
 
     def __init__(
         self, kernel_func_name: str, kernel_func_body: str,
-        blocks_per_grid: tuple[int], threads_per_block: tuple[int],
-        input_mask: list[bool], fixed_inputs: list[torch.Tensor],
-        output_placeholder: list[torch.Tensor]
+        blocks_per_grid: Tuple[int], threads_per_block: Tuple[int],
+        input_mask: List[bool], fixed_inputs: List[torch.Tensor],
+        output_placeholder: List[torch.Tensor]
     ):
         super().__init__()
         params = [torch.nn.Parameter(x, requires_grad=False) for x in fixed_inputs]

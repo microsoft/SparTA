@@ -3,6 +3,7 @@
 
 import os
 import abc
+from typing import Tuple, Dict
 
 import jinja2
 import numpy as np
@@ -82,18 +83,18 @@ class MatMulKernelBase(KernelBase):
         '''
 
     @abc.abstractmethod
-    def blocks_per_grid(self) -> tuple[int]:
+    def blocks_per_grid(self) -> Tuple[int]:
         '''
         Get launch config: number of blocks per grid
         '''
 
     @abc.abstractmethod
-    def threads_per_block(self) -> tuple[int]:
+    def threads_per_block(self) -> Tuple[int]:
         '''
         Get launch config: number of threads per block
         '''
 
-    def calc_target_outputs(self) -> dict[str, np.ndarray]:
+    def calc_target_outputs(self) -> Dict[str, np.ndarray]:
         A = self.get_input('A').dense()
         B = self.get_input('B').dense()
         if self._transpose:
@@ -178,14 +179,14 @@ class SparTATemplateSparseMatMulKernel(MatMulKernelBase):
                 'block_size': [BM, BN],
             })
 
-    def blocks_per_grid(self) -> tuple[int]:
+    def blocks_per_grid(self) -> Tuple[int]:
         M = self.get_parameter('GLOBAL_M_VALUE')
         N = self.get_parameter('GLOBAL_N_VALUE')
         BM = self.get_parameter('BLOCK_SIZE_M_VALUE')
         BN = self.get_parameter('BLOCK_SIZE_N_VALUE')
         return (N // BN, M // BM)
 
-    def threads_per_block(self) -> tuple[int]:
+    def threads_per_block(self) -> Tuple[int]:
         BM = self.get_parameter('BLOCK_SIZE_M_VALUE')
         BN = self.get_parameter('BLOCK_SIZE_N_VALUE')
         TM = self.get_parameter('THREAD_SIZE_M_VALUE')
@@ -234,7 +235,7 @@ class OpenAITemplateSparseMatMulKernel(MatMulKernelBase):
                 'block_size': [BM, BN],
             })
 
-    def blocks_per_grid(self) -> tuple[int]:
+    def blocks_per_grid(self) -> Tuple[int]:
         if self._stype == 'dds':
             return (int(self.get_output('C').sparse()['nnz'][0]), )
         else:
@@ -242,5 +243,5 @@ class OpenAITemplateSparseMatMulKernel(MatMulKernelBase):
             N = self.get_parameter('GLOBAL_N_VALUE')
             return (N // 32, M // 32)
 
-    def threads_per_block(self) -> tuple[int]:
+    def threads_per_block(self) -> Tuple[int]:
         return (256, )

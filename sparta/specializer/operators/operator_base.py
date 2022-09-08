@@ -4,7 +4,7 @@
 import abc
 import warnings
 import subprocess
-from typing import Optional
+from typing import Optional, Tuple, List, Dict
 
 import torch
 import numpy as np
@@ -31,7 +31,7 @@ class OperatorBase(torch.nn.Module):
         self._mask = None
         self.ready = False
 
-    def build(self, impl: str, config: dict, jit: bool = True):
+    def build(self, impl: str, config: Dict, jit: bool = True):
         '''Build the sparse kernel using the specified implementation and configs.
 
         Args:
@@ -76,7 +76,7 @@ class OperatorBase(torch.nn.Module):
         '''
 
     @abc.abstractmethod
-    def _possible_implementations(self) -> dict[str, type[kernels.KernelBase]]:
+    def _possible_implementations(self) -> Dict[str, type[kernels.KernelBase]]:
         '''Get possible implementations.
 
         Returns:
@@ -88,10 +88,10 @@ class OperatorBase(torch.nn.Module):
         '''Instantiate a forward kernel object using the specified kernel class.'''
 
     @abc.abstractmethod
-    def _read_sample_inputs(self, *args) -> tuple[dict, dict]:
+    def _read_sample_inputs(self, *args) -> Tuple[dict, dict]:
         '''Read shape config and convert sample inputs to test inputs.'''
 
-    def set_search_space(self, search_space: dict[str, dict[str, list]]):
+    def set_search_space(self, search_space: Dict[str, dict[str, list]]):
         '''Input a custom search space to override the default one before tuning.
 
         Examples:
@@ -128,7 +128,7 @@ class OperatorBase(torch.nn.Module):
         '''
         self._custom_search_space = search_space
 
-    def tune(self, sample_inputs: list[torch.Tensor], algo: str = 'grid', max_trials: int = -1):
+    def tune(self, sample_inputs: List[torch.Tensor], algo: str = 'grid', max_trials: int = -1):
         '''Go through all possible implementations and corresponding search spaces,
         find the best implementation and the best configuration.
 
