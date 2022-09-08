@@ -49,7 +49,7 @@ class SparseSoftmax(OperatorBase):
         '''
         return kernel_class(self._dtype, self._compressed)
 
-    def _set_parameters(self, forward_kernel: kernels.KernelBase):
+    def _load_compile_kernel(self, forward_kernel: kernels.KernelBase):
         '''No parameters need to be set here.'''
         pass
 

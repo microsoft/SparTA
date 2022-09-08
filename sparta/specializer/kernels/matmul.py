@@ -8,6 +8,7 @@ import jinja2
 import numpy as np
 
 from sparta.specializer.kernels.kernel_base import KernelBase
+from sparta.common.tuning import TunableItemCfg
 
 
 TEMPLATE_DIR = os.path.join(os.path.split(os.path.realpath(__file__))[0], "templates")
@@ -41,9 +42,9 @@ class MatMulKernelBase(KernelBase):
         '''
 
     def add_parameters(self):
-        self.add_parameter("GLOBAL_M_VALUE", value=4096)
-        self.add_parameter("GLOBAL_K_VALUE", value=768)
-        self.add_parameter("GLOBAL_N_VALUE", value=3072)
+        self.add_parameter("GLOBAL_M_VALUE")
+        self.add_parameter("GLOBAL_K_VALUE")
+        self.add_parameter("GLOBAL_N_VALUE")
         self.add_parameter("BIASED", value=self._biased)
         self.add_parameter("TRANSPOSE", value=self._transpose)
         self.add_parameter("COMPRESSED", value=self._compressed)
@@ -116,12 +117,12 @@ class SparTATemplateSparseMatMulKernel(MatMulKernelBase):
 
     def add_parameters(self):
         super().add_parameters()
-        self.add_parameter("BLOCK_SIZE_M_VALUE" , is_tunable=True, search_space=[16, 32, 64])
-        self.add_parameter("BLOCK_SIZE_N_VALUE" , is_tunable=True, search_space=[16, 32, 64])
-        self.add_parameter("BLOCK_SIZE_K_VALUE" , is_tunable=True, search_space=[16, 32, 64])
-        self.add_parameter("THREAD_SIZE_M_VALUE", is_tunable=True, search_space=[2, 4, 8])
-        self.add_parameter("THREAD_SIZE_N_VALUE", is_tunable=True, search_space=[2, 4, 8])
-        self.add_parameter("THREAD_SIZE_K_VALUE", is_tunable=True, search_space=[2, 4, 8])
+        self.add_parameter("BLOCK_SIZE_M_VALUE" , is_tunable=True, search_space=TunableItemCfg('choice', [16, 32, 64]))
+        self.add_parameter("BLOCK_SIZE_N_VALUE" , is_tunable=True, search_space=TunableItemCfg('choice', [16, 32, 64]))
+        self.add_parameter("BLOCK_SIZE_K_VALUE" , is_tunable=True, search_space=TunableItemCfg('choice', [16, 32, 64]))
+        self.add_parameter("THREAD_SIZE_M_VALUE", is_tunable=True, search_space=TunableItemCfg('choice', [2, 4, 8]))
+        self.add_parameter("THREAD_SIZE_N_VALUE", is_tunable=True, search_space=TunableItemCfg('choice', [2, 4, 8]))
+        self.add_parameter("THREAD_SIZE_K_VALUE", is_tunable=True, search_space=TunableItemCfg('choice', [2, 4, 8]))
 
     def check_parameters(self):
         M = self.get_parameter('GLOBAL_M_VALUE')

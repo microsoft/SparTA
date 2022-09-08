@@ -2,6 +2,7 @@
 # Licensed under the MIT license.
 
 import abc
+from sys import implementation
 import warnings
 import subprocess
 from typing import Optional
@@ -10,6 +11,7 @@ import torch
 import numpy as np
 
 from sparta.specializer import kernels, tuners
+from sparta.common.tuning import TunableItemCfg, Tunable
 
 
 class OperatorBase(torch.nn.Module):
@@ -27,21 +29,23 @@ class OperatorBase(torch.nn.Module):
         self._raw_module = raw_module
         self._forward_kernel = None
         self._forward_function = None
-        self._custom_search_space = {}
+        self._tuner = None
         self._mask = None
         self.ready = False
+        self._possible_implementations = {}
 
-    def build(self, impl: str, config: dict, jit: bool = True):
+    def build(self, params: dict, sample_inputs: list = None, jit: bool = True):
         '''Build the sparse kernel using the specified implementation and configs.
 
         Args:
-            impl (str): Implementation. Can be extracted from the tuning result.
-            config (str): Kernel config. Can be extracted from the tuning result.
+            params (str): building parameters. It should be a valid sample of search space
             jit (bool): Determine whether to build the kernel using JIT mode.
         '''
-        forward_kernel = self._get_forward_kernel(impl)
-        self._forward_function = forward_kernel.compile(config, self._mask, jit).forward
-        self._set_parameters(forward_kernel)
+        if sample_inputs:
+            shape, inputs = self._read_sample_inputs(*sample_inputs)
+        forward_kernel = self._possible_implementations[params['implement']]
+        self._forward_function = forward_kernel.compile(params.get('config', {}), self._mask, jit).forward
+        self._load_compile_kernel(forward_kernel)
         self.ready = True
 
     def forward(self, *args):
@@ -67,7 +71,7 @@ class OperatorBase(torch.nn.Module):
         '''Calls the sparse forward kernel.'''
 
     @abc.abstractmethod
-    def _set_parameters(self, forward_kernel: kernels.KernelBase):
+    def _load_compile_kernel(self, forward_kernel: kernels.KernelBase):
         '''Set PyTorch module parameters according to the dense operator.
 
         Args:
@@ -76,22 +80,10 @@ class OperatorBase(torch.nn.Module):
         '''
 
     @abc.abstractmethod
-    def _possible_implementations(self) -> dict[str, type[kernels.KernelBase]]:
-        '''Get possible implementations.
-
-        Returns:
-            dict: Key is the implementation name, value is the corresponding kernel class.
-        '''
-
-    @abc.abstractmethod
-    def _create_forward_kernel(self, kernel_class: type[kernels.KernelBase]) -> kernels.KernelBase:
-        '''Instantiate a forward kernel object using the specified kernel class.'''
-
-    @abc.abstractmethod
     def _read_sample_inputs(self, *args) -> tuple[dict, dict]:
         '''Read shape config and convert sample inputs to test inputs.'''
 
-    def set_search_space(self, search_space: dict[str, dict[str, list]]):
+    def set_search_space(self, search_space: TunableItemCfg = None):
         '''Input a custom search space to override the default one before tuning.
 
         Examples:
@@ -108,16 +100,21 @@ class OperatorBase(torch.nn.Module):
                 sparse_linear = sparta.nn.SparseLinear(dense_linear, weight_mask=weight_mask)
 
                 # Set custom search space
-                sparse_softmax.set_search_space({
-                    'sparta': {
-                        'BLOCK_SIZE_M_VALUE': [32, 64],
-                        'BLOCK_SIZE_K_VALUE': [32, 64],
-                        'BLOCK_SIZE_N_VALUE': [32, 64],
-                        'THREAD_SIZE_M_VALUE': [4],
-                        'THREAD_SIZE_K_VALUE': [4],
-                        'THREAD_SIZE_N_VALUE': [4],
-                    }
-                })
+                search_space_cfg = TunableItemCfg('choice', [
+                    {'implement': 'openai'},
+                    {
+                        'implement': 'sparta',
+                        'config':{
+                            'BLOCK_SIZE_M_VALUE': TunableItemCfg('choice', [32, 64]),
+                            'BLOCK_SIZE_K_VALUE': TunableItemCfg('choice', [32, 64]),
+                            'BLOCK_SIZE_N_VALUE': TunableItemCfg('choice', [32, 64]),
+                            'THREAD_SIZE_M_VALUE': TunableItemCfg('choice', [4]),
+                            'THREAD_SIZE_K_VALUE': TunableItemCfg('choice', [4]),
+                            'THREAD_SIZE_N_VALUE': TunableItemCfg('choice', [4]),
+                        }
+                    },
+                ])
+                sparse_linear.set_search_space(search_space_cfg)
 
                 # Tune the sparse linear layer
                 sparta.tune(sparse_linear, sample_inputs=[torch.rand((512, 1024))])
@@ -126,7 +123,9 @@ class OperatorBase(torch.nn.Module):
             search_space (dict): Key is the tuning algorithm, value is a dictionary whose keys are
                 tunable parameters and values are lists of possible values.
         '''
-        self._custom_search_space = search_space
+        if search_space is None:
+            search_space = TunableItemCfg('choice', [dict(implement=k,config=v.get_search_space()) for k,v in self._possible_implementations.items()])
+        self._tuner = Tunable(search_space_cfg=search_space)
 
     def tune(self, sample_inputs: list[torch.Tensor], algo: str = 'grid', max_trials: int = -1):
         '''Go through all possible implementations and corresponding search spaces,
