@@ -14,7 +14,7 @@ def tune_combined_module(module: torch.nn.Module, sample_inputs: List[torch.Tens
 
     Args:
         module (torch.nn.Module): A PyTorch module that contains one or more sparse sub-modules.
-        sample_inputs (list[torch.Tensor]): Sample input tensors to determine shape parameters.
+        sample_inputs (List[torch.Tensor]): Sample input tensors to determine shape parameters.
     '''
     if isinstance(module, OperatorBase):
         tune_sparse_module(module, sample_inputs)
@@ -37,7 +37,7 @@ def tune_sparse_module(operator: OperatorBase, sample_inputs: List[torch.Tensor]
 
     Args:
         module (OperatorBase): A tunable sparse operator.
-        sample_inputs (list[torch.Tensor]): Sample input tensors to determine shape parameters.
+        sample_inputs (List[torch.Tensor]): Sample input tensors to determine shape parameters.
     '''
     best_impl, best_config = operator.tune(sample_inputs)
     if best_impl is None or best_config is None:
@@ -50,7 +50,7 @@ def get_input_hook(input_dict: Dict[str, list], module_name: str):
     '''Create a hook to capture the input tensor(s) and save to a dictionary
 
     Args:
-        input_dict (dict): The dictionary to save input tensor(s).
+        input_dict (Dict): The dictionary to save input tensor(s).
         module_name (str): Module name as the index of the input dictionary.
 
     Returns:

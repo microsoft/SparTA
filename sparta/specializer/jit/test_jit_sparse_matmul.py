@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Tuple, List, Dict
 import torch
 import numpy as np
 import time
@@ -13,7 +13,7 @@ from sparta.specializer.jit import kernels as jk
 
 class MatmulDSDTest:
 
-    def __init__(self, cfg: dict, sparsity: float, transpose: bool, bias: bool) -> None:
+    def __init__(self, cfg: Dict, sparsity: float, transpose: bool, bias: bool) -> None:
         self.cfg = dict(cfg)
         self.transponse = transpose
         self.bias = bias

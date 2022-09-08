@@ -73,7 +73,7 @@ class SoftmaxKernelBase(KernelBase):
         Get launch config: number of threads per block
         '''
 
-    def set_mask(self, mask: Optional[dict[str, np.ndarray]] = None, generate_if_missing = True):
+    def set_mask(self, mask: Optional[Dict[str, np.ndarray]] = None, generate_if_missing = True):
         super().set_mask(mask, generate_if_missing)
         self.get_input('C_mask').set_data(self.get_input('C_in').mask.astype('int32'))
 
