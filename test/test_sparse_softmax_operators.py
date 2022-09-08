@@ -9,8 +9,8 @@ import sparta
 
 
 H, W = 1024, 512
-SPARSITY = 0.8
-BLOCK = (32, 32)
+SPARSITY = 0.95
+BLOCK = (8, 8)
 SHAPE_CONFIG = {
     'GLOBAL_H_VALUE': H,
     'GLOBAL_W_VALUE': W,
@@ -39,8 +39,8 @@ class TestSparseSoftmaxOperators(unittest.TestCase):
         dense_input = torch.rand((H, W)).cuda()
         dense_op = torch.nn.Softmax(dim=-1).cuda()
         sparse_op = sparta.nn.SparseSoftmax(dense_op, mask=mask)
-        sparse_op.build('sparta', SHAPE_CONFIG | TILE_CONFIG)
-        torch.testing.assert_allclose(
+        sparse_op.build('sparta', dict(SHAPE_CONFIG, **TILE_CONFIG))
+        torch.testing.assert_close(
             sparse_op(dense_input),
             sparse_matmul_reference(dense_input, mask)
         )

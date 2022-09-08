@@ -3,6 +3,7 @@
 
 import os
 import abc
+from typing import Optional, Tuple, Dict
 
 import jinja2
 import numpy as np
@@ -43,13 +44,15 @@ class SoftmaxKernelBase(KernelBase):
 
     def add_ports(self):
         self.add_input('C_in', self._dtype, 'BCSR')
-        self.add_output('C_out', self._dtype, 'dense')
+        self.add_input('C_mask', 'int', 'BCSR')
+        self.add_output('C_out', self._dtype, 'BCSR')
 
     @abc.abstractmethod
     def set_ports_shape(self):
         H = self.get_parameter('GLOBAL_H_VALUE')
         W = self.get_parameter('GLOBAL_W_VALUE')
         self.set_input_shape('C_in', (H, W))
+        self.set_input_shape('C_mask', (H, W))
         self.set_output_shape('C_out', (H, W))
 
     @abc.abstractmethod
@@ -59,20 +62,24 @@ class SoftmaxKernelBase(KernelBase):
         '''
 
     @abc.abstractmethod
-    def blocks_per_grid(self) -> tuple[int]:
+    def blocks_per_grid(self) -> Tuple[int]:
         '''
         Get launch config: number of blocks per grid
         '''
 
     @abc.abstractmethod
-    def threads_per_block(self) -> tuple[int]:
+    def threads_per_block(self) -> Tuple[int]:
         '''
         Get launch config: number of threads per block
         '''
 
-    def calc_target_outputs(self) -> dict[str, np.ndarray]:
+    def set_mask(self, mask: Optional[Dict[str, np.ndarray]] = None, generate_if_missing = True):
+        super().set_mask(mask, generate_if_missing)
+        self.get_input('C_mask').set_data(self.get_input('C_in').mask.astype('int32'))
+
+    def calc_target_outputs(self) -> Dict[str, np.ndarray]:
         C_in = self.get_input('C_in').dense()
-        C_mask = self.get_input('C_in').mask
+        C_mask = self.get_input('C_mask').dense()
         C_max = C_in.max(axis=-1).reshape((-1, 1))
         C_exp = np.exp(C_in - C_max) * C_mask
         C_exp_sum = C_exp.sum(axis=-1).reshape((-1, 1)) + 1e-10
@@ -120,13 +127,15 @@ class SparTATemplateSparseSoftmaxKernel(SoftmaxKernelBase):
             'mode': 'H' if self._compressed else 'HD',
             'block_size': [BH, BW],
         })
+        self.set_input_layout('C_mask', self.get_input('C_in'))
+        self.set_output_layout('C_out', self.get_input('C_in'))
 
-    def blocks_per_grid(self) -> tuple[int]:
+    def blocks_per_grid(self) -> Tuple[int]:
         H = self.get_parameter('GLOBAL_H_VALUE')
         T = self.get_parameter('ROW_TILE_VALUE')
         return (H // T, )
 
-    def threads_per_block(self) -> tuple[int]:
+    def threads_per_block(self) -> Tuple[int]:
         BW = self.get_parameter('BLOCK_SIZE_W_VALUE')
         T = self.get_parameter('ROW_TILE_VALUE')
         return (T * BW, )

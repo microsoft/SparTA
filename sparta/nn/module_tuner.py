@@ -2,18 +2,19 @@
 # Licensed under the MIT license.
 
 import warnings
+from typing import List, Dict
 
 import torch
 
 from sparta.specializer import OperatorBase
 
 
-def tune_combined_module(module: torch.nn.Module, sample_inputs: list[torch.Tensor]):
+def tune_combined_module(module: torch.nn.Module, sample_inputs: List[torch.Tensor]):
     '''Find, tune and build all sparse operators in the model.
 
     Args:
         module (torch.nn.Module): A PyTorch module that contains one or more sparse sub-modules.
-        sample_inputs (list[torch.Tensor]): Sample input tensors to determine shape parameters.
+        sample_inputs (List[torch.Tensor]): Sample input tensors to determine shape parameters.
     '''
     if isinstance(module, OperatorBase):
         tune_sparse_module(module, sample_inputs)
@@ -31,12 +32,12 @@ def tune_combined_module(module: torch.nn.Module, sample_inputs: list[torch.Tens
                 tune_sparse_module(child_module, sample_inputs_dict[child_name])
 
 
-def tune_sparse_module(operator: OperatorBase, sample_inputs: list[torch.Tensor]):
+def tune_sparse_module(operator: OperatorBase, sample_inputs: List[torch.Tensor]):
     '''Tune and build the given sparse operator.
 
     Args:
         module (OperatorBase): A tunable sparse operator.
-        sample_inputs (list[torch.Tensor]): Sample input tensors to determine shape parameters.
+        sample_inputs (List[torch.Tensor]): Sample input tensors to determine shape parameters.
     '''
     best_impl, best_config = operator.tune(sample_inputs)
     if best_impl is None or best_config is None:
@@ -45,11 +46,11 @@ def tune_sparse_module(operator: OperatorBase, sample_inputs: list[torch.Tensor]
         operator.build(best_impl, best_config)
 
 
-def get_input_hook(input_dict: dict[str, list], module_name: str):
+def get_input_hook(input_dict: Dict[str, list], module_name: str):
     '''Create a hook to capture the input tensor(s) and save to a dictionary
 
     Args:
-        input_dict (dict): The dictionary to save input tensor(s).
+        input_dict (Dict): The dictionary to save input tensor(s).
         module_name (str): Module name as the index of the input dictionary.
 
     Returns:

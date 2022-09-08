@@ -21,7 +21,7 @@ dense_op = torch.nn.Linear(K, N)
 dense_op.weight *= w_mask
 sparse_op = sparta.nn.SparseLinear(dense_op, weight_mask=w_mask)
 sparse_op.tune(inputs=(A))
-torch.testing.assert_allclose(sparse_op(A), dense_op(A))
+torch.testing.assert_close(sparse_op(A), dense_op(A))
 ```
 
 Besides the pruning indicator, the *TeSA* could contain more information such as quantization formats, dynamic shapes, *etc*.

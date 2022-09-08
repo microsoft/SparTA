@@ -5,7 +5,7 @@ import abc
 from sys import implementation
 import warnings
 import subprocess
-from typing import Optional
+from typing import Type, Tuple, List, Dict
 
 import torch
 import numpy as np
@@ -19,10 +19,10 @@ class OperatorBase(torch.nn.Module):
 
     Args:
         raw_module (torch.nn.Module): The corresponding dense operator.
-        base_class (type[torch.nn.Module]): Class of the dense operator.
+        base_class (Type[torch.nn.Module]): Class of the dense operator.
     '''
 
-    def __init__(self, raw_module: torch.nn.Module, base_class: type[torch.nn.Module]):
+    def __init__(self, raw_module: torch.nn.Module, base_class: Type[torch.nn.Module]):
         if type(raw_module) is not base_class:
             raise ValueError(f'expected a {base_class} module')
         super().__init__()
@@ -34,7 +34,7 @@ class OperatorBase(torch.nn.Module):
         self.ready = False
         self._possible_implementations = {}
 
-    def build(self, params: dict, sample_inputs: list = None, jit: bool = True):
+    def build(self, params: Dict, sample_inputs: List = None, jit: bool = True):
         '''Build the sparse kernel using the specified implementation and configs.
 
         Args:
@@ -80,7 +80,7 @@ class OperatorBase(torch.nn.Module):
         '''
 
     @abc.abstractmethod
-    def _read_sample_inputs(self, *args) -> tuple[dict, dict]:
+    def _read_sample_inputs(self, *args) -> Tuple[dict, dict]:
         '''Read shape config and convert sample inputs to test inputs.'''
 
     def set_search_space(self, search_space: TunableItemCfg = None):
@@ -127,7 +127,7 @@ class OperatorBase(torch.nn.Module):
             search_space = TunableItemCfg('choice', [dict(implement=k,config=v.get_search_space()) for k,v in self._possible_implementations.items()])
         self._tuner = Tunable(search_space_cfg=search_space)
 
-    def tune(self, sample_inputs: list[torch.Tensor], algo: str = 'grid', max_trials: int = -1):
+    def tune(self, sample_inputs: List[torch.Tensor], algo: str = 'grid', max_trials: int = -1):
         '''Go through all possible implementations and corresponding search spaces,
         find the best implementation and the best configuration.
 
@@ -166,7 +166,7 @@ class OperatorBase(torch.nn.Module):
                 num += 1
                 print(f'#{num}: {", ".join([f"{k}={v}" for k, v in cfg.items()])}')
                 try:
-                    latency = kernel.test(shape | cfg, mask=self._mask, inputs=inputs)
+                    latency = kernel.test(dict(shape, **cfg), mask=self._mask, inputs=inputs)
                 except AssertionError:
                     print(f'Invalid config')
                     continue
@@ -184,7 +184,7 @@ class OperatorBase(torch.nn.Module):
                 best_cfg = impl_best_cfg
                 best_impl = implementation
         if best_impl is not None and best_cfg is not None:
-            best_cfg |= shape
+            best_cfg.update(shape)
             print(f'Best implementation: {best_impl}')
             print(f'Best config: {best_cfg}')
         else:

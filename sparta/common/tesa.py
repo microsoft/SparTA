@@ -77,7 +77,7 @@ class BCSR(TeSABase):
             block_end_j = block_start_j + block_width
             if mask[block_i, block_j]:
                 block = dense[block_start_i:block_end_i, block_start_j:block_end_j]
-                val = np.concatenate([val, block.flatten()])
+                val.append(block.flatten())
                 row_idx.append(block_i)
                 col_idx.append(block_j)
             else:
@@ -95,8 +95,7 @@ class BCSR(TeSABase):
                     val, row_idx, col_idx = read_block(block_i, block_j, val, row_idx, col_idx)
                 col_ptr.append(len(row_idx))
 
-        if mode.endswith('D'):
-            val = dense
+        val = dense if mode.endswith('D') else np.concatenate(val)
 
         sparse = {
             'val': np.array(val).astype(dense.dtype),
@@ -210,7 +209,7 @@ class BCSR(TeSABase):
 
 class BCSRObj:
 
-    def __init__(self, mode: str = 'H', block_size: tuple[int] = None) -> None:
+    def __init__(self, mode: str = 'H', block_size: Tuple[int] = None) -> None:
         self.mode = mode
         self.block_size = block_size
 

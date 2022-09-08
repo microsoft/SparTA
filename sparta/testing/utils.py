@@ -1,13 +1,13 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-from typing import Optional, Callable
+from typing import Optional, Callable, List
 
 import torch
 
 
 def test_latency(
-    func: Callable, inputs: list, target_outputs: Optional[list] = None,
+    func: Callable, inputs: List, target_outputs: Optional[List] = None,
     num_warmups: int = 1000, num_iters: int = 1000
 ):
     '''Test latency of a CUDA function.
@@ -35,7 +35,7 @@ def test_latency(
     return start.elapsed_time(end) / num_iters
 
 
-def test_correctness(func: Callable, inputs: list, target_outputs: list):
+def test_correctness(func: Callable, inputs: List, target_outputs: List):
     '''Test correctness of a CUDA function.
 
     Args:

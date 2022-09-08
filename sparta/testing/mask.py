@@ -1,18 +1,20 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
+from typing import Tuple
+
 import torch
 
 
 def block_mask(
-    shape: tuple[int], block: tuple[int] = (1, 1),
+    shape: Tuple[int], block: Tuple[int] = (1, 1),
     sparsity: float = 0.99, algo: str = 'rand'
 ):
     '''Generate a 2D bool tensor as block mask.
 
     Args:
-        shape (tuple[int]): Mask shape.
-        block (tuple[int]): Block shape. (1, 1) means finegrained mask.
+        shape (Tuple[int]): Mask shape.
+        block (Tuple[int]): Block shape. (1, 1) means finegrained mask.
         sparsity (float): The ratio of empty block number to total block number.
         algo (str): Algorithm to generate mask. Only random generator is supported now.
     '''
@@ -26,12 +28,12 @@ def block_mask(
         raise ValueError(f'unsupported mask generator: {algo}')
 
 
-def random_block_mask(shape: tuple[int], block: tuple[int], sparsity: float = 0.99):
+def random_block_mask(shape: Tuple[int], block: Tuple[int], sparsity: float = 0.99):
     '''Randomly generate a 2D bool tensor as block mask.
 
     Args:
-        shape (tuple[int]): Mask shape.
-        block (tuple[int]): Block shape.
+        shape (Tuple[int]): Mask shape.
+        block (Tuple[int]): Block shape.
         sparsity (float): The ratio of empty block number to total block number.
     '''
     compressed_shape = (shape[0] // block[0], shape[1] // block[1])
@@ -40,11 +42,11 @@ def random_block_mask(shape: tuple[int], block: tuple[int], sparsity: float = 0.
     return mask.swapaxes(1, 2).reshape(shape)
 
 
-def random_mask(shape: tuple[int], sparsity: float = 0.99):
+def random_mask(shape: Tuple[int], sparsity: float = 0.99):
     '''Randomly generate a 2D bool tensor as finegrained mask.
 
     Args:
-        shape (tuple[int]): Mask shape.
+        shape (Tuple[int]): Mask shape.
         sparsity (float): The ratio of empty block number to total block number.
     '''
     return torch.rand(shape) > sparsity

@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-from typing import Optional
+from typing import Optional, Type
 
 import torch
 
@@ -36,28 +36,30 @@ class SparseSoftmax(OperatorBase):
     def __init__(self, raw_module: torch.nn.Softmax, mask: Optional[torch.Tensor] = None):
         super().__init__(raw_module, torch.nn.Softmax)
         self._raw_module = raw_module
-        self._mask = {'C_in': mask.cpu().detach().numpy()}
+        numpy_mask = mask.cpu().detach().numpy()
+        self._mask = {'C_in': numpy_mask, 'C_mask': numpy_mask, 'C_out': numpy_mask}
         self._compressed = False
         self._dtype = 'float'
 
-    def _create_forward_kernel(self, kernel_class: type[kernels.SoftmaxKernelBase]) -> kernels.KernelBase:
+    def _create_forward_kernel(self, kernel_class: Type[kernels.SoftmaxKernelBase]) -> kernels.KernelBase:
         '''Instantiate a forward kernel object using the specified softmax kernel class.
 
         Args:
-            kernel_class (type[kernels.SoftmaxKernelBase]): A softmax kernel class which belongs to
+            kernel_class (Type[kernels.SoftmaxKernelBase]): A softmax kernel class which belongs to
                 possible implementations.
         '''
         return kernel_class(self._dtype, self._compressed)
 
     def _load_compile_kernel(self, forward_kernel: kernels.KernelBase):
         '''No parameters need to be set here.'''
-        pass
+        mask = torch.from_numpy(self._mask['C_mask'].astype('int32'))
+        self.C_mask = torch.nn.Parameter(mask, requires_grad=False).cuda()
 
     def _possible_implementations(self):
         '''Get possible implementations.
 
         Returns:
-            dict: Only SparTA's softmax kernel is supported.
+            Dict: Only SparTA's softmax kernel is supported.
         '''
         return {
             'sparta': kernels.SparTATemplateSparseSoftmaxKernel,
@@ -69,7 +71,7 @@ class SparseSoftmax(OperatorBase):
         Args:
             C_in (torch.Tensor): The input tensor.
         '''
-        return self._forward_function(C_in)
+        return self._forward_function(C_in, self.C_mask)
 
     def _read_sample_inputs(self, C_in: torch.Tensor):
         '''Read shape config and convert sample inputs to test inputs.
@@ -78,7 +80,7 @@ class SparseSoftmax(OperatorBase):
             C_in (torch.Tensor): The sample input tensor.
 
         Returns:
-            tuple: The first value is the shape dict, the second value is the test input dict.
+            Tuple: The first value is the shape dict, the second value is the test input dict.
         '''
         H, W = C_in.shape
         shape = {

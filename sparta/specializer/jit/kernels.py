@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from abc import abstractmethod
 from enum import Enum
-from typing import Any, Union, Optional
+from typing import Any, Union, Optional, Tuple, List, Dict
 import os
 import jinja2
 
@@ -28,7 +28,7 @@ class _Parameter:
     description: str = None
     mode: _ParameterMode = _ParameterMode.init_only 
     # for tunable parameter only
-    default_space: tuple = None # (type, options), type in ['choice']
+    default_space: Tuple = None # (type, options), type in ['choice']
 
     def __post_init__(self):
         if self.default_space is not None:
@@ -45,10 +45,10 @@ class _Parameter:
 
 @dataclass
 class _Expr:
-    tokens: list[str]
+    tokens: List[str]
 
     @staticmethod
-    def from_str(s: Union[str,tuple,list]):
+    def from_str(s: Union[str, Tuple, List]):
         if isinstance(s, str):
             return _Expr(s.split(' '))
         elif isinstance(s, tuple):
@@ -62,9 +62,9 @@ class _Expr:
 class _Tensor:
     name: str
     direction: str
-    shape: list[str,_Expr]
+    shape: List[str, _Expr]
     dtype: str
-    layout: Union[str,dict]
+    layout: Union[str, Dict]
     formula: str = None
 
     def __post_init__(self):
@@ -76,8 +76,8 @@ class _Tensor:
 
 @dataclass
 class _GridCfg:
-    threads_per_block: tuple
-    blocks_per_grid: tuple
+    threads_per_block: Tuple
+    blocks_per_grid: Tuple
 
     def __post_init__(self):
         assert len(self.threads_per_block) == 3
@@ -86,10 +86,10 @@ class _GridCfg:
 class KernelBase:
 
     def __init__(self):
-        self.parameters: dict[_Parameter] = {}
-        self.ports: list = []
+        self.parameters: Dict[_Parameter] = {}
+        self.ports: List = []
         self.grid: _GridCfg = None
-        self.search_space: dict = None
+        self.search_space: Dict = None
         self._declare_parameters()
 
     #################### parameters ####################
@@ -102,7 +102,7 @@ class KernelBase:
         assert force or self.parameters[name].changeable(), f'{name} is not changeable' 
         self.parameters[name].value = value
 
-    def set_parameters(self, dic: dict):
+    def set_parameters(self, dic: Dict):
         for name, value in dic.items():
             if name in self.parameters:
                 self._set_parameter(name, value)
@@ -133,7 +133,7 @@ class KernelBase:
         self.search_space = {k:v.default_space for k,v in self.parameters.items() if v.mode ==_Parameter._ParameterMode.tunable}
 
     #################### ports (inout) ####################
-    def add_port(self, name: str, direction: str, shape: list, dtype:str, layout: Union[str,dict]='dense', formula: str=None):
+    def add_port(self, name: str, direction: str, shape: List, dtype:str, layout: Union[str, Dict]='dense', formula: str=None):
         self.ports.append(_Tensor(name, direction, shape, dtype, layout, formula))
 
     def get_port(self, name: str):
@@ -164,7 +164,7 @@ class TemplateKernelBase(KernelBase):
             src = fn.read()
         return jinja2.Template(src).render(self.get_parameters())
 
-    def compile(self, sm_opts: dict = None):
+    def compile(self, sm_opts: Dict = None):
         '''
         sm_opts: SourceModule options
         '''
@@ -278,17 +278,17 @@ class SparseMatMulOAI(MatMulKernelBase):
 class KernelTuner:
     '''support kernel tuning with  multiple implementations'''
 
-    def __init__(self, name: str, implements: dict[KernelBase], search_space: dict = None, backend: str = 'hyperopt') -> None:
+    def __init__(self, name: str, implements: Dict[KernelBase], search_space: Dict = None, backend: str = 'hyperopt') -> None:
         self.name = name
         self.backend = backend
-        self.implements: dict[KernelBase] = implements
+        self.implements: Dict[KernelBase] = implements
         self.best_kernel: KernelBase = None
         if self.backend == 'hyperopt':
             self.search_space = search_space or self.__hyperopt_create_search_space__()
         else:
             raise NotImplementedError
 
-    def load_best_config(self, name: str, config: dict):
+    def load_best_config(self, name: str, config: Dict):
         self.best_kernel = self.implements[name]
         self.best_kernel.set_parameters(config)
         self.best_kernel.compile()
@@ -303,7 +303,7 @@ class KernelTuner:
         __algo__ = {'random': rand, 'tpe': tpe.suggest}
         assert algo in __algo__
 
-        def _objective(args: dict):
+        def _objective(args: Dict):
             kern = self.implements[args['kernel']]
             kern.set_parameters(args)
             if kern.validate_parameters():
@@ -329,7 +329,7 @@ class KernelTuner:
 
 
 class SparseOpBase:
-    def __init__(self, dense_op: torch.nn.Linear, config: dict, keep_origin_op: bool=True) -> None:
+    def __init__(self, dense_op: torch.nn.Linear, config: Dict, keep_origin_op: bool=True) -> None:
         self.origin_op = dense_op if keep_origin_op else None
         weight = dense_op.weight.clone().detach()
         bias = None if dense_op.bias is None else dense_op.bias.clone().detach()

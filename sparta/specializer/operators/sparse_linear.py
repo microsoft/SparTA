@@ -2,7 +2,7 @@
 # Licensed under the MIT license.
 
 import copy
-from typing import Optional
+from typing import Optional, Type
 
 import torch
 
@@ -130,7 +130,7 @@ class SparseLinear(OperatorBase):
             A (torch.Tensor): The sample input tensor.
 
         Returns:
-            tuple: The first value is the shape dict, the second value is the test input dict.
+            Tuple: The first value is the shape dict, the second value is the test input dict.
         '''
         M, K = A.shape
         assert self._shape['GLOBAL_K_VALUE'] == K
