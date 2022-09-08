@@ -39,7 +39,7 @@ class TestGridSearchTuner(unittest.TestCase):
         self.assertIsNotNone(config)
         sparse_op.build(impl, config)
         sparse_op.cuda()
-        torch.testing.assert_allclose(sparse_op(dense_input), dense_op(dense_input))
+        torch.testing.assert_close(sparse_op(dense_input), dense_op(dense_input))
         print(f'PASS')
 
 

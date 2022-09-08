@@ -40,7 +40,7 @@ class TestSparseSoftmaxOperators(unittest.TestCase):
         dense_op = torch.nn.Softmax(dim=-1).cuda()
         sparse_op = sparta.nn.SparseSoftmax(dense_op, mask=mask)
         sparse_op.build('sparta', dict(SHAPE_CONFIG, **TILE_CONFIG))
-        torch.testing.assert_allclose(
+        torch.testing.assert_close(
             sparse_op(dense_input),
             sparse_matmul_reference(dense_input, mask)
         )
