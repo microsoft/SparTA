@@ -2,6 +2,7 @@
 # Licensed under the MIT license.
 
 import unittest
+from typing import Type
 
 import numpy as np
 
@@ -23,7 +24,7 @@ TILE_CONFIG = {
 }
 
 
-def test_matmul_kernel(kernel_class: type[kernels.KernelBase], s, b, t, c, cfg):
+def test_matmul_kernel(kernel_class: Type[kernels.KernelBase], s, b, t, c, cfg):
     np.random.seed(2022)
     kernel = kernel_class(sparse_type=s, biased=b, transpose=t, compressed=c)
     print(f'{kernel.get_kernel_name()}: {kernel.test(cfg, num_iters=1000)} ms')
@@ -40,7 +41,7 @@ class TestSparseMatmulKernels(unittest.TestCase):
                         test_matmul_kernel(
                             kernels.SparTATemplateSparseMatMulKernel,
                             stype, biased, transpose, compressed,
-                            SHAPE_CONFIG | TILE_CONFIG
+                            dict(SHAPE_CONFIG, **TILE_CONFIG)
                         )
 
     def test_openai_sparse_matmul(self):

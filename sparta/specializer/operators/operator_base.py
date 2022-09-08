@@ -4,7 +4,7 @@
 import abc
 import warnings
 import subprocess
-from typing import Optional, Tuple, List, Dict
+from typing import Type, Tuple, List, Dict
 
 import torch
 import numpy as np
@@ -17,10 +17,10 @@ class OperatorBase(torch.nn.Module):
 
     Args:
         raw_module (torch.nn.Module): The corresponding dense operator.
-        base_class (type[torch.nn.Module]): Class of the dense operator.
+        base_class (Type[torch.nn.Module]): Class of the dense operator.
     '''
 
-    def __init__(self, raw_module: torch.nn.Module, base_class: type[torch.nn.Module]):
+    def __init__(self, raw_module: torch.nn.Module, base_class: Type[torch.nn.Module]):
         if type(raw_module) is not base_class:
             raise ValueError(f'expected a {base_class} module')
         super().__init__()
@@ -76,7 +76,7 @@ class OperatorBase(torch.nn.Module):
         '''
 
     @abc.abstractmethod
-    def _possible_implementations(self) -> Dict[str, type[kernels.KernelBase]]:
+    def _possible_implementations(self) -> Dict[str, Type[kernels.KernelBase]]:
         '''Get possible implementations.
 
         Returns:
@@ -84,14 +84,14 @@ class OperatorBase(torch.nn.Module):
         '''
 
     @abc.abstractmethod
-    def _create_forward_kernel(self, kernel_class: type[kernels.KernelBase]) -> kernels.KernelBase:
+    def _create_forward_kernel(self, kernel_class: Type[kernels.KernelBase]) -> kernels.KernelBase:
         '''Instantiate a forward kernel object using the specified kernel class.'''
 
     @abc.abstractmethod
     def _read_sample_inputs(self, *args) -> Tuple[dict, dict]:
         '''Read shape config and convert sample inputs to test inputs.'''
 
-    def set_search_space(self, search_space: Dict[str, dict[str, list]]):
+    def set_search_space(self, search_space: Dict[str, Dict[str, list]]):
         '''Input a custom search space to override the default one before tuning.
 
         Examples:
@@ -167,7 +167,7 @@ class OperatorBase(torch.nn.Module):
                 num += 1
                 print(f'#{num}: {", ".join([f"{k}={v}" for k, v in cfg.items()])}')
                 try:
-                    latency = kernel.test(shape | cfg, mask=self._mask, inputs=inputs)
+                    latency = kernel.test(dict(shape, **cfg), mask=self._mask, inputs=inputs)
                 except AssertionError:
                     print(f'Invalid config')
                     continue
@@ -185,7 +185,7 @@ class OperatorBase(torch.nn.Module):
                 best_cfg = impl_best_cfg
                 best_impl = implementation
         if best_impl is not None and best_cfg is not None:
-            best_cfg |= shape
+            best_cfg.update(shape)
             print(f'Best implementation: {best_impl}')
             print(f'Best config: {best_cfg}')
         else:
