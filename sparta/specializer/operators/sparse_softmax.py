@@ -40,30 +40,15 @@ class SparseSoftmax(OperatorBase):
         self._mask = {'C_in': numpy_mask, 'C_mask': numpy_mask, 'C_out': numpy_mask}
         self._compressed = False
         self._dtype = 'float'
-
-    def _create_forward_kernel(self, kernel_class: Type[kernels.SoftmaxKernelBase]) -> kernels.KernelBase:
-        '''Instantiate a forward kernel object using the specified softmax kernel class.
-
-        Args:
-            kernel_class (Type[kernels.SoftmaxKernelBase]): A softmax kernel class which belongs to
-                possible implementations.
-        '''
-        return kernel_class(self._dtype, self._compressed)
+        self._shape = None
+        self._possible_implementations = {
+            'sparta': kernels.SparTATemplateSparseSoftmaxKernel(self._dtype, self._compressed),
+        }
 
     def _load_compile_kernel(self, forward_kernel: kernels.KernelBase):
         '''No parameters need to be set here.'''
         mask = torch.from_numpy(self._mask['C_mask'].astype('int32'))
         self.C_mask = torch.nn.Parameter(mask, requires_grad=False).cuda()
-
-    def _possible_implementations(self):
-        '''Get possible implementations.
-
-        Returns:
-            Dict: Only SparTA's softmax kernel is supported.
-        '''
-        return {
-            'sparta': kernels.SparTATemplateSparseSoftmaxKernel,
-        }
 
     def _sparse_forward(self, C_in: torch.Tensor):
         '''Calls the sparse forward kernel.
@@ -83,11 +68,13 @@ class SparseSoftmax(OperatorBase):
             Tuple: The first value is the shape dict, the second value is the test input dict.
         '''
         H, W = C_in.shape
-        shape = {
+        self._shape = {
             'GLOBAL_H_VALUE': H,
             'GLOBAL_W_VALUE': W
         }
+        for kern in self._possible_implementations.values():
+            kern.set_parameters(self._shape)
         inputs = {
             'C_in': C_in.cpu().detach().numpy().astype('float32')
         }
-        return shape, inputs
+        return self._shape, inputs

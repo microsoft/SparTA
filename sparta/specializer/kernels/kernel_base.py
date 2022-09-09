@@ -151,6 +151,8 @@ class KernelBase:
         return {p.name: p.search_space for p in self.parameters.values() if p.is_tunable}
 
     def set_parameter(self, name, value):
+        if name not in self.parameters and name in ['_name']:
+            return # ignore some special key words 
         self.parameters[name].value = value
 
     def set_parameters(self, dic: dict):

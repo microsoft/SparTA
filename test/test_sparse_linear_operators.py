@@ -88,18 +88,18 @@ class TestSparseLinearOperators(unittest.TestCase):
 
     def test_sparse_linear(self):
         print('==================== Testing Sparse Linear Operators ====================')
-        test_sparse_linear_dsd(dict(implement='sparta', config=TILE_CONFIG), True)
-        test_sparse_linear_dsd(dict(implement='sparta', config=TILE_CONFIG), False)
-        test_sparse_linear_dsd(dict(implement='openai'), True)
-        test_sparse_linear_dsd(dict(implement='openai'), False)
+        test_sparse_linear_dsd(dict(_name='sparta', **TILE_CONFIG), True)
+        test_sparse_linear_dsd(dict(_name='sparta', **TILE_CONFIG), False)
+        test_sparse_linear_dsd(dict(_name='openai'), True)
+        test_sparse_linear_dsd(dict(_name='openai'), False)
 
-        test_sparse_linear_sdd(dict(implement='sparta', config=TILE_CONFIG), True)
-        test_sparse_linear_sdd(dict(implement='sparta', config=TILE_CONFIG), False)
-        test_sparse_linear_sdd(dict(implement='openai'), True)
-        test_sparse_linear_sdd(dict(implement='openai'), False)
+        test_sparse_linear_sdd(dict(_name='sparta', **TILE_CONFIG), True)
+        test_sparse_linear_sdd(dict(_name='sparta', **TILE_CONFIG), False)
+        test_sparse_linear_sdd(dict(_name='openai'), True)
+        test_sparse_linear_sdd(dict(_name='openai'), False)
 
-        test_sparse_linear_dds(dict(implement='openai'), True)
-        test_sparse_linear_dds(dict(implement='openai'), False)
+        test_sparse_linear_dds(dict(_name='openai'), True)
+        test_sparse_linear_dds(dict(_name='openai'), False)
 
 
 if __name__ == '__main__':
