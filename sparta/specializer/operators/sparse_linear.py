@@ -77,23 +77,21 @@ class SparseLinear(OperatorBase):
                 raise ValueError(f'expected output mask shape (?, {N}), got {output_mask.shape}')
         else:
             raise ValueError(f'expected a sparse mask on input / weight / output')
-        self._shape = {'GLOBAL_N_VALUE': N, 'GLOBAL_K_VALUE': K}
-        if M is not None:
-            self._shape.update({'GLOBAL_M_VALUE': M})
+        self._shape = {'GLOBAL_M_VALUE': M, 'GLOBAL_N_VALUE': N, 'GLOBAL_K_VALUE': K}
         self._biased = raw_module.bias is not None
         self._transpose = True
         self._dtype = 'int' if 'int' in str(raw_module.weight.dtype) else 'float'
+        if self._stype == 'dds':
+            self._possible_implementations = {
+                'openai': kernels.OpenAITemplateSparseMatMulKernel(self._stype, self._dtype, self._biased, self._transpose, self._compressed),
+            }
+        else:
+            self._possible_implementations = {
+                'sparta': kernels.SparTATemplateSparseMatMulKernel(self._stype, self._dtype, self._biased, self._transpose, self._compressed),
+                'openai': kernels.OpenAITemplateSparseMatMulKernel(self._stype, self._dtype, self._biased, self._transpose, self._compressed),
+            }
 
-    def _create_forward_kernel(self, kernel_class: Type[kernels.MatMulKernelBase]) -> kernels.KernelBase:
-        '''Instantiate a forward kernel object using the specified matmul kernel class.
-
-        Args:
-            kernel_class (Type[kernels.MatMulKernelBase]): A matmul kernel class which belongs to
-                possible implementations.
-        '''
-        return kernel_class(self._stype, self._dtype, self._biased, self._transpose, self._compressed)
-
-    def _set_parameters(self, forward_kernel: kernels.MatMulKernelBase):
+    def _load_compile_kernel(self, forward_kernel: kernels.MatMulKernelBase):
         '''Set PyTorch module parameters: weight and bias (if exists).
 
         Args:
@@ -113,24 +111,6 @@ class SparseLinear(OperatorBase):
             weight = B_tensor.sparse()['val']
         self.weight = torch.nn.Parameter(torch.from_numpy(weight), requires_grad=False).to(device)
 
-    def _possible_implementations(self):
-        '''Get possible implementations.
-
-        Returns:
-            Dict: In "sparse x dense => dense" mode and "dense x sparse => dense" mode, we provide
-                two backend kernels: SparTA (our implementation) and OpenAI's kernels.
-                In "dense x dense => sparse" mode, only OpenAI's kernel is supported.
-        '''
-        if self._stype == 'dds':
-            return {
-                'openai': kernels.OpenAITemplateSparseMatMulKernel,
-            }
-        else:
-            return {
-                'sparta': kernels.SparTATemplateSparseMatMulKernel,
-                'openai': kernels.OpenAITemplateSparseMatMulKernel,
-            }
-
     def _sparse_forward(self, A: torch.Tensor):
         '''Calls the sparse forward kernel.
 
@@ -144,6 +124,7 @@ class SparseLinear(OperatorBase):
 
     def _read_sample_inputs(self, A: torch.Tensor):
         '''Read shape config and convert sample inputs to test inputs.
+        The captured shape config will be passed to implements (kernels).
 
         Args:
             A (torch.Tensor): The sample input tensor.
@@ -152,15 +133,18 @@ class SparseLinear(OperatorBase):
             Tuple: The first value is the shape dict, the second value is the test input dict.
         '''
         M, K = A.shape
-        shape = copy.deepcopy(self._shape)
-        shape.update({
-            'GLOBAL_M_VALUE': M,
-            'GLOBAL_K_VALUE': K
-        })
+        assert self._shape['GLOBAL_K_VALUE'] == K
+        self._shape['GLOBAL_M_VALUE'] = M
+        for kern in self._possible_implementations.values():
+            kern.set_parameters(self._shape)
         inputs = {
             'A': A.cpu().detach().numpy().astype(f'{self._dtype}32'),
             'B': self._raw_module.weight.cpu().detach().numpy().astype(f'{self._dtype}32'),
         }
         if self._biased:
             inputs['bias'] = self._raw_module.bias.cpu().detach().numpy().astype(f'{self._dtype}32')
-        return shape, inputs
+        return self._shape, inputs
+
+
+if __name__ == '__main__':
+    pass

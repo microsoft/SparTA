@@ -22,6 +22,7 @@ if torch.cuda.is_available():
 
 
 from sparta.common import tesa, utils
+from sparta.common.tuning import TunableItemCfg
 
 
 TEMPLATE_DIR = os.path.join(os.path.split(os.path.realpath(__file__))[0], "templates")
@@ -31,8 +32,9 @@ TEMPLATE_DIR = os.path.join(os.path.split(os.path.realpath(__file__))[0], "templ
 class _Parameter:
     name: str
     value: Any
-    is_tunable: bool
-    search_space: Optional[List[Any]] = None
+    is_tunable: Optional[bool] = False
+    is_dynamic: Optional[bool] = False
+    search_space: Optional[TunableItemCfg] = None
 
     def __post_init__(self):
         if self.search_space is not None:
@@ -136,10 +138,10 @@ class KernelBase:
         self.add_ports()
 
     def add_parameter(
-        self, name: str, value: Any = None, is_tunable: bool = False,
+        self, name: str, value: Any = None, is_tunable: bool = False, is_dynamic: bool = False,
         search_space: Optional[List[Any]] = None
     ):
-        self.parameters[name] = _Parameter(name, value, is_tunable, search_space)
+        self.parameters[name] = _Parameter(name, value, is_tunable, is_dynamic, search_space)
 
     def set_search_space(self, search_space: Dict[str, List[Any]]):
         for name, space in search_space.items():
@@ -149,13 +151,22 @@ class KernelBase:
         return {p.name: p.search_space for p in self.parameters.values() if p.is_tunable}
 
     def set_parameter(self, name, value):
+        if name not in self.parameters and name in ['_name']:
+            return # ignore some special key words 
         self.parameters[name].value = value
+
+    def set_parameters(self, dic: dict):
+        for name, value in dic.items():
+            self.set_parameter(name, value)
 
     def get_parameter(self, name):
         return self.parameters[name].value
 
-    def get_parameters(self):
-        return {k: v.value for k, v in self.parameters.items()}
+    def get_parameters(self, names: list = None):
+        if names is None:
+            return {k: v.value for k, v in self.parameters.items()}
+        else:
+            return {k: self.parameters[k].value for k in names}
 
     def add_input(self, name: str, dtype: str, layout: str = 'dense'):
         self.inputs[name] = _Tensor(name, dtype, layout)

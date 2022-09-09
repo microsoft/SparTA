@@ -39,11 +39,11 @@ def tune_sparse_module(operator: OperatorBase, sample_inputs: List[torch.Tensor]
         module (OperatorBase): A tunable sparse operator.
         sample_inputs (List[torch.Tensor]): Sample input tensors to determine shape parameters.
     '''
-    best_impl, best_config = operator.tune(sample_inputs)
-    if best_impl is None or best_config is None:
+    best_params = operator.tune(sample_inputs)
+    if best_params:
         warnings.warn('All trails failed, please re-tune with a different search space.')
     else:
-        operator.build(best_impl, best_config)
+        operator.build(best_params, sample_inputs=sample_inputs)
 
 
 def get_input_hook(input_dict: Dict[str, list], module_name: str):

@@ -2,6 +2,7 @@
 # Licensed under the MIT license.
 
 import abc
+import sys
 import warnings
 import subprocess
 from typing import Type, Tuple, List, Dict
@@ -10,38 +11,61 @@ import torch
 import numpy as np
 
 from sparta.specializer import kernels, tuners
-
+from sparta.common.tuning import TunableItemCfg, Tunable
+from sparta.common.utils import get_uname
 
 class OperatorBase(torch.nn.Module):
     '''Base class of sparse operators.
+
+    Examples:
+
+        .. code-block:: python
+
+            # Create a dense softmax layer
+            dense_softmax = torch.nn.Softmax
+
+            # Create a mask
+            mask = torch.rand((2048, 1024)) > 0.99
+
+            # Create a sparse softmax layer using the dense layer and the mask
+            sparse_softmax = sparta.nn.SparseSoftmax(dense_softmax, mask=mask)
+
+            # Tune the sparse softmax layer
+            sparta.tune(sparse_softmax, sample_inputs=[torch.rand((2048, 1024))])
 
     Args:
         raw_module (torch.nn.Module): The corresponding dense operator.
         base_class (Type[torch.nn.Module]): Class of the dense operator.
     '''
 
-    def __init__(self, raw_module: torch.nn.Module, base_class: Type[torch.nn.Module]):
+    def __init__(self, raw_module: torch.nn.Module, base_class: Type[torch.nn.Module], name: str=None):
         if type(raw_module) is not base_class:
             raise ValueError(f'expected a {base_class} module')
         super().__init__()
+        self._name = name or get_uname()
         self._raw_module = raw_module
         self._forward_kernel = None
         self._forward_function = None
-        self._custom_search_space = {}
+        self._tuner = None
         self._mask = None
         self.ready = False
+        self._possible_implementations = {}
 
-    def build(self, impl: str, config: Dict, jit: bool = True):
+    def build(self, params: Dict, sample_inputs: List = None, jit: bool = True):
         '''Build the sparse kernel using the specified implementation and configs.
 
         Args:
-            impl (str): Implementation. Can be extracted from the tuning result.
-            config (str): Kernel config. Can be extracted from the tuning result.
+            params (Dict): building parameters. It should be a valid sample of search space
+                params['_name'] should be a valid kernel name in `self._possible_implementations`
+                other key-value pairs in params are the parameters for `self._possible_implementations[params['_name']]`
+            sample_inputs (List): sample inputs for shape inference
             jit (bool): Determine whether to build the kernel using JIT mode.
         '''
-        forward_kernel = self._get_forward_kernel(impl)
-        self._forward_function = forward_kernel.compile(config, self._mask, jit).forward
-        self._set_parameters(forward_kernel)
+        if sample_inputs:
+            shape, inputs = self._read_sample_inputs(*sample_inputs)
+        forward_kernel = self._possible_implementations[params['_name']]
+        self._forward_function = forward_kernel.compile(params, self._mask, jit).forward
+        self._load_compile_kernel(forward_kernel)
         self.ready = True
 
     def forward(self, *args):
@@ -67,7 +91,7 @@ class OperatorBase(torch.nn.Module):
         '''Calls the sparse forward kernel.'''
 
     @abc.abstractmethod
-    def _set_parameters(self, forward_kernel: kernels.KernelBase):
+    def _load_compile_kernel(self, forward_kernel: kernels.KernelBase):
         '''Set PyTorch module parameters according to the dense operator.
 
         Args:
@@ -76,22 +100,10 @@ class OperatorBase(torch.nn.Module):
         '''
 
     @abc.abstractmethod
-    def _possible_implementations(self) -> Dict[str, Type[kernels.KernelBase]]:
-        '''Get possible implementations.
-
-        Returns:
-            dict: Key is the implementation name, value is the corresponding kernel class.
-        '''
-
-    @abc.abstractmethod
-    def _create_forward_kernel(self, kernel_class: Type[kernels.KernelBase]) -> kernels.KernelBase:
-        '''Instantiate a forward kernel object using the specified kernel class.'''
-
-    @abc.abstractmethod
     def _read_sample_inputs(self, *args) -> Tuple[dict, dict]:
         '''Read shape config and convert sample inputs to test inputs.'''
 
-    def set_search_space(self, search_space: Dict[str, Dict[str, list]]):
+    def set_search_space(self, search_space: TunableItemCfg = None):
         '''Input a custom search space to override the default one before tuning.
 
         Examples:
@@ -108,16 +120,18 @@ class OperatorBase(torch.nn.Module):
                 sparse_linear = sparta.nn.SparseLinear(dense_linear, weight_mask=weight_mask)
 
                 # Set custom search space
-                sparse_softmax.set_search_space({
+                search_space_cfg = TunableItemCfg('choice', {
+                    'openai': {},
                     'sparta': {
-                        'BLOCK_SIZE_M_VALUE': [32, 64],
-                        'BLOCK_SIZE_K_VALUE': [32, 64],
-                        'BLOCK_SIZE_N_VALUE': [32, 64],
-                        'THREAD_SIZE_M_VALUE': [4],
-                        'THREAD_SIZE_K_VALUE': [4],
-                        'THREAD_SIZE_N_VALUE': [4],
-                    }
+                        'BLOCK_SIZE_M_VALUE': TunableItemCfg('choice', [32, 64]),
+                        'BLOCK_SIZE_K_VALUE': TunableItemCfg('choice', [32, 64]),
+                        'BLOCK_SIZE_N_VALUE': TunableItemCfg('choice', [32, 64]),
+                        'THREAD_SIZE_M_VALUE': TunableItemCfg('choice', [4]),
+                        'THREAD_SIZE_K_VALUE': TunableItemCfg('choice', [4]),
+                        'THREAD_SIZE_N_VALUE': TunableItemCfg('choice', [4]),
+                    },
                 })
+                sparse_linear.set_search_space(search_space_cfg)
 
                 # Tune the sparse linear layer
                 sparta.tune(sparse_linear, sample_inputs=[torch.rand((512, 1024))])
@@ -126,9 +140,11 @@ class OperatorBase(torch.nn.Module):
             search_space (dict): Key is the tuning algorithm, value is a dictionary whose keys are
                 tunable parameters and values are lists of possible values.
         '''
-        self._custom_search_space = search_space
+        if search_space is None:
+            search_space = TunableItemCfg('choice', _is_nested=True, _value={k:v.get_search_space() for k,v in self._possible_implementations.items()})
+        self._tuner = Tunable(search_space_cfg=search_space, name=self._name)
 
-    def tune(self, sample_inputs: List[torch.Tensor], algo: str = 'grid', max_trials: int = -1):
+    def tune(self, sample_inputs: List[torch.Tensor], algo: str = 'grid', max_trials: int = sys.maxsize):
         '''Go through all possible implementations and corresponding search spaces,
         find the best implementation and the best configuration.
 
@@ -142,18 +158,46 @@ class OperatorBase(torch.nn.Module):
             tuple: The first value is the best implementation, the second value is the best config.
                 Return (None, None) if all trials fail.
         '''
-        max_trials = np.Inf if max_trials < 0 else max_trials
-        if algo.strip().lower() == 'grid':
-            tuner_class = tuners.GridSearchTunner
-        else:
-            raise ValueError(f'unsupported tuning algorithm: {algo}')
+        from nni import NoMoreTrialError
+        def _split_params(p: Dict):
+            implement, cfg = params[self._name]['_name'], params[self._name]
+            return implement, cfg
+
+        tuner = self._tuner.create_tuner(algo)
         shape, inputs = self._read_sample_inputs(*sample_inputs)
-        best_impl = None
-        best_cfg = None
         best_latency = np.Inf
         print(f'==================== Tuning ====================')
-        for implementation, kernel_class in self._possible_implementations().items():
-            kernel = self._create_forward_kernel(kernel_class)
+        
+        for i in range(max_trials):
+            try:
+                params = tuner.generate_parameters(i)
+            except NoMoreTrialError:
+                break
+            print(params)
+            implement, cfg = _split_params(params)
+            if 0: # for jit test
+                # self.build(params, sample_inputs=sample_inputs)
+                pass
+            else:
+                kernel = self._possible_implementations[implement]
+                try:
+                    latency = kernel.test(dict(shape, **cfg), mask=self._mask, inputs=inputs)
+                except AssertionError:
+                    print(f'Invalid config')
+                    continue
+                except subprocess.SubprocessError:
+                    print(f'An error occured')
+                    continue
+            print(f'latency {latency}')
+            tuner.receive_trial_result(i, params, latency) # ! add status here
+            if latency < best_latency:
+                best_latency = latency
+                best_params = params[self._name]
+        tuner.trial_end(i, True)
+        print(best_latency, best_params)
+        return best_params
+
+        for implementation, kernel in self._possible_implementations.items():
             if implementation in self._custom_search_space:
                 kernel.set_search_space(self._custom_search_space[implementation])
             space = kernel.get_search_space()

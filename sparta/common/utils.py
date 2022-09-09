@@ -3,7 +3,8 @@
 
 import ctypes
 import logging
-
+import uuid
+from typing import List, Dict
 
 _logger = logging.Logger(__name__)
 
@@ -86,3 +87,13 @@ def cuda_detect():
             device_code = "%d%d" % (cc_major.value, cc_minor.value)
         devices.append((device_name, device_code))
     return devices
+
+
+def get_uname(num: int = 8):
+    return str(uuid.uuid4())[:8]
+
+
+def check_type(obj, cls):
+    '''assert obj is instance of cls'''
+    assert isinstance(obj, cls), f'{obj} is not instance of {cls}'
+
