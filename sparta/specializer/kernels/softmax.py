@@ -3,15 +3,17 @@
 
 import os
 import abc
-from typing import Optional, Tuple, Dict
+from typing import Tuple, Dict
 
 import jinja2
 import numpy as np
 
 from sparta.specializer.kernels.kernel_base import KernelBase
+from sparta.common.tuning import TunableItemCfg
 
 
-TEMPLATE_DIR = os.path.join(os.path.split(os.path.realpath(__file__))[0], "templates")
+TEMPLATE_DIR = os.path.join(os.path.split(
+    os.path.realpath(__file__))[0], "templates")
 
 
 class SoftmaxKernelBase(KernelBase):
@@ -32,8 +34,8 @@ class SoftmaxKernelBase(KernelBase):
         '''
 
     def add_parameters(self):
-        self.add_parameter("GLOBAL_H_VALUE", value=4096)
-        self.add_parameter("GLOBAL_W_VALUE", value=3072)
+        self.add_parameter("GLOBAL_H_VALUE")
+        self.add_parameter("GLOBAL_W_VALUE")
         self.add_parameter("COMPRESSED", value=self._compressed)
 
     @abc.abstractmethod
@@ -96,9 +98,9 @@ class SparTATemplateSparseSoftmaxKernel(SoftmaxKernelBase):
 
     def add_parameters(self):
         super().add_parameters()
-        self.add_parameter("BLOCK_SIZE_H_VALUE" , is_tunable=True, search_space=[8, 16, 32, 64])
-        self.add_parameter("BLOCK_SIZE_W_VALUE" , is_tunable=True, search_space=[16, 32, 64, 128])
-        self.add_parameter("ROW_TILE_VALUE", is_tunable=True, search_space=[4, 8, 16, 32])
+        self.add_parameter("BLOCK_SIZE_H_VALUE", is_tunable=True, search_space=TunableItemCfg('choice', [8, 16, 32, 64, 128]))
+        self.add_parameter("BLOCK_SIZE_W_VALUE", is_tunable=True, search_space=TunableItemCfg('choice', [32, 64, 128]))
+        self.add_parameter("ROW_TILE_VALUE", is_tunable=True, search_space=TunableItemCfg('choice', [2, 4, 8, 16]))
 
     def check_parameters(self):
         H = self.get_parameter('GLOBAL_H_VALUE')

@@ -118,9 +118,9 @@ class SparTATemplateSparseMatMulKernel(MatMulKernelBase):
 
     def add_parameters(self):
         super().add_parameters()
-        self.add_parameter("BLOCK_SIZE_M_VALUE" , is_tunable=True, search_space=TunableItemCfg('choice', [16, 32, 64]))
-        self.add_parameter("BLOCK_SIZE_N_VALUE" , is_tunable=True, search_space=TunableItemCfg('choice', [16, 32, 64]))
-        self.add_parameter("BLOCK_SIZE_K_VALUE" , is_tunable=True, search_space=TunableItemCfg('choice', [16, 32, 64]))
+        self.add_parameter("BLOCK_SIZE_M_VALUE", is_tunable=True, search_space=TunableItemCfg('choice', [16, 32, 64]))
+        self.add_parameter("BLOCK_SIZE_N_VALUE", is_tunable=True, search_space=TunableItemCfg('choice', [16, 32, 64]))
+        self.add_parameter("BLOCK_SIZE_K_VALUE", is_tunable=True, search_space=TunableItemCfg('choice', [16, 32, 64]))
         self.add_parameter("THREAD_SIZE_M_VALUE", is_tunable=True, search_space=TunableItemCfg('choice', [4, 8]))
         self.add_parameter("THREAD_SIZE_N_VALUE", is_tunable=True, search_space=TunableItemCfg('choice', [4, 8]))
         self.add_parameter("THREAD_SIZE_K_VALUE", is_tunable=True, search_space=TunableItemCfg('choice', [4, 8]))

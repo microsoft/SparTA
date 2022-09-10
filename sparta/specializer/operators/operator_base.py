@@ -10,9 +10,10 @@ from typing import Type, Tuple, List, Dict
 import torch
 import numpy as np
 
-from sparta.specializer import kernels, tuners
+from sparta.specializer import kernels
 from sparta.common.tuning import TunableItemCfg, Tunable
 from sparta.common.utils import get_uname
+
 
 class OperatorBase(torch.nn.Module):
     '''Base class of sparse operators.
@@ -38,7 +39,7 @@ class OperatorBase(torch.nn.Module):
         base_class (Type[torch.nn.Module]): Class of the dense operator.
     '''
 
-    def __init__(self, raw_module: torch.nn.Module, base_class: Type[torch.nn.Module], name: str=None):
+    def __init__(self, raw_module: torch.nn.Module, base_class: Type[torch.nn.Module], name: str = None):
         if type(raw_module) is not base_class:
             raise ValueError(f'expected a {base_class} module')
         super().__init__()
@@ -51,7 +52,7 @@ class OperatorBase(torch.nn.Module):
         self.ready = False
         self._possible_implementations = {}
 
-    def build(self, params: Dict, sample_inputs: List = None, jit: bool = True):
+    def build(self, params: Dict, sample_inputs: List, jit: bool = True):
         '''Build the sparse kernel using the specified implementation and configs.
 
         Args:
@@ -141,7 +142,11 @@ class OperatorBase(torch.nn.Module):
                 tunable parameters and values are lists of possible values.
         '''
         if search_space is None:
-            search_space = TunableItemCfg('choice', _is_nested=True, _value={k:v.get_search_space() for k,v in self._possible_implementations.items()})
+            search_space = TunableItemCfg(
+                'choice',
+                _is_nested=True,
+                _value={k: v.get_search_space() for k, v in self._possible_implementations.items()}
+            )
         self._tuner = Tunable(search_space_cfg=search_space, name=self._name)
 
     def tune(self, sample_inputs: List[torch.Tensor], algo: str = 'grid', max_trials: int = sys.maxsize):
@@ -159,81 +164,44 @@ class OperatorBase(torch.nn.Module):
                 Return (None, None) if all trials fail.
         '''
         from nni import NoMoreTrialError
+
         def _split_params(p: Dict):
             implement, cfg = params[self._name]['_name'], params[self._name]
             return implement, cfg
-        if self._tuner is None: # use default search space 
+        if self._tuner is None:  # use default search space
             self.set_search_space()
         tuner = self._tuner.create_tuner(algo)
         shape, inputs = self._read_sample_inputs(*sample_inputs)
         best_latency = np.Inf
         print(f'==================== Tuning ====================')
-        
+
         for i in range(max_trials):
             try:
                 params = tuner.generate_parameters(i)
             except NoMoreTrialError:
                 break
-            print(params)
+            print(f'#{i}: {params}')
             implement, cfg = _split_params(params)
-            if 0: # for jit test
-                # self.build(params, sample_inputs=sample_inputs)
-                pass
-            else:
-                kernel = self._possible_implementations[implement]
-                try:
-                    latency = kernel.test(dict(shape, **cfg), mask=self._mask, inputs=inputs)
-                except AssertionError:
-                    print(f'Invalid config')
-                    continue
-                except subprocess.SubprocessError:
-                    print(f'An error occured')
-                    continue
-            print(f'latency {latency}')
-            tuner.receive_trial_result(i, params, latency) # ! add status here
+            # For JIT test:
+            # self.build(params, sample_inputs=sample_inputs)
+            kernel = self._possible_implementations[implement]
+            try:
+                latency = kernel.test(dict(shape, **cfg), mask=self._mask, inputs=inputs)
+            except AssertionError:
+                print(f'Invalid config')
+                continue
+            except subprocess.SubprocessError:
+                print(f'An error occured')
+                continue
+            print(f'Latency: {latency} ms')
+            tuner.receive_trial_result(i, params, latency)  # TODO: add status here
             if latency < best_latency:
                 best_latency = latency
                 best_params = params[self._name]
         tuner.trial_end(i, True)
-        print(best_latency, best_params)
-        return best_params
-
-        for implementation, kernel in self._possible_implementations.items():
-            if implementation in self._custom_search_space:
-                kernel.set_search_space(self._custom_search_space[implementation])
-            space = kernel.get_search_space()
-            tuner = tuner_class(space)
-            space_size = round(np.exp(np.sum(np.log([len(s) for s in space.values()]))))
-            print(f'----- Implementation: {implementation}; Search space: {space_size} -----')
-            impl_best_cfg = None
-            impl_best_latency = np.Inf
-            num = 0
-            for cfg in tuner._configs():
-                num += 1
-                print(f'#{num}: {", ".join([f"{k}={v}" for k, v in cfg.items()])}')
-                try:
-                    latency = kernel.test(dict(shape, **cfg), mask=self._mask, inputs=inputs)
-                except AssertionError:
-                    print(f'Invalid config')
-                    continue
-                except subprocess.SubprocessError:
-                    print(f'An error occured')
-                    continue
-                if latency < impl_best_latency:
-                    impl_best_cfg = cfg
-                    impl_best_latency = latency
-                print(f'Latency: {latency} ms')
-                if num >= max_trials:
-                    break
-            if impl_best_latency < best_latency:
-                best_latency = impl_best_latency
-                best_cfg = impl_best_cfg
-                best_impl = implementation
-        if best_impl is not None and best_cfg is not None:
-            best_cfg.update(shape)
-            print(f'Best implementation: {best_impl}')
-            print(f'Best config: {best_cfg}')
-        else:
+        if best_params is None:
             print('All configs test failed')
-        print(f'================================================')
-        return best_impl, best_cfg
+        else:
+            print(f'Minimum latency: {best_latency} ms')
+            print(f'Best config: {best_params}')
+        return best_params

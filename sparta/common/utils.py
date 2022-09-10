@@ -8,6 +8,7 @@ from typing import List, Dict
 
 _logger = logging.Logger(__name__)
 
+
 def cuda_detect():
     """
     Detect the cuda environment.
@@ -65,7 +66,7 @@ def cuda_detect():
     result = cuda.cuInit(0)
     if result != CUDA_SUCCESS:
         cuda.cuGetErrorString(result, ctypes.byref(error_str))
-        _logger.warning("cuInit failed with error code %d: %s" , result, error_str.value.decode())
+        _logger.warning("cuInit failed with error code %d: %s", result, error_str.value.decode())
         return
     result = cuda.cuDeviceGetCount(ctypes.byref(nGpus))
     if result != CUDA_SUCCESS:
@@ -96,4 +97,3 @@ def get_uname(num: int = 8):
 def check_type(obj, cls):
     '''assert obj is instance of cls'''
     assert isinstance(obj, cls), f'{obj} is not instance of {cls}'
-

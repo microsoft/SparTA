@@ -101,8 +101,8 @@ class _Tensor:
         assert self.layout_config is not None
         if self.layout == 'BCSR':
             self.dense_data = tesa.BCSR(
-                size = self.shape,
-                mask = self.mask,
+                size=self.shape,
+                mask=self.mask,
                 **self.sparse_data,
                 **self.layout_config
             ).dense
@@ -117,9 +117,9 @@ class _Tensor:
         assert self.layout_config is not None
         if self.layout == 'BCSR':
             self.sparse_data = tesa.BCSR(
-                dense = self.dense_data,
-                size = self.shape,
-                mask = self.mask,
+                dense=self.dense_data,
+                size=self.shape,
+                mask=self.mask,
                 **(self.layout_config)
             ).sparse
             return self.sparse_data
@@ -158,7 +158,7 @@ class KernelBase:
 
     def set_parameter(self, name, value):
         if name not in self.parameters and name in ['_name']:
-            return # ignore some special key words 
+            return  # ignore some special key words
         self.parameters[name].value = value
 
     def set_parameters(self, dic: dict):
@@ -215,7 +215,10 @@ class KernelBase:
     def get_output(self, name: str):
         return self.outputs[name]
 
-    def set_mask(self, mask: Optional[Dict[str, np.ndarray]] = None, generate_if_missing = True):
+    def set_mask(
+        self, mask: Optional[Dict[str, np.ndarray]] = None,
+        generate_if_missing: bool = True
+    ):
         if mask is not None:
             for k, v in mask.items():
                 if k in self.inputs:
@@ -274,13 +277,13 @@ class KernelBase:
             self.calc_target_outputs()
         test_outputs = self.outputs.values() if check_results else None
         test_func = TestInterface(
-            unique_id = unique_id,
-            kernel_code = self.get_kernel_code(),
-            shape = config,
-            threads_per_block = self.threads_per_block(),
-            blocks_per_grid = self.blocks_per_grid(),
-            inputs = self.inputs.values(),
-            outputs = self.outputs.values()
+            unique_id=unique_id,
+            kernel_code=self.get_kernel_code(),
+            shape=config,
+            threads_per_block=self.threads_per_block(),
+            blocks_per_grid=self.blocks_per_grid(),
+            inputs=self.inputs.values(),
+            outputs=self.outputs.values()
         )
         lat = test_func(test_inputs, test_outputs, num_warmups, num_iters, check_results)
         return lat
@@ -485,7 +488,7 @@ class TestInterface(KernelInterface, Callable):
         self._build_exe()
         result = self._run_cmd(
             f'{self._exec_path} {num_warmups} {num_iters} {int(check_results)}',
-            timeout = 1 + 0.01 * num_iters
+            timeout=1 + 0.01 * num_iters
         )
         shutil.rmtree(self._dir, ignore_errors=True)
         return float(result)

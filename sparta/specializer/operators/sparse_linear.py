@@ -1,8 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-import copy
-from typing import Optional, Type
+from typing import Optional
 
 import torch
 
@@ -144,7 +143,3 @@ class SparseLinear(OperatorBase):
         if self._biased:
             inputs['bias'] = self._raw_module.bias.cpu().detach().numpy().astype(f'{self._dtype}32')
         return self._shape, inputs
-
-
-if __name__ == '__main__':
-    pass
