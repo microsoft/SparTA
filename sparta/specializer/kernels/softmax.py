@@ -44,7 +44,7 @@ class SoftmaxKernelBase(KernelBase):
 
     def add_ports(self):
         self.add_input('C_in', self._dtype, 'BCSR')
-        self.add_input('C_mask', 'int', 'BCSR')
+        self.add_input('C_mask', 'int', 'BCSR', default_val=1)
         self.add_output('C_out', self._dtype, 'BCSR')
 
     @abc.abstractmethod
@@ -73,10 +73,6 @@ class SoftmaxKernelBase(KernelBase):
         Get launch config: number of threads per block
         '''
 
-    def set_mask(self, mask: Optional[Dict[str, np.ndarray]] = None, generate_if_missing = True):
-        super().set_mask(mask, generate_if_missing)
-        self.get_input('C_mask').set_data(self.get_input('C_in').mask.astype('int32'))
-
     def calc_target_outputs(self) -> Dict[str, np.ndarray]:
         C_in = self.get_input('C_in').dense()
         C_mask = self.get_input('C_mask').dense()
@@ -101,7 +97,7 @@ class SparTATemplateSparseSoftmaxKernel(SoftmaxKernelBase):
     def add_parameters(self):
         super().add_parameters()
         self.add_parameter("BLOCK_SIZE_H_VALUE" , is_tunable=True, search_space=[8, 16, 32, 64])
-        self.add_parameter("BLOCK_SIZE_W_VALUE" , is_tunable=True, search_space=[8, 16, 32, 64])
+        self.add_parameter("BLOCK_SIZE_W_VALUE" , is_tunable=True, search_space=[16, 32, 64, 128])
         self.add_parameter("ROW_TILE_VALUE", is_tunable=True, search_space=[4, 8, 16, 32])
 
     def check_parameters(self):
@@ -136,6 +132,5 @@ class SparTATemplateSparseSoftmaxKernel(SoftmaxKernelBase):
         return (H // T, )
 
     def threads_per_block(self) -> Tuple[int]:
-        BW = self.get_parameter('BLOCK_SIZE_W_VALUE')
         T = self.get_parameter('ROW_TILE_VALUE')
-        return (T * BW, )
+        return (T * 32, )

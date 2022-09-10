@@ -48,6 +48,7 @@ class _Tensor:
     dtype: str
     layout: str
     layout_parent: Optional['_Tensor'] = None
+    default_val: Optional[Union[float, int]] = None
     shape: Optional[Tuple[str]] = None
     mask: Optional[np.ndarray] = None
     layout_config: Optional[Dict] = None
@@ -64,7 +65,11 @@ class _Tensor:
     def generate_data(self):
         assert self.shape is not None
         if self.dense_data is None:
-            self.dense_data = np.random.uniform(size=self.shape).astype(f'{self.dtype}32')
+            if self.default_val is not None:
+                self.dense_data = np.zeros(shape=self.shape) + self.default_val
+                self.dense_data = self.dense_data.astype(f'{self.dtype}32')
+            else:
+                self.dense_data = np.random.uniform(size=self.shape).astype(f'{self.dtype}32')
         if self.layout != 'dense':
             if self.mask is None:
                 self.generate_mask()
@@ -169,8 +174,11 @@ class KernelBase:
         else:
             return {k: self.parameters[k].value for k in names}
 
-    def add_input(self, name: str, dtype: str, layout: str = 'dense'):
-        self.inputs[name] = _Tensor(name, dtype, layout)
+    def add_input(
+        self, name: str, dtype: str, layout: str = 'dense',
+        default_val: Optional[Union[int, float]] = None
+    ):
+        self.inputs[name] = _Tensor(name, dtype, layout, default_val=default_val)
 
     def set_input_shape(self, name: str, shape: Tuple[str]):
         self.inputs[name].shape = shape
@@ -553,6 +561,8 @@ class JITModule(torch.nn.Module):
         self._threads_per_block = threads_per_block + tuple(1 for _ in range(3 - len(threads_per_block)))
         self._input_mask = input_mask
         self._outputs = [y.cuda() for y in output_placeholder]
+        self.func_name = kernel_func_name
+        self.func_body = kernel_func_body
 
     def forward(self, *args):
         inputs = []
