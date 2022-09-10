@@ -2,3 +2,5 @@ sphinx
 sphinx-autobuild
 myst_parser
 sphinx_book_theme
+torch
+numpy

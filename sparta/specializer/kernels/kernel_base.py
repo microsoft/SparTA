@@ -14,7 +14,8 @@ import torch
 import jinja2
 import numpy as np
 
-if torch.cuda.is_available():
+from sparta import __env_ready__
+if __env_ready__:
     # we may need to dry run without GPU (e.g., for document generation)
     from torch.utils import cpp_extension
     import pycuda.autoprimaryctx
