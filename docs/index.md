@@ -4,6 +4,7 @@ SparTA
 ```{toctree}
 :maxdepth: 2
 :caption: Get STarted
+readme_link
 0-overview
 ```
 
