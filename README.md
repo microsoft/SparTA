@@ -1,4 +1,4 @@
-# SparTA
+# SparTA Getting Started
 
 > *This repo is current an **alpha** version and under active development. We're trying to make it stable and user-friendly, but it is not surprising to meet problems in current phase. Please open issue or contact the authors when you need help.*
 

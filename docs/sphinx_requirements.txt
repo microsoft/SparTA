@@ -1,6 +1,6 @@
 sphinx
 sphinx-autobuild
 myst_parser
-sphinx_book_theme
+sphinxawesome-theme
 torch
 numpy
