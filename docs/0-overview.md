@@ -1,4 +1,4 @@
-# Overview 
+# SparTA Architecture 
 
 SparTA is a holistic thinking and an end-to-end approach to leverage the sparsity of deep neural network (DNN) models. Given a DNN model and its sparsity specification (*Tensor-with-Sparsity-Attribute*, *TeSA*), SparTA enables the sparsity attributes and patterns (e.g., for pruning and quantization) to be specified, propagated forward and backward across the entire deep learning model, and used to create highly efficient, specialized operators. Please refer our *OSDI '22* paper [SparTA: Deep-Learning Model Sparsity via Tensor-with-Sparsity-Attribute](https://www.usenix.org/conference/osdi22/presentation/zheng-ningxin) for more details.
 
@@ -7,21 +7,10 @@ SparTA is a holistic thinking and an end-to-end approach to leverage the sparsit
 The resulting SparTA framework can accommodate various sparsity patterns and optimization techniques, delivering 1.7x~8.4x average speedup on inference latency compared to seven state-of-the-art (sparse) solutions with smaller memory footprints. As an end-to-end model sparsity framework, SparTA facilitates sparsity algorithms to explore better sparse models.
 
 ## What's TeSA
-Pruning mask is one of the most frequently used type of *TeSA*. Below is an example of masked version of `nn.Linear` operation with the binary mask tensor with the same shape of tensor *B*.
+Pruning mask is one of the most frequently used type of *TeSA*. Below is an example of masked version of `nn.Linear` operation with the binary mask tensor *M* with the same shape of tensor *W*.
 
-```python
-import torch
-import sparta 
- 
-M, N, K, sparsity = 1024, 1024, 1024, 0.5
-A = torch.Tensor((M, K)).cuda()
-# ! TODO complete the example
-w_mask = sparta.testing.block_mask(shape=(N, K), block=(32, 32), sparsity=sparsity, algo='rand')
-dense_op = torch.nn.Linear(K, N)
-dense_op.weight *= w_mask
-sparse_op = sparta.nn.SparseLinear(dense_op, weight_mask=w_mask)
-sparse_op.tune(inputs=(A))
-torch.testing.assert_close(sparse_op(A), dense_op(A))
+```{math}
+y = x (W \odot M)^T + b
 ```
 
 Besides the pruning indicator, the *TeSA* could contain more information such as quantization formats, dynamic shapes, *etc*.

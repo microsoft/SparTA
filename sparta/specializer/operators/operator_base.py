@@ -162,7 +162,8 @@ class OperatorBase(torch.nn.Module):
         def _split_params(p: Dict):
             implement, cfg = params[self._name]['_name'], params[self._name]
             return implement, cfg
-
+        if self._tuner is None: # use default search space 
+            self.set_search_space()
         tuner = self._tuner.create_tuner(algo)
         shape, inputs = self._read_sample_inputs(*sample_inputs)
         best_latency = np.Inf

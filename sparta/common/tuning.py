@@ -67,7 +67,7 @@ class TunableItemCfg:
 
 
 class Tunable:
-    '''We're defining an easy definition to write a config
+    '''The wrapper of NNI tuners that supports nested choice search space.
     '''
 
     def __init__(self, search_space_cfg: TunableItemCfg, name: str = None) -> None:
@@ -83,16 +83,40 @@ class Tunable:
         self.search_space = {self.name: self.search_space_cfg.to_nni_search_space()}
         return self.search_space
 
+    @property
+    def supported_tuners(self):
+        from nni.algorithms.hpo.gridsearch_tuner import GridSearchTuner
+        from nni.algorithms.hpo.random_tuner import RandomTuner
+        from nni.algorithms.hpo.tpe_tuner import TpeTuner
+        from nni.algorithms.hpo.evolution_tuner import EvolutionTuner
+        return {
+            'grid': GridSearchTuner,
+            'rand': RandomTuner,
+            'tpe': TpeTuner,
+            'evolution': EvolutionTuner,
+        }
+        
     def create_tuner(self, algo: str, tuner_kw: Dict = None):
+        '''create NNI Tuner
+
+        Args:
+            algo (str): tuning algorithm, allowed algo values and their corresponding tuners are:
+            
+                ========= ===================================================
+                algo      tuner
+                ========= ===================================================
+                grid      nni.algorithms.hpo.gridsearch_tuner.GridSearchTuner
+                rand      nni.algorithms.hpo.random_tuner.RandomTuner
+                tpe       nni.algorithms.hpo.tpe_tuner.TpeTuner
+                evolution nni.algorithms.hpo.evolution_tuner.EvolutionTuner
+                ========= ===================================================
+                
+            tuner_kw (Dict): parameters passed to NNI tuner
+        '''
+        supported_tuners = self.supported_tuners
+        assert algo in supported_tuners, f'{algo} is not supported'
         self._algo = algo
         tuner_kw = tuner_kw or {}
-        if algo == 'grid':
-            from nni.algorithms.hpo.gridsearch_tuner import GridSearchTuner
-            self._tuner = GridSearchTuner(**tuner_kw)
-        elif algo == 'rand':
-            from nni.algorithms.hpo.random_tuner import RandomTuner
-            self._tuner = RandomTuner(**tuner_kw)
-        else:
-            raise NotImplementedError(f'algorithm {algo} not supported yet')
+        self._tuner = supported_tuners[algo](**tuner_kw)
         self._tuner.update_search_space(self.search_space)
         return self._tuner

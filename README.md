@@ -1,4 +1,4 @@
-# SparTA
+# SparTA Getting Started
 
 > *This repo is current an **alpha** version and under active development. We're trying to make it stable and user-friendly, but it is not surprising to meet problems in current phase. Please open issue or contact the authors when you need help.*
 
@@ -18,7 +18,7 @@ pip install git+https://github.com/microsoft/SparTA.git
 or
 ```bash
 git clone git@github.com:microsoft/SparTA.git
-pip install -e SparTA
+pip install SparTA
 ```
 
 ## Usage
@@ -27,15 +27,27 @@ pip install -e SparTA
 
 ```python
 import torch
-import sparta.nn as snn
-from sparta.testing import rand_block_mask
+import sparta
+
 M, N, K = 1024, 1024, 1024
-X = torch.rand((M,K))
-linear_op = torch.nn.Linear(K, N)
-w_mask = rand_block_mask(sparsity)
-sparse_linear_op = snn.SparseLinear(linear_op, weight_mask = w_mask)
-best_config = sparse_linear_op.tune()
-Y = sparse_linear_op(X)
+SPARSITY = 0.8
+BLOCK = (8, 8)
+has_bias = True
+
+A = torch.rand((M,K), dtype=torch.float32).cuda()
+B = torch.rand((N,K), dtype=torch.float32).cuda()
+bias = torch.rand((N,),dtype=torch.float32).cuda()
+# generate and apply mask
+B_mask = sparta.testing.block_mask(B.shape, block=BLOCK, sparsity=SPARSITY).cuda()
+B = torch.mul(B, B_mask)
+# dense operator
+linear = torch.nn.Linear(K, N, bias=has_bias).cuda()
+linear.load_state_dict(dict(weight=B, bias=bias) if has_bias else dict(weight=B) )
+# sparse operator
+splinear = sparta.nn.SparseLinear(linear, weight_mask=B_mask)
+best_cfg = splinear.tune(sample_inputs=[A], max_trials=10, algo='rand')
+splinear.build(best_cfg)
+torch.testing.assert_close(splinear(A), linear(A))
 ```
 
 ## Citing SparTA

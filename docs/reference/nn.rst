@@ -2,6 +2,9 @@
 sparta.nn
 ===================================
 
+.. autoclass:: sparta.nn.OperatorBase
+    :members:
+
 .. autoclass:: sparta.nn.SparseLinear
     :members:
 
