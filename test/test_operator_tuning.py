@@ -95,14 +95,12 @@ class TestOperatorTuning(unittest.TestCase):
         sparse_op = sparta.nn.SparseLinear(dense_op, weight_mask=weight_mask)
         # test default search space
         sparse_op.set_search_space(SEARCH_SPACE)
-        # best_params = sparse_op.tune(
-        #     sample_inputs=[dense_input],
-        #     algo='grid'
-        # )
-        # print(best_params)
-        # sparse_op.build(best_params, sample_inputs=[dense_input])
-        sparta.nn.tune(sparse_op, sample_inputs=[dense_input])
-        sparse_op.cuda()
+        best_params = sparse_op.tune(
+            sample_inputs=[dense_input],
+            algo='grid'
+        )
+        print(f'Best params: {best_params}')
+        sparse_op.build(best_params, sample_inputs=[dense_input])
         torch.testing.assert_close(sparse_op(dense_input), dense_op(dense_input))
         print(f'PASS')
 

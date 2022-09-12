@@ -22,13 +22,6 @@ TILE_CONFIG = {
 }
 
 
-def sparse_matmul_reference(dense_input: torch.Tensor, mask: torch.Tensor):
-    C_max = dense_input.max(axis=-1).values.reshape((-1, 1))
-    C_exp = torch.exp(dense_input - C_max) * mask
-    C_exp_sum = C_exp.sum(axis=-1).reshape((-1, 1)) + 1e-10
-    return C_exp / C_exp_sum
-
-
 class TestSparseSoftmaxOperators(unittest.TestCase):
 
     def test_sparse_softmax(self):
@@ -42,7 +35,7 @@ class TestSparseSoftmaxOperators(unittest.TestCase):
         sparse_op.build(dict(_name='sparta', **TILE_CONFIG), sample_inputs=[dense_input])
         torch.testing.assert_close(
             sparse_op(dense_input),
-            sparse_matmul_reference(dense_input, mask)
+            sparta.testing.sparse_softmax_reference(dense_input, mask)
         )
         print('PASS')
 

@@ -182,6 +182,7 @@ class KernelBase:
 
     def set_input_shape(self, name: str, shape: Tuple[str]):
         self.inputs[name].shape = shape
+        self.inputs[name].dense_data = None
 
     def set_input_layout(self, name: str, layout: Union[Dict, _Tensor]):
         if isinstance(layout, _Tensor):
@@ -189,6 +190,7 @@ class KernelBase:
             self.inputs[name].layout_parent = layout
         else:
             self.inputs[name].layout_config = layout
+        self.inputs[name].sparse_data = None
 
     def set_input(self, name: str, data: np.ndarray):
         self.inputs[name].set_data(data)

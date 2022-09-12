@@ -99,8 +99,7 @@ class SparseLinear(OperatorBase):
         '''
         device = self._raw_module.weight.device
         if self._biased:
-            bias = self._raw_module.bias.cpu().detach().numpy().astype(f'{self._dtype}32')
-            self.bias = torch.nn.Parameter(torch.from_numpy(bias), requires_grad=False).to(device)
+            self.bias = torch.nn.Parameter(self._raw_module.bias.detach(), requires_grad=False)
         else:
             self.bias = None
         weight = self._raw_module.weight.cpu().detach().numpy().astype(f'{self._dtype}32')

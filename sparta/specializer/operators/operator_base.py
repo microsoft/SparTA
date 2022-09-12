@@ -45,7 +45,6 @@ class OperatorBase(torch.nn.Module):
         super().__init__()
         self._name = name or get_uname()
         self._raw_module = raw_module
-        self._forward_kernel = None
         self._forward_function = None
         self._tuner = None
         self._mask = None
@@ -76,16 +75,6 @@ class OperatorBase(torch.nn.Module):
         else:
             warnings.warn('the sparse module is not compiled, using the dense module to forward')
             return self._raw_module.forward(*args)
-
-    def _get_forward_kernel(self, impl: str):
-        '''Get the sparse forward kernel using the specified implementation.'''
-        impl_id = impl.strip().lower()
-        impls = self._possible_implementations()
-        if impl_id not in impls:
-            raise ValueError(f'invalid implementation: {impl}')
-        if self._forward_kernel is None:
-            self._forward_kernel = self._create_forward_kernel(impls[impl_id])
-        return self._forward_kernel
 
     @abc.abstractmethod
     def _sparse_forward(self, *args):
