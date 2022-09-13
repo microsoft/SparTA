@@ -3,15 +3,17 @@
 
 import os
 import abc
-from typing import Optional, Tuple, Dict
+from typing import Tuple, Dict
 
 import jinja2
 import numpy as np
 
 from sparta.specializer.kernels.kernel_base import KernelBase
+from sparta.common.tuning import TunableItemCfg
 
 
-TEMPLATE_DIR = os.path.join(os.path.split(os.path.realpath(__file__))[0], "templates")
+TEMPLATE_DIR = os.path.join(os.path.split(
+    os.path.realpath(__file__))[0], "templates")
 
 
 class SoftmaxKernelBase(KernelBase):
@@ -32,8 +34,8 @@ class SoftmaxKernelBase(KernelBase):
         '''
 
     def add_parameters(self):
-        self.add_parameter("GLOBAL_H_VALUE", value=4096)
-        self.add_parameter("GLOBAL_W_VALUE", value=3072)
+        self.add_parameter("GLOBAL_H_VALUE")
+        self.add_parameter("GLOBAL_W_VALUE")
         self.add_parameter("COMPRESSED", value=self._compressed)
 
     @abc.abstractmethod
@@ -44,7 +46,7 @@ class SoftmaxKernelBase(KernelBase):
 
     def add_ports(self):
         self.add_input('C_in', self._dtype, 'BCSR')
-        self.add_input('C_mask', 'int', 'BCSR')
+        self.add_input('C_mask', 'int', 'BCSR', default_val=1)
         self.add_output('C_out', self._dtype, 'BCSR')
 
     @abc.abstractmethod
@@ -73,10 +75,6 @@ class SoftmaxKernelBase(KernelBase):
         Get launch config: number of threads per block
         '''
 
-    def set_mask(self, mask: Optional[Dict[str, np.ndarray]] = None, generate_if_missing = True):
-        super().set_mask(mask, generate_if_missing)
-        self.get_input('C_mask').set_data(self.get_input('C_in').mask.astype('int32'))
-
     def calc_target_outputs(self) -> Dict[str, np.ndarray]:
         C_in = self.get_input('C_in').dense()
         C_mask = self.get_input('C_mask').dense()
@@ -100,9 +98,9 @@ class SparTATemplateSparseSoftmaxKernel(SoftmaxKernelBase):
 
     def add_parameters(self):
         super().add_parameters()
-        self.add_parameter("BLOCK_SIZE_H_VALUE" , is_tunable=True, search_space=[8, 16, 32, 64])
-        self.add_parameter("BLOCK_SIZE_W_VALUE" , is_tunable=True, search_space=[8, 16, 32, 64])
-        self.add_parameter("ROW_TILE_VALUE", is_tunable=True, search_space=[4, 8, 16, 32])
+        self.add_parameter("BLOCK_SIZE_H_VALUE", is_tunable=True, search_space=TunableItemCfg('choice', [8, 16, 32, 64, 128]))
+        self.add_parameter("BLOCK_SIZE_W_VALUE", is_tunable=True, search_space=TunableItemCfg('choice', [32, 64, 128]))
+        self.add_parameter("ROW_TILE_VALUE", is_tunable=True, search_space=TunableItemCfg('choice', [2, 4, 8, 16]))
 
     def check_parameters(self):
         H = self.get_parameter('GLOBAL_H_VALUE')
@@ -136,6 +134,5 @@ class SparTATemplateSparseSoftmaxKernel(SoftmaxKernelBase):
         return (H // T, )
 
     def threads_per_block(self) -> Tuple[int]:
-        BW = self.get_parameter('BLOCK_SIZE_W_VALUE')
         T = self.get_parameter('ROW_TILE_VALUE')
-        return (T * BW, )
+        return (T * 32, )

@@ -48,6 +48,7 @@ class _Tensor:
     dtype: str
     layout: str
     layout_parent: Optional['_Tensor'] = None
+    default_val: Optional[Union[float, int]] = None
     shape: Optional[Tuple[str]] = None
     mask: Optional[np.ndarray] = None
     layout_config: Optional[Dict] = None
@@ -64,7 +65,11 @@ class _Tensor:
     def generate_data(self):
         assert self.shape is not None
         if self.dense_data is None:
-            self.dense_data = np.random.uniform(size=self.shape).astype(f'{self.dtype}32')
+            if self.default_val is not None:
+                self.dense_data = np.zeros(shape=self.shape) + self.default_val
+                self.dense_data = self.dense_data.astype(f'{self.dtype}32')
+            else:
+                self.dense_data = np.random.uniform(size=self.shape).astype(f'{self.dtype}32')
         if self.layout != 'dense':
             if self.mask is None:
                 self.generate_mask()
@@ -96,8 +101,8 @@ class _Tensor:
         assert self.layout_config is not None
         if self.layout == 'BCSR':
             self.dense_data = tesa.BCSR(
-                size = self.shape,
-                mask = self.mask,
+                size=self.shape,
+                mask=self.mask,
                 **self.sparse_data,
                 **self.layout_config
             ).dense
@@ -112,9 +117,9 @@ class _Tensor:
         assert self.layout_config is not None
         if self.layout == 'BCSR':
             self.sparse_data = tesa.BCSR(
-                dense = self.dense_data,
-                size = self.shape,
-                mask = self.mask,
+                dense=self.dense_data,
+                size=self.shape,
+                mask=self.mask,
                 **(self.layout_config)
             ).sparse
             return self.sparse_data
@@ -153,7 +158,7 @@ class KernelBase:
 
     def set_parameter(self, name, value):
         if name not in self.parameters and name in ['_name']:
-            return # ignore some special key words 
+            return  # ignore some special key words
         self.parameters[name].value = value
 
     def set_parameters(self, dic: dict):
@@ -169,11 +174,15 @@ class KernelBase:
         else:
             return {k: self.parameters[k].value for k in names}
 
-    def add_input(self, name: str, dtype: str, layout: str = 'dense'):
-        self.inputs[name] = _Tensor(name, dtype, layout)
+    def add_input(
+        self, name: str, dtype: str, layout: str = 'dense',
+        default_val: Optional[Union[int, float]] = None
+    ):
+        self.inputs[name] = _Tensor(name, dtype, layout, default_val=default_val)
 
     def set_input_shape(self, name: str, shape: Tuple[str]):
         self.inputs[name].shape = shape
+        self.inputs[name].dense_data = None
 
     def set_input_layout(self, name: str, layout: Union[Dict, _Tensor]):
         if isinstance(layout, _Tensor):
@@ -181,6 +190,7 @@ class KernelBase:
             self.inputs[name].layout_parent = layout
         else:
             self.inputs[name].layout_config = layout
+        self.inputs[name].sparse_data = None
 
     def set_input(self, name: str, data: np.ndarray):
         self.inputs[name].set_data(data)
@@ -207,7 +217,10 @@ class KernelBase:
     def get_output(self, name: str):
         return self.outputs[name]
 
-    def set_mask(self, mask: Optional[Dict[str, np.ndarray]] = None, generate_if_missing = True):
+    def set_mask(
+        self, mask: Optional[Dict[str, np.ndarray]] = None,
+        generate_if_missing: bool = True
+    ):
         if mask is not None:
             for k, v in mask.items():
                 if k in self.inputs:
@@ -266,13 +279,13 @@ class KernelBase:
             self.calc_target_outputs()
         test_outputs = self.outputs.values() if check_results else None
         test_func = TestInterface(
-            unique_id = unique_id,
-            kernel_code = self.get_kernel_code(),
-            shape = config,
-            threads_per_block = self.threads_per_block(),
-            blocks_per_grid = self.blocks_per_grid(),
-            inputs = self.inputs.values(),
-            outputs = self.outputs.values()
+            unique_id=unique_id,
+            kernel_code=self.get_kernel_code(),
+            shape=config,
+            threads_per_block=self.threads_per_block(),
+            blocks_per_grid=self.blocks_per_grid(),
+            inputs=self.inputs.values(),
+            outputs=self.outputs.values()
         )
         lat = test_func(test_inputs, test_outputs, num_warmups, num_iters, check_results)
         return lat
@@ -477,7 +490,7 @@ class TestInterface(KernelInterface, Callable):
         self._build_exe()
         result = self._run_cmd(
             f'{self._exec_path} {num_warmups} {num_iters} {int(check_results)}',
-            timeout = 1 + 0.01 * num_iters
+            timeout=1 + 0.01 * num_iters
         )
         shutil.rmtree(self._dir, ignore_errors=True)
         return float(result)
@@ -553,6 +566,8 @@ class JITModule(torch.nn.Module):
         self._threads_per_block = threads_per_block + tuple(1 for _ in range(3 - len(threads_per_block)))
         self._input_mask = input_mask
         self._outputs = [y.cuda() for y in output_placeholder]
+        self.func_name = kernel_func_name
+        self.func_body = kernel_func_body
 
     def forward(self, *args):
         inputs = []

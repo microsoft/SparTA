@@ -16,17 +16,10 @@ SHAPE_CONFIG = {
     'GLOBAL_W_VALUE': W,
 }
 TILE_CONFIG = {
-    'BLOCK_SIZE_H_VALUE': 32,
-    'BLOCK_SIZE_W_VALUE': 32,
+    'BLOCK_SIZE_H_VALUE': 16,
+    'BLOCK_SIZE_W_VALUE': 64,
     'ROW_TILE_VALUE': 4,
 }
-
-
-def sparse_matmul_reference(dense_input: torch.Tensor, mask: torch.Tensor):
-    C_max = dense_input.max(axis=-1).values.reshape((-1, 1))
-    C_exp = torch.exp(dense_input - C_max) * mask
-    C_exp_sum = C_exp.sum(axis=-1).reshape((-1, 1)) + 1e-10
-    return C_exp / C_exp_sum
 
 
 class TestSparseSoftmaxOperators(unittest.TestCase):
@@ -39,10 +32,10 @@ class TestSparseSoftmaxOperators(unittest.TestCase):
         dense_input = torch.rand((H, W)).cuda()
         dense_op = torch.nn.Softmax(dim=-1).cuda()
         sparse_op = sparta.nn.SparseSoftmax(dense_op, mask=mask)
-        sparse_op.build(dict(_name='sparta', **TILE_CONFIG))
+        sparse_op.build(dict(_name='sparta', **TILE_CONFIG), sample_inputs=[dense_input])
         torch.testing.assert_close(
             sparse_op(dense_input),
-            sparse_matmul_reference(dense_input, mask)
+            sparta.testing.sparse_softmax_reference(dense_input, mask)
         )
         print('PASS')
 

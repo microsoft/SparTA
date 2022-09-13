@@ -7,6 +7,7 @@ from typing import Any, Dict, Tuple, Iterable, Optional, Union
 import numpy as np
 import torch
 
+
 class TeSABase(abc.ABC):
 
     def __init__(self, **kwargs):
@@ -34,6 +35,7 @@ class TeSABase(abc.ABC):
         Reconstruct the dense matrix using TeSA variables
         '''
 
+
 class BCSR(TeSABase):
 
     @staticmethod
@@ -47,9 +49,9 @@ class BCSR(TeSABase):
         return {k: data[k] for k in keys}
 
     def _import_dense_data(
-            self, dense: np.ndarray, block_size: Iterable[int], mode: str = 'H',
-            size: Optional[Iterable[int]] = None, mask: Optional[Union[np.ndarray, float, int]] = None,
-        ):
+        self, dense: np.ndarray, block_size: Iterable[int], mode: str = 'H',
+        size: Optional[Iterable[int]] = None, mask: Optional[Union[np.ndarray, float, int]] = None,
+    ):
         block_height, block_width = block_size
         height, width = dense.shape if size is None else size
         row_num = height // block_height
@@ -108,11 +110,11 @@ class BCSR(TeSABase):
         return dense, BCSR._select_vars(sparse, mode)
 
     def _import_sparse_data(
-            self, val: np.ndarray, size: Iterable[int], block_size: Iterable[int],
-            row_idx: Optional[np.ndarray] = None, col_idx: Optional[np.ndarray] = None,
-            row_ptr: Optional[np.ndarray] = None, col_ptr: Optional[np.ndarray] = None,
-            nnz: Optional[int] = None
-        ):
+        self, val: np.ndarray, size: Iterable[int], block_size: Iterable[int],
+        row_idx: Optional[np.ndarray] = None, col_idx: Optional[np.ndarray] = None,
+        row_ptr: Optional[np.ndarray] = None, col_ptr: Optional[np.ndarray] = None,
+        nnz: Optional[int] = None
+    ):
         block_height, block_width = block_size
         height, width = size
         row_num = height // block_height
@@ -221,5 +223,5 @@ class BCSRObj:
         ).sparse
         val = torch.from_numpy(sp['val']).cuda()
         ptr = torch.from_numpy(sp['row_ptr']).cuda()
-        idx = torch.from_numpy(sp['col_idx']).cuda()        
+        idx = torch.from_numpy(sp['col_idx']).cuda()
         return val, ptr, idx

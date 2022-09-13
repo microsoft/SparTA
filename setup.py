@@ -17,6 +17,7 @@ setup(
     install_requires=[
         'jinja2',
         'pycuda',  # 'pip install pycuda' works for most cases
+        'nni',
     ],
     include_package_data=True,
     package_data={

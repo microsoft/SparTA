@@ -1,9 +1,11 @@
-
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT license.
 
 from dataclasses import dataclass
-from typing import Optional, Any, Union, Dict, List 
+from typing import Optional, Any, Union, Dict, List
 
 from sparta.common.utils import check_type, get_uname
+
 
 @dataclass
 class TunableItemCfg:
@@ -37,10 +39,10 @@ class TunableItemCfg:
         _value (Dict | List): options for paramter.
         _is_nested (bool): whether this space is nested (default: False). If True, the `_value` should be `Dict[str, Dict[TunableItemCfg]]`
     '''
-    _type: str # currently only support ['choice']
+    _type: str  # currently only support ['choice']
     _value: Union[Dict, List]
     _is_nested: Optional[bool] = False
-    
+
     def __post_init__(self):
         assert self._type in ['choice']
         if self._is_nested:
@@ -56,14 +58,14 @@ class TunableItemCfg:
         '''convert to nni search space'''
         if not self._is_nested:
             return {'_type': self._type, '_value': self._value}
-        #self._value Dict[str, Dict[TunableItemCfg]] 
+        # self._value Dict[str, Dict[TunableItemCfg]]
         subspaces = []
         for ss_name, ss_dic in self._value.items():
             dic = {'_name': ss_name}
             for ss_item, ss_item_cfg in ss_dic.items():
                 dic[ss_item] = ss_item_cfg.to_nni_search_space()
             subspaces.append(dic)
-        return {'_type': self._type, '_value':subspaces}
+        return {'_type': self._type, '_value': subspaces}
 
 
 class Tunable:
@@ -78,7 +80,7 @@ class Tunable:
         self._algo = None
         if self.search_space_cfg:
             self.parse_config()
-        
+
     def parse_config(self):
         self.search_space = {self.name: self.search_space_cfg.to_nni_search_space()}
         return self.search_space

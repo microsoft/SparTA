@@ -31,56 +31,61 @@ def test_sparse_linear_sdd(params: dict, has_bias: bool):
     print(f'---------- Sparse Linear SDD ----------')
     print(f'params={params}, bias={has_bias}')
     torch.manual_seed(2022)
-    A = torch.rand((M,K), dtype=torch.float32).cuda()
-    B = torch.rand((N,K), dtype=torch.float32).cuda()
-    bias = torch.rand((N,),dtype=torch.float32).cuda()
+    A = torch.rand((M, K), dtype=torch.float32).cuda()
+    B = torch.rand((N, K), dtype=torch.float32).cuda()
+    bias = torch.rand((N, ), dtype=torch.float32).cuda()
     # generate and apply mask
     A_mask = block_mask(A.shape, block=BLOCK, sparsity=SPARSITY).cuda()
     A = torch.mul(A, A_mask)
     # spase and dense operators
     linear = torch.nn.Linear(K, N, bias=has_bias)
-    linear.load_state_dict(dict(weight=B, bias=bias) if has_bias else dict(weight=B) )
+    linear.load_state_dict(dict(weight=B, bias=bias) if has_bias else dict(weight=B))
     linear.cuda()
     splinear = sparta.nn.SparseLinear(linear, input_mask=A_mask)
     splinear.build(params, sample_inputs=[A])
     torch.testing.assert_close(splinear(A), linear(A))
     print('PASS')
 
+
 def test_sparse_linear_dsd(params, has_bias: bool):
     print(f'---------- Sparse Linear DSD ----------')
     print(f'params={params}, bias={has_bias}')
     torch.manual_seed(2022)
-    A = torch.rand((M,K), dtype=torch.float32).cuda()
-    B = torch.rand((N,K), dtype=torch.float32).cuda()
-    bias = torch.rand((N,),dtype=torch.float32).cuda()
+    A = torch.rand((M, K), dtype=torch.float32).cuda()
+    B = torch.rand((N, K), dtype=torch.float32).cuda()
+    bias = torch.rand((N, ), dtype=torch.float32).cuda()
     # generate and apply mask
     B_mask = block_mask(B.shape, block=BLOCK, sparsity=SPARSITY).cuda()
     B = torch.mul(B, B_mask)
     # spase and dense operators
     linear = torch.nn.Linear(K, N, bias=has_bias)
-    linear.load_state_dict(dict(weight=B, bias=bias) if has_bias else dict(weight=B) )
+    linear.load_state_dict(dict(weight=B, bias=bias) if has_bias else dict(weight=B))
     linear.cuda()
     splinear = sparta.nn.SparseLinear(linear, weight_mask=B_mask)
     splinear.build(params, sample_inputs=[A])
     torch.testing.assert_close(splinear(A), linear(A))
     print('PASS')
 
+
 def test_sparse_linear_dds(params: dict, has_bias: bool):
     print(f'---------- Sparse Linear DDS ----------')
     print(f'params={params}, bias={has_bias}')
     torch.manual_seed(2022)
-    A = torch.rand((M,K), dtype=torch.float32).cuda()
-    B = torch.rand((N,K), dtype=torch.float32).cuda()
-    bias = torch.rand((N,),dtype=torch.float32).cuda()
+    A = torch.rand((M, K), dtype=torch.float32).cuda()
+    B = torch.rand((N, K), dtype=torch.float32).cuda()
+    bias = torch.rand((N, ), dtype=torch.float32).cuda()
     # generate and apply mask
-    C_mask = block_mask((M,N), block=BLOCK, sparsity=SPARSITY).cuda()
+    C_mask = block_mask((M, N), block=BLOCK, sparsity=SPARSITY).cuda()
     # spase and dense operators
     linear = torch.nn.Linear(K, N, bias=has_bias)
-    linear.load_state_dict(dict(weight=B, bias=bias) if has_bias else dict(weight=B) )
+    linear.load_state_dict(dict(weight=B, bias=bias) if has_bias else dict(weight=B))
     linear.cuda()
     splinear = sparta.nn.SparseLinear(linear, output_mask=C_mask)
     splinear.build(params, sample_inputs=[A])
-    torch.testing.assert_close(torch.mul(splinear(A), C_mask), torch.mul(linear(A), C_mask))
+    torch.testing.assert_close(
+        torch.mul(splinear(A), C_mask),
+        torch.mul(linear(A), C_mask)
+    )
     print('PASS')
 
 
