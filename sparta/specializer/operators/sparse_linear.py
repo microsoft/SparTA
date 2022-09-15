@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-from typing import Optional
+from typing import Optional, Type
 
 import torch
 
@@ -37,13 +37,14 @@ class SparseLinear(OperatorBase):
         output_mask (torch.Tensor): The output mask tensor with shape (\*, out_features).
             The kernel mode will be "dense x dense => sparse" if the input mask is set.
     '''
+    __base_class__: Type[torch.nn.Module] = torch.nn.Linear
 
     def __init__(
         self, raw_module: torch.nn.Linear,
         input_mask: Optional[torch.Tensor] = None, weight_mask: Optional[torch.Tensor] = None,
         output_mask: Optional[torch.Tensor] = None
     ):
-        super().__init__(raw_module, torch.nn.Linear)
+        super().__init__(raw_module)
         N, K = raw_module.weight.shape
         M = None
         if sum(map(lambda x: x is not None, [input_mask, weight_mask, output_mask])) > 1:

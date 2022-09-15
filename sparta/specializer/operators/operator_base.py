@@ -5,7 +5,7 @@ import abc
 import sys
 import warnings
 import subprocess
-from typing import Type, Tuple, List, Dict
+from typing import Type, Tuple, List, Dict, Union
 
 import torch
 import numpy as np
@@ -36,20 +36,19 @@ class OperatorBase(torch.nn.Module):
 
     Args:
         raw_module (torch.nn.Module): The corresponding dense operator.
-        base_class (Type[torch.nn.Module]): Class of the dense operator.
     '''
+    __base_class__: Type[torch.nn.Module] = None
 
-    def __init__(self, raw_module: torch.nn.Module, base_class: Type[torch.nn.Module], name: str = None):
-        if type(raw_module) is not base_class:
-            raise ValueError(f'expected a {base_class} module')
+    def __init__(self, raw_module: torch.nn.Module):
+        if type(raw_module) is not self.__base_class__:
+            raise ValueError(f'expected a {self.__base_class__} module')
         super().__init__()
-        self._name = name or get_uname()
         self._raw_module = raw_module
         self._forward_function = None
-        self._tuner = None
         self._mask = None
         self.ready = False
         self._possible_implementations = {}
+        self._search_space = None
 
     def build(self, params: Dict, sample_inputs: List, jit: bool = True):
         '''Build the sparse kernel using the specified implementation and configs.
@@ -136,61 +135,41 @@ class OperatorBase(torch.nn.Module):
                 _is_nested=True,
                 _value={k: v.get_search_space() for k, v in self._possible_implementations.items()}
             )
-        self._tuner = Tunable(search_space_cfg=search_space, name=self._name)
+        self._search_space = search_space
 
-    def tune(self, sample_inputs: List[torch.Tensor], algo: str = 'grid', max_trials: int = sys.maxsize):
-        '''Go through all possible implementations and corresponding search spaces,
-        find the best implementation and the best configuration.
-
-        Args:
-            sample_inputs (list[torch.Tensor]): Sample input tensors to determine shape
-                parameters which cannot be tuned.
-            algo (str): The tuning algorithm. Only grid search is supported now.
-            max_trials (int): Maximum trial number. Negative value means infinity.
+    def get_search_space(self) -> TunableItemCfg:
+        '''Get the search space of the sparse operator.
 
         Returns:
-            tuple: The first value is the best implementation, the second value is the best config.
-                Return (None, None) if all trials fail.
+            TunableItemCfg: the search space of the sparse operator.
         '''
-        from nni import NoMoreTrialError
-
-        def _split_params(p: Dict):
-            implement, cfg = params[self._name]['_name'], params[self._name]
-            return implement, cfg
-        if self._tuner is None:  # use default search space
+        if self._search_space is None:
             self.set_search_space()
-        tuner = self._tuner.create_tuner(algo)
-        shape, inputs = self._read_sample_inputs(*sample_inputs)
-        best_latency = np.Inf
-        print(f'==================== Tuning ====================')
+        return self._search_space
 
-        for i in range(max_trials):
-            try:
-                params = tuner.generate_parameters(i)
-            except NoMoreTrialError:
-                break
-            print(f'#{i}: {params}')
-            implement, cfg = _split_params(params)
-            # For JIT test:
-            # self.build(params, sample_inputs=sample_inputs)
-            kernel = self._possible_implementations[implement]
-            try:
-                latency = kernel.test(dict(shape, **cfg), mask=self._mask, inputs=inputs)
-            except AssertionError:
-                print(f'Invalid config')
-                continue
-            except subprocess.SubprocessError:
-                print(f'An error occured')
-                continue
-            print(f'Latency: {latency} ms')
-            tuner.receive_trial_result(i, params, latency)  # TODO: add status here
-            if latency < best_latency:
-                best_latency = latency
-                best_params = params[self._name]
-        tuner.trial_end(i, True)
-        if best_params is None:
-            print('All configs test failed')
+    def tester(self, params: Dict,  sample_inputs: List, jit: bool = False, weight_bk: float=0.) -> float:
+        '''Tester function for tuning. It will build the sparse kernel and run the forward function (or backward also), and return the measured time.
+
+        Args:
+            params (Dict): building parameters. It should be a valid sample of search space
+            sample_inputs (List): sample inputs for shape inference
+            jit (bool): Determine whether to test the kernel using JIT mode.
+            weight_bk (float): The weight of the backward time in the total time. If set to 0, the backward time is not counted.
+
+        Returns:
+            float: The performance (running latency) of the kernel.
+        '''
+        if jit:
+            self.build(params, sample_inputs, jit)
+            # how to get the latency of the compiled kernel?
+            raise NotImplementedError
         else:
-            print(f'Minimum latency: {best_latency} ms')
-            print(f'Best config: {best_params}')
-        return best_params
+            shape, inputs = self._read_sample_inputs(*sample_inputs)
+            implement, cfg = params['_name'], params
+            kernel = self._possible_implementations[implement]
+            latency = kernel.test(dict(shape, **cfg), mask=self._mask, inputs=inputs)
+            if weight_bk > 0:
+                # TODO add backward time
+                pass
+            return latency
+

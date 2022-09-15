@@ -1,23 +1,53 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
+from dataclasses import dataclass, field
+import subprocess
 import warnings
+import sys
 from typing import List, Dict
 
+import numpy as np
 import torch
 
+from sparta.common.tuning import Tunable, TunableItemCfg
 from sparta.specializer import OperatorBase
 
 
-def tune_combined_module(module: torch.nn.Module, sample_inputs: List[torch.Tensor]):
+def tune_combined_module(module: torch.nn.Module, sample_inputs: List[torch.Tensor], algo: str = 'grid', max_trials: int = sys.maxsize, tester_kw: Dict = None, build_kw: Dict = None, tuner_kw: Dict = None, verbose: bool = False):
     '''Find, tune and build all sparse operators in the model.
 
     Args:
         module (torch.nn.Module): A PyTorch module that contains one or more sparse sub-modules.
         sample_inputs (List[torch.Tensor]): Sample input tensors to determine shape parameters.
+        algo: (str, optional): The algorithm to search the best parameters. Defaults to 'grid'.
+        max_trials: (int, optional): The maximum number of trials to run. Defaults to sys.maxsize.
+        tester_kw: (Dict, optional): The keyword arguments for the tester. Defaults to None.
+        build_kw: (Dict, optional): The keyword arguments for the builder (after tuning). Defaults to None.
+        tuner_kw: (Dict, optional): The keyword arguments for the tuner. Defaults to None.
     '''
+    from nni import NoMoreTrialError
+
+    @dataclass
+    class _TuningContext:
+        '''Context for tuning.'''
+        module_dict: Dict[str, torch.nn.Module] = field(default_factory=dict)
+        space_dict: Dict[str, TunableItemCfg] = field(default_factory=dict)
+        input_dict: Dict[str, list] = field(default_factory=dict)
+        best_latency: float = np.inf
+        best_params: Dict = None
+
+        def add(self, name, module, space, inputs):
+            '''Add a module to the context.'''
+            print(f'tunable operator deduced {type(module)} {name} ')
+            self.module_dict[name] = module
+            self.space_dict[name] = space
+            self.input_dict[name] = inputs
+
+    ctx = _TuningContext()
+
     if isinstance(module, OperatorBase):
-        tune_sparse_module(module, sample_inputs)
+        ctx.add('root', module, module.get_search_space(), sample_inputs)
     else:
         sample_inputs_dict = {}
         for child_name, child_module in module.named_children():
@@ -28,22 +58,35 @@ def tune_combined_module(module: torch.nn.Module, sample_inputs: List[torch.Tens
             module.forward(*sample_inputs)
         for child_name, child_module in module.named_children():
             if isinstance(child_module, OperatorBase):
-                print(f'########## {type(child_module)} {child_name} ##########')
-                tune_sparse_module(child_module, sample_inputs_dict[child_name])
+                ctx.add(child_name, child_module, child_module.get_search_space(), sample_inputs_dict[child_name])
 
+    tuner = Tunable.create_tuner(algo, ctx.space_dict, tuner_kw)
+    tester_kw = tester_kw or {}
+    for i in range(max_trials):
+        try:
+            params = tuner.generate_parameters(i)
+        except NoMoreTrialError:
+            break
+        latency = 0.0
+        try:
+            for name, module in ctx.module_dict.items():
+                latency += module.tester(params[name], sample_inputs=ctx.input_dict[name], **tester_kw)
+        except AssertionError:
+            print(f'Invalid config')
+            continue
+        except subprocess.SubprocessError:
+            print(f'An error occured')
+            continue
+        tuner.receive_trial_result(i, params, latency)  # TODO: add status here
+        if latency < ctx.best_latency:
+            ctx.best_latency = latency
+            ctx.best_params = params
+    tuner.trial_end(i, True)
 
-def tune_sparse_module(operator: OperatorBase, sample_inputs: List[torch.Tensor]):
-    '''Tune and build the given sparse operator.
-
-    Args:
-        module (OperatorBase): A tunable sparse operator.
-        sample_inputs (List[torch.Tensor]): Sample input tensors to determine shape parameters.
-    '''
-    best_params = operator.tune(sample_inputs)
-    if best_params is None:
-        warnings.warn('All trails failed, please re-tune with a different search space.')
-    else:
-        operator.build(best_params, sample_inputs=sample_inputs)
+    build_kw = build_kw or {}
+    for name, module in ctx.module_dict.items():
+        module.build(ctx.best_params[name], sample_inputs=ctx.input_dict[name], **build_kw)
+    return ctx.best_params
 
 
 def get_input_hook(input_dict: Dict[str, list], module_name: str):
