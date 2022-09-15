@@ -2,7 +2,7 @@
 # Licensed under the MIT license.
 
 import abc
-import sys
+import logging
 import warnings
 import subprocess
 from typing import Type, Tuple, List, Dict, Union
@@ -12,8 +12,9 @@ import numpy as np
 
 from sparta.specializer import kernels
 from sparta.common.tuning import TunableItemCfg, Tunable
-from sparta.common.utils import get_uname
+from sparta.testing import test_latency
 
+_logger = logging.Logger(__name__)
 
 class OperatorBase(torch.nn.Module):
     '''Base class of sparse operators.
@@ -162,7 +163,10 @@ class OperatorBase(torch.nn.Module):
         if jit:
             self.build(params, sample_inputs, jit)
             # how to get the latency of the compiled kernel?
-            raise NotImplementedError
+            latency = test_latency(self.forward, sample_inputs, None)
+            if weight_bk > 0:
+                # TODO add backward time
+                raise NotImplementedError
         else:
             shape, inputs = self._read_sample_inputs(*sample_inputs)
             implement, cfg = params['_name'], params
@@ -170,6 +174,6 @@ class OperatorBase(torch.nn.Module):
             latency = kernel.test(dict(shape, **cfg), mask=self._mask, inputs=inputs)
             if weight_bk > 0:
                 # TODO add backward time
-                pass
-            return latency
+                raise NotImplementedError
+        return latency
 

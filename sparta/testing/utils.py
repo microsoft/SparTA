@@ -46,5 +46,6 @@ def test_correctness(func: Callable, inputs: List, target_outputs: List):
     outputs = func(*inputs)
     if len(target_outputs) == 1:
         outputs = [outputs]
-    for output, target_output in enumerate(zip(outputs, target_outputs)):
+    assert len(outputs) == len(target_outputs), f'expected {len(target_outputs)} outputs, got {len(outputs)}'
+    for output, target_output in zip(outputs, target_outputs):
         torch.testing.assert_close(output, target_output)

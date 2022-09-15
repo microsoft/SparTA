@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 import subprocess
 import warnings
 import sys
+import logging
 from typing import List, Dict
 
 import numpy as np
@@ -12,6 +13,9 @@ import torch
 
 from sparta.common.tuning import Tunable, TunableItemCfg
 from sparta.specializer import OperatorBase
+
+
+_logger = logging.Logger(__name__)
 
 
 def tune_combined_module(module: torch.nn.Module, sample_inputs: List[torch.Tensor], algo: str = 'grid', max_trials: int = sys.maxsize, tester_kw: Dict = None, build_kw: Dict = None, tuner_kw: Dict = None, verbose: bool = False):
@@ -39,7 +43,7 @@ def tune_combined_module(module: torch.nn.Module, sample_inputs: List[torch.Tens
 
         def add(self, name, module, space, inputs):
             '''Add a module to the context.'''
-            print(f'tunable operator deduced {type(module)} {name} ')
+            _logger.info(f'tunable operator deduced {type(module)} {name} ')
             self.module_dict[name] = module
             self.space_dict[name] = space
             self.input_dict[name] = inputs
@@ -72,11 +76,12 @@ def tune_combined_module(module: torch.nn.Module, sample_inputs: List[torch.Tens
             for name, module in ctx.module_dict.items():
                 latency += module.tester(params[name], sample_inputs=ctx.input_dict[name], **tester_kw)
         except AssertionError:
-            print(f'Invalid config')
+            _logger.warn(f'Invalid config')
             continue
         except subprocess.SubprocessError:
-            print(f'An error occured')
+            _logger.warn(f'An error occured')
             continue
+        _logger.info(f'params:{params} -> latency: {latency}')
         tuner.receive_trial_result(i, params, latency)  # TODO: add status here
         if latency < ctx.best_latency:
             ctx.best_latency = latency
