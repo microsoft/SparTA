@@ -1,0 +1,139 @@
+{# Copyright (c) Microsoft Corporation. #}
+{# Licensed under the MIT license. #}
+
+const int K = {{ GLOBAL_K_VALUE }};
+const int N = {{ GLOBAL_N_VALUE }};
+const int BM = {{ BLOCK_SIZE_M_VALUE }};
+const int BK = {{ BLOCK_SIZE_K_VALUE }};
+const int BN = {{ BLOCK_SIZE_N_VALUE }};
+const int TM = {{ THREAD_SIZE_M_VALUE }};
+const int TK = {{ THREAD_SIZE_K_VALUE }};
+const int TN = {{ THREAD_SIZE_N_VALUE }};
+
+__global__ void BLOCK_SPARSE_MATMUL(
+    float* input_A,
+    float* input_B,
+    {% if BIASED %}float* input_bias,{% endif %}
+    int* output_C_row_idx,
+    int* output_C_col_idx,
+    int* output_C_block_nnz,
+    float* output_C_val
+) {
+    float * A = reinterpret_cast<float*>(input_A);
+    float * B = reinterpret_cast<float*>(input_B);
+    {% if BIASED %}float * bias = reinterpret_cast<float*>(input_bias);{% endif %}
+    int * C_row_idx = reinterpret_cast<int*>(output_C_row_idx);
+    int * C_col_idx = reinterpret_cast<int*>(output_C_col_idx);
+    float * C_val = reinterpret_cast<float*>(output_C_val);
+
+    int bx = C_col_idx[blockIdx.x]; // N
+    int by = C_row_idx[blockIdx.x]; // M
+    int ty = threadIdx.y;
+    int tx = threadIdx.x;
+
+    __shared__ float As[BM * BK];
+    __shared__ float Bs[BN * BK];
+
+    float accum[TN][TM] = {0};
+    float a_frag[TM][TK];
+    float b_frag[TN][TK];
+
+    int A_THREAD_PER_ROW = BK / 4;
+    int B_THREAD_PER_ROW = {% if TRANSPOSE %}BK{% else %}BN{% endif %} / 4;
+
+    int bszy = BM / TM;
+    int bszx = BN / TN;
+
+    int THREADS_PER_BLOCK = bszy * bszx;
+
+    int A_TILE_ROW_STRIDE = THREADS_PER_BLOCK / A_THREAD_PER_ROW;
+    int B_TILE_ROW_STRIDE = THREADS_PER_BLOCK / B_THREAD_PER_ROW;
+
+    int tid = ty * bszx + tx;
+
+    int A_BLOCK_ROW_START = tid / A_THREAD_PER_ROW;
+    int B_BLOCK_ROW_START = tid / B_THREAD_PER_ROW;
+
+    int A_BLOCK_COL_START = tid % A_THREAD_PER_ROW * 4;
+    int B_BLOCK_COL_START = tid % B_THREAD_PER_ROW * 4;
+
+    const int vBLOCK_SIZE_M = BM / TM;
+    const int vBLOCK_SIZE_N = BN / TN;
+    {% if TRANSPOSE %}float4 tmp_float4;{% endif %}
+    for (int tile_idx = 0; tile_idx < K; tile_idx += BK) {
+        #pragma unroll
+        for (int k = 0; k < BM; k += A_TILE_ROW_STRIDE) {
+            *((float4 *)(&As[(k+A_BLOCK_ROW_START) * BK + A_BLOCK_COL_START])) =
+                *((float4 *)(&A[(by*BM+k+A_BLOCK_ROW_START) * K + tile_idx+A_BLOCK_COL_START]));
+        }
+
+        #pragma unroll
+        for (int k = 0; k < {% if TRANSPOSE %}BN{% else %}BK{% endif %}; k += B_TILE_ROW_STRIDE) {
+            {% if TRANSPOSE %}
+            tmp_float4 = (reinterpret_cast<float4*>(&B[(bx*BN + B_BLOCK_ROW_START+k) * K + tile_idx + B_BLOCK_COL_START]))[0];
+            Bs[(B_BLOCK_COL_START+0) * BN + k+B_BLOCK_ROW_START] = tmp_float4.x;
+            Bs[(B_BLOCK_COL_START+1) * BN + k+B_BLOCK_ROW_START] = tmp_float4.y;
+            Bs[(B_BLOCK_COL_START+2) * BN + k+B_BLOCK_ROW_START] = tmp_float4.z;
+            Bs[(B_BLOCK_COL_START+3) * BN + k+B_BLOCK_ROW_START] = tmp_float4.w;
+            {% else %}
+            *((float4 *)(&Bs[(k+B_BLOCK_ROW_START) * BN + B_BLOCK_COL_START])) =
+                *((float4 *)(&B[(tile_idx + B_BLOCK_ROW_START+k) * N + bx*BN + B_BLOCK_COL_START]));
+            {% endif %}
+        }
+
+        __syncthreads();
+
+        #pragma unroll
+        for (int k = 0; k < BK; k += TK) {
+            #pragma unroll
+            for (int i = 0; i < TK; i++) {
+                #pragma unroll
+                for (int j = 0; j < TM; j += 1) {
+                    a_frag[j][i] = As[(ty + vBLOCK_SIZE_M * j) * BK + k + i];
+                }
+            }
+
+            #pragma unroll
+            for (int i = 0; i < TK; i++) {
+                #pragma unroll
+                for (int j = 0; j < TN; j += 1) {
+                    b_frag[j][i] = Bs[(k + i) * BN + tx + vBLOCK_SIZE_N * j];
+                }
+            }
+
+            #pragma unroll
+            for (int i = 0; i < TN; i++) {
+                #pragma unroll
+                for (int j = 0; j < TM; j++) {
+                    #pragma unroll
+                    for (int k_in = 0; k_in < TK; k_in++) {
+                        accum[i][j] += a_frag[j][k_in] * b_frag[i][k_in];
+                    }
+                }
+            }
+        }
+
+        __syncthreads();
+    }
+
+    {% if BIASED %}
+    float bias_local[TN];
+    for (int thread_x = 0; thread_x < TN; thread_x++) {
+        bias_local[thread_x] = bias[BN * bx + tx + thread_x * vBLOCK_SIZE_N];
+    }
+    {% endif %}
+
+    #pragma unroll
+    for (int thread_x = 0; thread_x < TN; thread_x++) {
+        #pragma unroll
+        for (int thread_y = 0; thread_y < TM; thread_y+=1) {
+            {% if COMPRESSED %}
+            C_val[BM * BN * blockIdx.x + (ty + thread_y * vBLOCK_SIZE_M) * BN + tx + thread_x * vBLOCK_SIZE_N] =
+                (accum[thread_x][thread_y]){% if BIASED %} + bias_local[thread_x]{% endif %};
+            {% else %}
+            C_val[(BM * by + ty + thread_y * vBLOCK_SIZE_M) * N + BN * bx + tx + thread_x * vBLOCK_SIZE_N] =
+                (accum[thread_x][thread_y]){% if BIASED %} + bias_local[thread_x]{% endif %};
+            {% endif %}
+        }
+    }
+}

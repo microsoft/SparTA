@@ -55,11 +55,11 @@ class _Tensor:
     dense_data: Optional[np.ndarray] = None
     sparse_data: Optional[Dict[str, np.ndarray]] = None
 
-    def set_data(self, data: np.ndarray):
+    def set_data(self, data: np.ndarray, auto_mask: bool = True):
         assert data.shape == self.shape
         self.dense_data = data
         self.sparse_data = None
-        if self.mask is not None:
+        if self.mask is not None and auto_mask:
             self.dense_data *= self.mask
 
     def generate_data(self):
@@ -211,8 +211,8 @@ class KernelBase:
         else:
             self.outputs[name].layout_config = layout
 
-    def set_target_output(self, name: str, data: np.ndarray):
-        self.outputs[name].set_data(data)
+    def set_target_output(self, name: str, data: np.ndarray, auto_mask: bool = True):
+        self.outputs[name].set_data(data, auto_mask)
 
     def get_output(self, name: str):
         return self.outputs[name]

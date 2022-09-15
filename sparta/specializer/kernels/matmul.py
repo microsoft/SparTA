@@ -103,7 +103,7 @@ class MatMulKernelBase(KernelBase):
         C = A @ B
         if self._biased:
             C += self.get_input('bias').dense()
-        self.set_target_output('C', C)
+        self.set_target_output('C', C, auto_mask=(self._stype != 'dds'))
 
 
 class SparTATemplateSparseMatMulKernel(MatMulKernelBase):
@@ -181,11 +181,14 @@ class SparTATemplateSparseMatMulKernel(MatMulKernelBase):
             })
 
     def blocks_per_grid(self) -> Tuple[int]:
-        M = self.get_parameter('GLOBAL_M_VALUE')
-        N = self.get_parameter('GLOBAL_N_VALUE')
-        BM = self.get_parameter('BLOCK_SIZE_M_VALUE')
-        BN = self.get_parameter('BLOCK_SIZE_N_VALUE')
-        return (N // BN, M // BM)
+        if self._stype == 'dds':
+            return (int(self.get_output('C').sparse()['nnz'][0]), )
+        else:
+            M = self.get_parameter('GLOBAL_M_VALUE')
+            N = self.get_parameter('GLOBAL_N_VALUE')
+            BM = self.get_parameter('BLOCK_SIZE_M_VALUE')
+            BN = self.get_parameter('BLOCK_SIZE_N_VALUE')
+            return (N // BN, M // BM)
 
     def threads_per_block(self) -> Tuple[int]:
         BM = self.get_parameter('BLOCK_SIZE_M_VALUE')

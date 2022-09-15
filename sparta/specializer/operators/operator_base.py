@@ -179,7 +179,8 @@ class OperatorBase(torch.nn.Module):
             except AssertionError:
                 print(f'Invalid config')
                 continue
-            except subprocess.SubprocessError:
+            except subprocess.SubprocessError as e:
+                print(e)
                 print(f'An error occured')
                 continue
             print(f'Latency: {latency} ms')

@@ -80,15 +80,10 @@ class SparseLinear(OperatorBase):
         self._biased = raw_module.bias is not None
         self._transpose = True
         self._dtype = 'int' if 'int' in str(raw_module.weight.dtype) else 'float'
-        if self._stype == 'dds':
-            self._possible_implementations = {
-                'openai': kernels.OpenAITemplateSparseMatMulKernel(self._stype, self._dtype, self._biased, self._transpose, self._compressed),
-            }
-        else:
-            self._possible_implementations = {
-                'sparta': kernels.SparTATemplateSparseMatMulKernel(self._stype, self._dtype, self._biased, self._transpose, self._compressed),
-                'openai': kernels.OpenAITemplateSparseMatMulKernel(self._stype, self._dtype, self._biased, self._transpose, self._compressed),
-            }
+        self._possible_implementations = {
+            'sparta': kernels.SparTATemplateSparseMatMulKernel(self._stype, self._dtype, self._biased, self._transpose, self._compressed),
+            'openai': kernels.OpenAITemplateSparseMatMulKernel(self._stype, self._dtype, self._biased, self._transpose, self._compressed),
+        }
 
     def _load_compile_kernel(self, forward_kernel: kernels.MatMulKernelBase):
         '''Set PyTorch module parameters: weight and bias (if exists).
