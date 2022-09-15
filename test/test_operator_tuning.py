@@ -26,9 +26,9 @@ SEARCH_SPACE = TunableItemCfg('choice', _is_nested=True, _value={
 class TestOperatorTuning(unittest.TestCase):
 
     def _test_parse_space(self, cfg, space, samples=None):
-        t = Tunable(cfg, 'test')
-        self.assertDictEqual(t.search_space, space)
-        tuner = t.create_tuner('grid')
+        name = 'test'
+        self.assertDictEqual({name: cfg.to_nni_search_space()}, space)
+        tuner = Tunable.create_tuner('grid', {name: cfg})
         if samples:
             for i, sample in enumerate(samples):
                 ts = tuner.generate_parameters(i)
@@ -95,12 +95,10 @@ class TestOperatorTuning(unittest.TestCase):
         sparse_op = sparta.nn.SparseLinear(dense_op, weight_mask=weight_mask)
         # test default search space
         sparse_op.set_search_space(SEARCH_SPACE)
-        best_params = sparse_op.tune(
-            sample_inputs=[dense_input],
-            algo='grid'
+        best_params = sparta.nn.tune(
+            sparse_op, [dense_input], algo='grid', tester_kw={'jit': False}
         )
         print(f'Best params: {best_params}')
-        sparse_op.build(best_params, sample_inputs=[dense_input])
         torch.testing.assert_close(sparse_op(dense_input), dense_op(dense_input))
         print(f'PASS')
 

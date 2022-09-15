@@ -72,21 +72,8 @@ class Tunable:
     '''The wrapper of NNI tuners that supports nested choice search space.
     '''
 
-    def __init__(self, search_space_cfg: TunableItemCfg, name: str = None) -> None:
-        self.search_space_cfg = search_space_cfg
-        self.search_space = None
-        self.name = name or get_uname()
-        self._tuner = None
-        self._algo = None
-        if self.search_space_cfg:
-            self.parse_config()
-
-    def parse_config(self):
-        self.search_space = {self.name: self.search_space_cfg.to_nni_search_space()}
-        return self.search_space
-
-    @property
-    def supported_tuners(self):
+    @staticmethod
+    def supported_tuners():
         from nni.algorithms.hpo.gridsearch_tuner import GridSearchTuner
         from nni.algorithms.hpo.random_tuner import RandomTuner
         from nni.algorithms.hpo.tpe_tuner import TpeTuner
@@ -97,8 +84,9 @@ class Tunable:
             'tpe': TpeTuner,
             'evolution': EvolutionTuner,
         }
-        
-    def create_tuner(self, algo: str, tuner_kw: Dict = None):
+
+    @staticmethod        
+    def create_tuner(algo: str, search_space_cfg: Dict[str, TunableItemCfg], tuner_kw: Dict = None):
         '''create NNI Tuner
 
         Args:
@@ -112,13 +100,13 @@ class Tunable:
                 tpe       nni.algorithms.hpo.tpe_tuner.TpeTuner
                 evolution nni.algorithms.hpo.evolution_tuner.EvolutionTuner
                 ========= ===================================================
-                
+            
+            search_space_cfg (TunableItemCfg): search space config
             tuner_kw (Dict): parameters passed to NNI tuner
         '''
-        supported_tuners = self.supported_tuners
+        supported_tuners = Tunable.supported_tuners()
         assert algo in supported_tuners, f'{algo} is not supported'
-        self._algo = algo
         tuner_kw = tuner_kw or {}
-        self._tuner = supported_tuners[algo](**tuner_kw)
-        self._tuner.update_search_space(self.search_space)
-        return self._tuner
+        tuner = supported_tuners[algo](**tuner_kw)
+        tuner.update_search_space({k: v.to_nni_search_space() if v else {} for k, v in search_space_cfg.items()})
+        return tuner

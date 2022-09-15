@@ -7,9 +7,6 @@
 ## Installation 
 SparTA depends on user's local CUDA environments. Here are some requirements
 - [PyTorch](https://pytorch.org/)
-- [PyCuda](https://pypi.org/project/pycuda/)
-
-Please make sure that the CUDA version matches the version used to compile PyTorch binaries.
 
 User could install through `pip` command as below (*The PyPI install path is coming soon*)
 ```bash
@@ -19,6 +16,21 @@ or
 ```bash
 git clone git@github.com:microsoft/SparTA.git
 pip install SparTA
+```
+
+Please make sure that the CUDA version matches the version used to compile PyTorch binaries.
+If cuda and nvcc version issues met, the following commands may be helpful to verify the environments. 
+
+```python
+import os
+import torch
+import pycuda.driver
+
+if torch.cuda.is_available():
+    os.system('nvcc --version')
+    print(torch.version.cuda)
+    print(pycuda.driver.get_version())
+    print(pycuda.driver.get_driver_version())
 ```
 
 ## Usage
@@ -45,8 +57,7 @@ linear = torch.nn.Linear(K, N, bias=has_bias).cuda()
 linear.load_state_dict(dict(weight=B, bias=bias) if has_bias else dict(weight=B) )
 # sparse operator
 splinear = sparta.nn.SparseLinear(linear, weight_mask=B_mask)
-best_cfg = splinear.tune(sample_inputs=[A], max_trials=10, algo='rand')
-splinear.build(best_cfg)
+best_cfg = sparta.nn.tune(splinear, sample_inputs=[A], max_trials=10, algo='rand')
 torch.testing.assert_close(splinear(A), linear(A))
 ```
 
