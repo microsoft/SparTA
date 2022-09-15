@@ -103,6 +103,8 @@ class TestSparseLinearOperators(unittest.TestCase):
         test_sparse_linear_sdd(dict(_name='openai'), True)
         test_sparse_linear_sdd(dict(_name='openai'), False)
 
+        test_sparse_linear_dds(dict(_name='sparta', **TILE_CONFIG), True)
+        test_sparse_linear_dds(dict(_name='sparta', **TILE_CONFIG), False)
         test_sparse_linear_dds(dict(_name='openai'), True)
         test_sparse_linear_dds(dict(_name='openai'), False)
 

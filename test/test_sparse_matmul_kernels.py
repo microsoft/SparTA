@@ -34,7 +34,7 @@ class TestSparseMatmulKernels(unittest.TestCase):
 
     def test_sparta_sparse_matmul(self):
         print('==================== Testing SparTA Sparse Matmul Kernels ====================')
-        for stype in ['sdd', 'dsd']:
+        for stype in ['sdd', 'dsd', 'dds']:
             for biased in [False, True]:
                 for transpose in [False, True]:
                     for compressed in [False, True]:

@@ -6,3 +6,4 @@ __pycache__
 *.egg-info
 _build
 generated
+tmp_mk_pycodes.py
