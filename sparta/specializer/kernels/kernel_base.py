@@ -5,6 +5,7 @@ import os
 import abc
 import copy
 import shutil
+import psutil
 import hashlib
 import subprocess
 from typing import Any, Optional, Callable, Iterable, Union, Tuple, List, Dict
@@ -428,6 +429,7 @@ class KernelInterface(abc.ABC):
             stdout, stderr = process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired as e:
             process.kill()
+            process.wait()
             raise e
         stdout = stdout.decode("utf-8").replace('\\n', '\n')
         stderr = stderr.decode("utf-8").replace('\\n', '\n')
