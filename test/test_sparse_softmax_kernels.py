@@ -21,7 +21,7 @@ TILE_CONFIG = {
 
 def test_softmax_kernel(compressed, cfg):
     np.random.seed(2022)
-    kernel = kernels.SparTATemplateSparseSoftmaxKernel(compressed=compressed)
+    kernel = kernels.SparTATemplateSparseSoftmaxKernel(batch_size=4, compressed=compressed)
     print(f'{kernel.get_kernel_name()}: {kernel.test(cfg, num_iters=1000)} ms')
 
 

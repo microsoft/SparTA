@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-from typing import Optional
+from typing import Optional, Type
 
 import torch
 
@@ -32,9 +32,10 @@ class SparseSoftmax(OperatorBase):
         raw_module (torch.nn.Softmax): The corresponding dense softmax operator.
         mask (torch.Tensor): The mask with the same shape as the input tensor.
     '''
+    __base_class__: Type[torch.nn.Module] = torch.nn.Softmax
 
     def __init__(self, raw_module: torch.nn.Softmax, mask: Optional[torch.Tensor] = None):
-        super().__init__(raw_module, torch.nn.Softmax)
+        super().__init__(raw_module)
         self._raw_module = raw_module
         numpy_mask = mask.cpu().detach().numpy()
         self._mask = {'C_in': numpy_mask, 'C_mask': numpy_mask, 'C_out': numpy_mask}
@@ -42,7 +43,10 @@ class SparseSoftmax(OperatorBase):
         self._dtype = 'float'
         self._shape = None
         self._possible_implementations = {
-            'sparta': kernels.SparTATemplateSparseSoftmaxKernel(self._dtype, self._compressed),
+            'sparta': kernels.SparTATemplateSparseSoftmaxKernel(
+                dtype=self._dtype,
+                compressed=self._compressed,
+            ),
         }
 
     def _load_compile_kernel(self, forward_kernel: kernels.KernelBase):

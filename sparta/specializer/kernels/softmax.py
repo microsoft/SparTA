@@ -18,8 +18,9 @@ TEMPLATE_DIR = os.path.join(os.path.split(
 
 class SoftmaxKernelBase(KernelBase):
 
-    def __init__(self, dtype: str = 'float', compressed: bool = True):
+    def __init__(self, batch_size: int = 1, dtype: str = 'float', compressed: bool = True):
         self._dtype = dtype
+        self._batch_size = batch_size
         self._compressed = compressed
         super().__init__()
 
@@ -53,9 +54,9 @@ class SoftmaxKernelBase(KernelBase):
     def set_ports_shape(self):
         H = self.get_parameter('GLOBAL_H_VALUE')
         W = self.get_parameter('GLOBAL_W_VALUE')
-        self.set_input_shape('C_in', (1, H, W))
-        self.set_input_shape('C_mask', (1, H, W))
-        self.set_output_shape('C_out', (1, H, W))
+        self.set_input_shape('C_in', (self._batch_size, H, W))
+        self.set_input_shape('C_mask', (self._batch_size, H, W))
+        self.set_output_shape('C_out', (self._batch_size, H, W))
 
     @abc.abstractmethod
     def set_ports_layout(self):
@@ -76,13 +77,13 @@ class SoftmaxKernelBase(KernelBase):
         '''
 
     def calc_target_outputs(self) -> Dict[str, np.ndarray]:
-        C_in = self.get_input('C_in').dense()
-        C_mask = self.get_input('C_mask').dense()
+        C_in = np.concatenate(self.get_input('C_in').dense())
+        C_mask = np.concatenate(self.get_input('C_mask').dense())
         C_max = C_in.max(axis=-1).reshape((-1, 1))
         C_exp = np.exp(C_in - C_max) * C_mask
         C_exp_sum = C_exp.sum(axis=-1).reshape((-1, 1)) + 1e-10
         C_out = C_exp / C_exp_sum
-        C_out = C_out.reshape(C_in.shape).astype(C_in.dtype)
+        C_out = C_out.reshape((self._batch_size, -1, C_in.shape[1])).astype(C_in.dtype)
         self.set_target_output('C_out', C_out)
 
 
@@ -131,7 +132,7 @@ class SparTATemplateSparseSoftmaxKernel(SoftmaxKernelBase):
     def blocks_per_grid(self) -> Tuple[int]:
         H = self.get_parameter('GLOBAL_H_VALUE')
         T = self.get_parameter('ROW_TILE_VALUE')
-        return (H // T, )
+        return (H // T, self._batch_size)
 
     def threads_per_block(self) -> Tuple[int]:
         T = self.get_parameter('ROW_TILE_VALUE')

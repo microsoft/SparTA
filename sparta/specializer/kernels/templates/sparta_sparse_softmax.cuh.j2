@@ -20,8 +20,14 @@ __global__ void SPARSE_SOFTMAX(
     int* mask,
     float* out_val
 ) {
+    {% if COMPRESSED %}
     int num_nnz = row_ptr[H / block_h];
     in_val += blockIdx.y * num_nnz * block_h * block_w;
+    out_val += blockIdx.y * num_nnz * block_h * block_w;
+    {% else %}
+    in_val += blockIdx.y * H * W;
+    out_val += blockIdx.y * H * W;
+    {% endif %}
 
     uint blk_row_idx = blockIdx.x / (block_h/row_tile) ;
     int block_inter_row = (blockIdx.x % (block_h/row_tile)) * row_tile;

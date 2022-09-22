@@ -32,6 +32,7 @@ class TestDocs(unittest.TestCase):
         validate_markdown('README.md')
         os.system(f'python {__tmp_file__}')
         cleanup()
+        print('PASS')
 
 
 if __name__ == '__main__':
