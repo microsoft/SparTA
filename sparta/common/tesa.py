@@ -53,12 +53,13 @@ class BCSR(TeSABase):
         size: Optional[Iterable[int]] = None, mask: Optional[Union[np.ndarray, float, int]] = None,
     ):
         block_height, block_width = block_size
-        height, width = dense.shape if size is None else size
+        height, width = dense.shape[1:] if size is None else size[1:]
         row_num = height // block_height
         col_num = width // block_width
 
         if mask is None:
-            mask = dense.reshape(row_num, block_height, col_num, block_width).swapaxes(1, 2)
+            mask = dense.sum(axis=0)
+            mask = mask.reshape(row_num, block_height, col_num, block_width).swapaxes(1, 2)
             mask: np.ndarray = np.abs(mask).sum(axis=(2, 3)) > 0
         elif (isinstance(mask, float) or isinstance(mask, int)) and 0 <= mask <= 1:
             mask = np.random.uniform(size=(row_num, col_num)) < mask
@@ -78,12 +79,12 @@ class BCSR(TeSABase):
             block_start_j = block_j * block_width
             block_end_j = block_start_j + block_width
             if mask[block_i, block_j]:
-                block = dense[block_start_i:block_end_i, block_start_j:block_end_j]
-                val.append(block.flatten())
+                block = dense[:, block_start_i:block_end_i, block_start_j:block_end_j]
+                val.append(block)
                 row_idx.append(block_i)
                 col_idx.append(block_j)
             else:
-                dense[block_start_i:block_end_i, block_start_j:block_end_j] = 0
+                dense[:, block_start_i:block_end_i, block_start_j:block_end_j] = 0
             return val, row_idx, col_idx
 
         if mode.startswith('H'):
@@ -97,7 +98,7 @@ class BCSR(TeSABase):
                     val, row_idx, col_idx = read_block(block_i, block_j, val, row_idx, col_idx)
                 col_ptr.append(len(row_idx))
 
-        val = dense if mode.endswith('D') else np.concatenate(val)
+        val = dense if mode.endswith('D') else np.stack(val, axis=1).flatten()
 
         sparse = {
             'val': np.array(val).astype(dense.dtype),
@@ -164,23 +165,26 @@ class BCSR(TeSABase):
             mode = 'X'
 
         if len(val.shape) == 1:
-            if nnz * block_width * block_height != val.size:
+            layer_size = nnz * block_width * block_height
+            if val.size % layer_size != 0:
                 raise ValueError('BCSR variable size mismatches')
+            batch_size = val.size // layer_size
             block_flatten_size = block_height * block_width
-            dense = np.zeros((height, width)).astype(val.dtype)
+            dense = np.zeros((batch_size, height, width)).astype(val.dtype)
+            val = val.reshape(batch_size, layer_size)
             block_i = 0
-            block_cnt = 0
             block_start = 0
             for block_i, block_j in zip(row_idx, col_idx):
                 row_start = block_i * block_height
                 col_start = block_j * block_width
-                block = val[block_start:block_start + block_flatten_size]
-                block = block.reshape((block_width, block_height))
-                dense[row_start:row_start + block_height, col_start:col_start + block_width] = block
+                row_end = row_start + block_height
+                col_end = col_start + block_width
+                block = val[:, block_start:block_start + block_flatten_size]
+                block = block.reshape(-1, block_width, block_height)
+                dense[:, row_start:row_end, col_start:col_end] = block
                 block_start += block_flatten_size
-                block_cnt += 1
-        elif len(val.shape) == 2:
-            if val.shape != (height, width):
+        elif len(val.shape) == 3:
+            if val.shape[1] != height or val.shape[2] != width:
                 raise ValueError('BCSR variable size mismatches')
             dense = val
             mode += 'D'

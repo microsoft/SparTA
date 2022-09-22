@@ -53,9 +53,9 @@ class SoftmaxKernelBase(KernelBase):
     def set_ports_shape(self):
         H = self.get_parameter('GLOBAL_H_VALUE')
         W = self.get_parameter('GLOBAL_W_VALUE')
-        self.set_input_shape('C_in', (H, W))
-        self.set_input_shape('C_mask', (H, W))
-        self.set_output_shape('C_out', (H, W))
+        self.set_input_shape('C_in', (1, H, W))
+        self.set_input_shape('C_mask', (1, H, W))
+        self.set_output_shape('C_out', (1, H, W))
 
     @abc.abstractmethod
     def set_ports_layout(self):
@@ -82,7 +82,7 @@ class SoftmaxKernelBase(KernelBase):
         C_exp = np.exp(C_in - C_max) * C_mask
         C_exp_sum = C_exp.sum(axis=-1).reshape((-1, 1)) + 1e-10
         C_out = C_exp / C_exp_sum
-        C_out = C_out.astype(C_in.dtype)
+        C_out = C_out.reshape(C_in.shape).astype(C_in.dtype)
         self.set_target_output('C_out', C_out)
 
 

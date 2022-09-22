@@ -1,6 +1,7 @@
 {# Copyright (c) Microsoft Corporation. #}
 {# Licensed under the MIT license. #}
 
+const int M = {{ GLOBAL_M_VALUE }};
 const int K = {{ GLOBAL_K_VALUE }};
 const int N = {{ GLOBAL_N_VALUE }};
 const int BM = {{ BLOCK_SIZE_M_VALUE }};
@@ -29,6 +30,17 @@ __global__ void BLOCK_SPARSE_MATMUL(
     int bx = blockIdx.x;
     int ty = threadIdx.y;
     int tx = threadIdx.x;
+
+    {% if COMPRESSED %}
+    A_val += A_block_ptr[M / BM] * BM * BK * blockIdx.z;
+    {% else %}
+    A_val += M * K * blockIdx.z;
+    {% endif %}
+    B += K * N * blockIdx.z;
+    C += M * N * blockIdx.z;
+    {% if BIASED %}
+    bias += N * blockIdx.z;
+    {% endif %}
 
     __shared__ float As[BM * BK];
     __shared__ float Bs[BN * BK];

@@ -80,11 +80,11 @@ class _Tensor:
         if self.layout == 'BCSR':
             if self.layout_parent is None:
                 block_size = self.layout_config['block_size']
-                row_num = self.shape[-2] // block_size[0]
-                col_num = self.shape[-1] // block_size[1]
+                row_num = self.shape[1] // block_size[0]
+                col_num = self.shape[2] // block_size[1]
                 mask = np.random.uniform(size=(row_num, col_num)) > sparsity
                 mask = np.tile(mask.reshape((row_num, col_num, 1, 1)), [1, 1] + block_size)
-                self.mask = mask.swapaxes(1, 2).reshape(self.shape)
+                self.mask = mask.swapaxes(1, 2).reshape(self.shape[1:])
             else:
                 self.mask = self.layout_parent.mask
         else:

@@ -52,6 +52,9 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
     B_val += K*N*blockIdx.z;
     {% endif %}
     C += M*N*blockIdx.z;
+    {% if BIASED %}
+    bias += N*blockIdx.z;
+    {% endif %}
 
     assert(blockDim.x % 32 == 0);
     uint n_warp = 8; // blockDim.x / 32

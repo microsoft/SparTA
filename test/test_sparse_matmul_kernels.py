@@ -26,7 +26,7 @@ TILE_CONFIG = {
 
 def test_matmul_kernel(kernel_class: Type[kernels.KernelBase], s, b, t, c, cfg):
     np.random.seed(2022)
-    kernel = kernel_class(sparse_type=s, biased=b, transpose=t, compressed=c)
+    kernel = kernel_class(batch_size=4, sparse_type=s, biased=b, transpose=t, compressed=c)
     print(f'{kernel.get_kernel_name()}: {kernel.test(cfg, num_iters=1000)} ms')
 
 
@@ -49,7 +49,7 @@ class TestSparseMatmulKernels(unittest.TestCase):
         for stype in ['sdd', 'dsd', 'dds']:
             for biased in [False, True]:
                 for transpose in [False, True]:
-                    for compressed in [True]:
+                    for compressed in [False, True]:
                         test_matmul_kernel(
                             kernels.OpenAITemplateSparseMatMulKernel,
                             stype, biased, transpose, compressed,

@@ -18,7 +18,7 @@ TEMPLATE_DIR = os.path.join(os.path.split(os.path.realpath(__file__))[0], "templ
 class MatMulKernelBase(KernelBase):
 
     def __init__(
-        self, sparse_type: str, dtype: str = 'float',
+        self, sparse_type: str, batch_size: int = 1, dtype: str = 'float',
         biased: bool = True, transpose: bool = True, compressed: bool = True
     ):
         if sparse_type not in ['sdd', 'dsd', 'dds']:
@@ -26,6 +26,7 @@ class MatMulKernelBase(KernelBase):
         self._biased = biased
         self._transpose = transpose
         self._compressed = compressed
+        self._batch_size = batch_size
         self._stype = sparse_type
         self._dtype = dtype
         super().__init__()
@@ -68,14 +69,14 @@ class MatMulKernelBase(KernelBase):
         M = self.get_parameter('GLOBAL_M_VALUE')
         K = self.get_parameter('GLOBAL_K_VALUE')
         N = self.get_parameter('GLOBAL_N_VALUE')
-        self.set_input_shape('A', (M, K))
+        self.set_input_shape('A', (self._batch_size, M, K))
         if self._transpose:
-            self.set_input_shape('B', (N, K))
+            self.set_input_shape('B', (self._batch_size, N, K))
         else:
-            self.set_input_shape('B', (K, N))
+            self.set_input_shape('B', (self._batch_size, K, N))
         if self._biased:
-            self.set_input_shape('bias', (N, ))
-        self.set_output_shape('C', (M, N))
+            self.set_input_shape('bias', (self._batch_size, N))
+        self.set_output_shape('C', (self._batch_size, M, N))
 
     @abc.abstractmethod
     def set_ports_layout(self):
@@ -99,10 +100,11 @@ class MatMulKernelBase(KernelBase):
         A = self.get_input('A').dense()
         B = self.get_input('B').dense()
         if self._transpose:
-            B = B.T
-        C = A @ B
+            C = np.einsum('bmk, bnk -> bmn', A, B)
+        else:
+            C = np.einsum('bmk, bkn -> bmn', A, B)
         if self._biased:
-            C += self.get_input('bias').dense()
+            C += self.get_input('bias').dense().reshape(self._batch_size, 1, -1)
         self.set_target_output('C', C, auto_mask=(self._stype != 'dds'))
 
 
@@ -182,13 +184,13 @@ class SparTATemplateSparseMatMulKernel(MatMulKernelBase):
 
     def blocks_per_grid(self) -> Tuple[int]:
         if self._stype == 'dds':
-            return (int(self.get_output('C').sparse()['nnz'][0]), )
+            return (int(self.get_output('C').sparse()['nnz'][0]), self._batch_size)
         else:
             M = self.get_parameter('GLOBAL_M_VALUE')
             N = self.get_parameter('GLOBAL_N_VALUE')
             BM = self.get_parameter('BLOCK_SIZE_M_VALUE')
             BN = self.get_parameter('BLOCK_SIZE_N_VALUE')
-            return (N // BN, M // BM)
+            return (N // BN, M // BM, self._batch_size)
 
     def threads_per_block(self) -> Tuple[int]:
         BM = self.get_parameter('BLOCK_SIZE_M_VALUE')
@@ -241,11 +243,11 @@ class OpenAITemplateSparseMatMulKernel(MatMulKernelBase):
 
     def blocks_per_grid(self) -> Tuple[int]:
         if self._stype == 'dds':
-            return (int(self.get_output('C').sparse()['nnz'][0]), )
+            return (int(self.get_output('C').sparse()['nnz'][0]), self._batch_size)
         else:
             M = self.get_parameter('GLOBAL_M_VALUE')
             N = self.get_parameter('GLOBAL_N_VALUE')
-            return (N // 32, M // 32)
+            return (N // 32, M // 32, self._batch_size)
 
     def threads_per_block(self) -> Tuple[int]:
         return (256, )

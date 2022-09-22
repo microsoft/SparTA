@@ -1,6 +1,7 @@
 {# Copyright (c) Microsoft Corporation. #}
 {# Licensed under the MIT license. #}
 
+const int M = {{ GLOBAL_M_VALUE }};
 const int K = {{ GLOBAL_K_VALUE }};
 const int N = {{ GLOBAL_N_VALUE }};
 const int BM = {{ BLOCK_SIZE_M_VALUE }};
@@ -24,12 +25,24 @@ __global__ void BLOCK_SPARSE_MATMUL(
     {% if BIASED %}float * bias = reinterpret_cast<float*>(input_bias);{% endif %}
     int * C_row_idx = reinterpret_cast<int*>(output_C_row_idx);
     int * C_col_idx = reinterpret_cast<int*>(output_C_col_idx);
+    int * C_block_nnz = reinterpret_cast<int*>(output_C_block_nnz);
     float * C_val = reinterpret_cast<float*>(output_C_val);
 
     int bx = C_col_idx[blockIdx.x]; // N
     int by = C_row_idx[blockIdx.x]; // M
     int ty = threadIdx.y;
     int tx = threadIdx.x;
+
+    A += M * K * blockIdx.y;
+    B += K * N * blockIdx.y;
+    {% if COMPRESSED %}
+    C_val += C_block_nnz[0] * BM * BN * blockIdx.y;
+    {% else %}
+    C_val += M * N * blockIdx.y;
+    {% endif %}
+    {% if BIASED %}
+    bias += N * blockIdx.y;
+    {% endif %}
 
     __shared__ float As[BM * BK];
     __shared__ float Bs[BN * BK];

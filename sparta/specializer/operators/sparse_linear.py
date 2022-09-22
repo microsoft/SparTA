@@ -4,6 +4,7 @@
 from typing import Optional, Type
 
 import torch
+import numpy as np
 
 from sparta.specializer import kernels
 from sparta.specializer.operators.operator_base import OperatorBase
@@ -82,8 +83,20 @@ class SparseLinear(OperatorBase):
         self._transpose = True
         self._dtype = 'int' if 'int' in str(raw_module.weight.dtype) else 'float'
         self._possible_implementations = {
-            'sparta': kernels.SparTATemplateSparseMatMulKernel(self._stype, self._dtype, self._biased, self._transpose, self._compressed),
-            'openai': kernels.OpenAITemplateSparseMatMulKernel(self._stype, self._dtype, self._biased, self._transpose, self._compressed),
+            'sparta': kernels.SparTATemplateSparseMatMulKernel(
+                sparse_type=self._stype,
+                dtype=self._dtype,
+                biased=self._biased,
+                transpose=self._transpose,
+                compressed=self._compressed,
+            ),
+            'openai': kernels.OpenAITemplateSparseMatMulKernel(
+                sparse_type=self._stype,
+                dtype=self._dtype,
+                biased=self._biased,
+                transpose=self._transpose,
+                compressed=self._compressed,
+            ),
         }
 
     def _load_compile_kernel(self, forward_kernel: kernels.MatMulKernelBase):
@@ -98,12 +111,18 @@ class SparseLinear(OperatorBase):
             self.bias = torch.nn.Parameter(self._raw_module.bias.detach(), requires_grad=False)
         else:
             self.bias = None
-        weight = self._raw_module.weight.cpu().detach().numpy().astype(f'{self._dtype}32')
+        weight = self._pytorch_to_numpy(self._raw_module.weight)
         if self._stype == 'dsd':
             B_tensor = forward_kernel.get_input('B')
             B_tensor.set_data(weight)
             weight = B_tensor.sparse()['val']
-        self.weight = torch.nn.Parameter(torch.from_numpy(weight), requires_grad=False).to(device)
+        self.weight = torch.nn.Parameter(self._numpy_to_pytorch(weight), requires_grad=False).to(device)
+
+    def _pytorch_to_numpy(self, x: torch.Tensor):
+        return x.cpu().detach().unsqueeze(0).numpy().astype(f'{self._dtype}32')
+
+    def _numpy_to_pytorch(self, x: np.ndarray):
+        return torch.from_numpy(x).squeeze(0)
 
     def _sparse_forward(self, A: torch.Tensor):
         '''Calls the sparse forward kernel.
@@ -112,9 +131,16 @@ class SparseLinear(OperatorBase):
             A (torch.Tensor): The input tensor.
         '''
         if self._biased:
-            return self._forward_function(A, self.weight, self.bias)
+            return self._forward_function(
+                A.unsqueeze(0),
+                self.weight.unsqueeze(0),
+                self.bias.unsqueeze(0),
+            ).squeeze(0)
         else:
-            return self._forward_function(A, self.weight)
+            return self._forward_function(
+                A.unsqueeze(0),
+                self.weight.unsqueeze(0),
+            ).squeeze(0)
 
     def _read_sample_inputs(self, A: torch.Tensor):
         '''Read shape config and convert sample inputs to test inputs.
@@ -131,10 +157,11 @@ class SparseLinear(OperatorBase):
         self._shape['GLOBAL_M_VALUE'] = M
         for kern in self._possible_implementations.values():
             kern.set_parameters(self._shape)
+
         inputs = {
-            'A': A.cpu().detach().numpy().astype(f'{self._dtype}32'),
-            'B': self._raw_module.weight.cpu().detach().numpy().astype(f'{self._dtype}32'),
+            'A': self._pytorch_to_numpy(A),
+            'B': self._pytorch_to_numpy(self._raw_module.weight),
         }
         if self._biased:
-            inputs['bias'] = self._raw_module.bias.cpu().detach().numpy().astype(f'{self._dtype}32')
+            inputs['bias'] = self._pytorch_to_numpy(self._raw_module.bias)
         return self._shape, inputs
