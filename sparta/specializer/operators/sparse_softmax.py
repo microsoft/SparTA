@@ -50,7 +50,7 @@ class SparseSoftmax(OperatorBase):
         }
 
     def _load_compile_kernel(self, forward_kernel: kernels.KernelBase):
-        '''No parameters need to be set here.'''
+        '''TODO: C_mask should be a TeSA component instead of a parameter.'''
         mask = torch.from_numpy(self._mask['C_mask'].astype('int32'))
         self.C_mask = torch.nn.Parameter(mask, requires_grad=False).cuda()
 

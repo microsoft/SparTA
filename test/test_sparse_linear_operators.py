@@ -12,11 +12,6 @@ from sparta.testing import block_mask
 M, K, N = 1024, 256, 512
 SPARSITY = 0.8
 BLOCK = (8, 8)
-SHAPE_CONFIG = {
-    'GLOBAL_M_VALUE': M,
-    'GLOBAL_K_VALUE': K,
-    'GLOBAL_N_VALUE': N,
-}
 TILE_CONFIG = {
     'BLOCK_SIZE_M_VALUE': 16,
     'BLOCK_SIZE_K_VALUE': 16,

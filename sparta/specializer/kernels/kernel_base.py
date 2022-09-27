@@ -57,19 +57,25 @@ class _Tensor:
 
     def set_data(self, data: np.ndarray, auto_mask: bool = True):
         assert data.shape == self.shape
-        self.dense_data = data
+        self.dense_data = data.astype(f'{self.dtype}32')
         self.sparse_data = None
         if self.mask is not None and auto_mask:
             self.dense_data *= self.mask
+
+    def set_mask(self, mask: np.ndarray, auto_mask: bool = True):
+        assert mask.shape == self.shape[1:]
+        self.mask = mask
+        if auto_mask and self.dense_data is not None:
+            self.dense_data *= self.mask
+            self.sparse_data = None
 
     def generate_data(self):
         assert self.shape is not None
         if self.dense_data is None:
             if self.default_val is not None:
-                self.dense_data = np.zeros(shape=self.shape) + self.default_val
-                self.dense_data = self.dense_data.astype(f'{self.dtype}32')
+                self.set_data(np.zeros(shape=self.shape) + self.default_val)
             else:
-                self.dense_data = np.random.uniform(size=self.shape).astype(f'{self.dtype}32')
+                self.set_data(np.random.uniform(size=self.shape))
         if self.layout != 'dense':
             if self.mask is None:
                 self.generate_mask()
@@ -84,13 +90,11 @@ class _Tensor:
                 col_num = self.shape[2] // block_size[1]
                 mask = np.random.uniform(size=(row_num, col_num)) > sparsity
                 mask = np.tile(mask.reshape((row_num, col_num, 1, 1)), [1, 1] + block_size)
-                self.mask = mask.swapaxes(1, 2).reshape(self.shape[1:])
+                self.set_mask(mask.swapaxes(1, 2).reshape(self.shape[1:]))
             else:
-                self.mask = self.layout_parent.mask
+                self.set_mask(self.layout_parent.mask)
         else:
             raise ValueError(f'invalid layout: {self.layout}')
-        if self.dense_data is not None:
-            self.dense_data *= self.mask
 
     def dense(self):
         if self.dense_data is not None:
@@ -224,9 +228,9 @@ class KernelBase:
         if mask is not None:
             for k, v in mask.items():
                 if k in self.inputs:
-                    self.inputs[k].mask = v
+                    self.inputs[k].set_mask(v)
                 elif k in self.outputs:
-                    self.outputs[k].mask = v
+                    self.outputs[k].set_mask(v)
         for input_tensor in self.inputs.values():
             if input_tensor.layout != 'dense' and input_tensor.mask is None:
                 if generate_if_missing:

@@ -87,16 +87,16 @@ class BCSR(TeSABase):
                 dense[:, block_start_i:block_end_i, block_start_j:block_end_j] = 0
             return val, row_idx, col_idx
 
-        if mode.startswith('H'):
-            for block_i in range(row_num):
-                for block_j in range(col_num):
-                    val, row_idx, col_idx = read_block(block_i, block_j, val, row_idx, col_idx)
-                row_ptr.append(len(col_idx))
-        else:
+        if mode.startswith('V'):
             for block_j in range(col_num):
                 for block_i in range(row_num):
                     val, row_idx, col_idx = read_block(block_i, block_j, val, row_idx, col_idx)
                 col_ptr.append(len(row_idx))
+        else:
+            for block_i in range(row_num):
+                for block_j in range(col_num):
+                    val, row_idx, col_idx = read_block(block_i, block_j, val, row_idx, col_idx)
+                row_ptr.append(len(col_idx))
 
         val = dense if mode.endswith('D') else np.stack(val, axis=1).flatten()
 

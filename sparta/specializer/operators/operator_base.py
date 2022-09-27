@@ -4,17 +4,17 @@
 import abc
 import logging
 import warnings
-import subprocess
-from typing import Type, Tuple, List, Dict, Union
+from typing import Type, Tuple, List, Dict
 
 import torch
-import numpy as np
 
 from sparta.specializer import kernels
-from sparta.common.tuning import TunableItemCfg, Tunable
+from sparta.common.tuning import TunableItemCfg
 from sparta.testing import test_latency
 
+
 _logger = logging.Logger(__name__)
+
 
 class OperatorBase(torch.nn.Module):
     '''Base class of sparse operators.
@@ -176,4 +176,3 @@ class OperatorBase(torch.nn.Module):
                 # TODO add backward time
                 raise NotImplementedError
         return latency
-

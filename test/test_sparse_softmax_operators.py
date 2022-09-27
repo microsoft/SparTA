@@ -11,10 +11,6 @@ import sparta
 H, W = 1024, 512
 SPARSITY = 0.95
 BLOCK = (8, 8)
-SHAPE_CONFIG = {
-    'GLOBAL_H_VALUE': H,
-    'GLOBAL_W_VALUE': W,
-}
 TILE_CONFIG = {
     'BLOCK_SIZE_H_VALUE': 16,
     'BLOCK_SIZE_W_VALUE': 64,
