@@ -37,9 +37,7 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
     tiling k dimension
     tile size: 32x64x32
     smm_sd_d_nn: sparse matmul, sparse (MxK, along K, K major bcsr) x dense (NxK, along K) -> dense (MxN, along N)
-    smm_sd_d_nt: sparse matmul, sparse (MxK, along K, K major bcsr) x dense (KxN, along N, need TRANSPOSE_B) -> dense (MxN, along N)
-    smm_sd_d_tn: sparse matmul, sparse (KxM, along M, K major bcsr, need TRANSPOSE_A) x dense (NxK, along K) -> dense (MxN, along N)
-    smm_sd_d_tt: sparse matmul, sparse (KxM, along M, K major bcsr, need TRANSPOSE_A) x dense (KxN, along N, need TRANSPOSE_B) -> dense (MxN, along N)
+    smm_sd_d_nt: sparse matmul, sparse (MxK, along K, K major bcsr) x dense (KxN, along N, need transpose) -> dense (MxN, along N)
     block sparse matrix (block size: 32x64) X dense matrix -> dense matrix
     */
     const int BLOCK_SIZE_M = 32;  // 64
@@ -83,28 +81,16 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
 
     {% if COMPRESSED %}
     // A is stored in sparse format
-        {% if TRANSPOSE_A %}
-    uint offsetA00 = A_block_ptr[by] * BLOCK_SIZE_M * BLOCK_SIZE_K + tid * 4;
-    uint offsetA16 = offsetA00 + BLOCK_SIZE_M * 32;
-    uint storA = (tid * 4 + tid / (BLOCK_SIZE_M/4) / 4 * 2) * 4;
-        {% else %}
     uint offsetA00 = A_block_ptr[by] * BLOCK_SIZE_M * BLOCK_SIZE_K + ty * BLOCK_SIZE_K + tx * 4;
     uint offsetA16 = offsetA00 + BLOCK_SIZE_K * 16;
-        {% endif %}
     {% else %}
     // A is stored in dense format
-        {% if TRANSPOSE_A %}
-    uint ori_offsetA00 = tid / (BLOCK_SIZE_M/4) * M + by * BLOCK_SIZE_M + (tid % (BLOCK_SIZE_M/4)) * 4;
-    uint ori_offsetA16 = ori_offsetA00 + M * 32;
-    uint storA = (tid * 4 + tid / (BLOCK_SIZE_M/4) / 4 * 2) * 4;
-        {% else %}
     uint ori_offsetA00 = (by * 32 + ty) * K + tx * 4;
     uint ori_offsetA16 = ori_offsetA00 + K * 16;
-        {% endif %}
     {% endif %}
 
     // B is stored in dense format
-    {% if TRANSPOSE_B %}
+    {% if TRANSPOSE %}
     uint ori_offsetB00 = (bx * 32 + ty) * K + tx * 4;
     uint ori_offsetB16 = ori_offsetB00 + K * 16;
     {% else %}
@@ -137,15 +123,10 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
     for (int bcsr_col_idx = index_start; bcsr_col_idx < index_end; bcsr_col_idx += 1)
     {
         {% if not COMPRESSED %}
-            {% if TRANSPOSE_A %}
-        uint offsetA00 = ori_offsetA00 + 64 * A_block_idx[bcsr_col_idx] * M;
-        uint offsetA16 = ori_offsetA16 + 64 * A_block_idx[bcsr_col_idx] * M;
-            {% else %}
         uint offsetA00 = ori_offsetA00 + 64 * A_block_idx[bcsr_col_idx];
         uint offsetA16 = ori_offsetA16 + 64 * A_block_idx[bcsr_col_idx];
-            {% endif %}
         {% endif %}
-        {% if TRANSPOSE_B %}
+        {% if TRANSPOSE %}
         uint offsetB00 = ori_offsetB00 + 64 * A_block_idx[bcsr_col_idx];
         uint offsetB16 = ori_offsetB16 + 64 * A_block_idx[bcsr_col_idx];
         {% else %}
@@ -165,16 +146,6 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
 
         __syncthreads();
 
-        {% if TRANSPOSE_A %}
-        *(float*)&bShare[storA + (0*65*32 + 0)*4] = a00.x;
-        *(float*)&bShare[storA + (0*65*32 + 1)*4] = a00.y;
-        *(float*)&bShare[storA + (0*65*32 + 2)*4] = a00.z;
-        *(float*)&bShare[storA + (0*65*32 + 3)*4] = a00.w;
-        *(float*)&bShare[storA + (32*32 + 8*2 + 0*65*32 + 0)*4] = a16.x;
-        *(float*)&bShare[storA + (32*32 + 8*2 + 0*65*32 + 1)*4] = a16.y;
-        *(float*)&bShare[storA + (32*32 + 8*2 + 0*65*32 + 2)*4] = a16.z;
-        *(float*)&bShare[storA + (32*32 + 8*2 + 0*65*32 + 3)*4] = a16.w;
-        {% else %}
         *(float*)&bShare[storAB + (0*32 +  0 + 0*65*32)*4] = a00.x;
         *(float*)&bShare[storAB + (1*32 +  0 + 0*65*32)*4] = a00.y;
         *(float*)&bShare[storAB + (2*32 +  0 + 0*65*32)*4] = a00.z;
@@ -183,9 +154,8 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
         *(float*)&bShare[storAB + (1*32 + 16 + 0*65*32)*4] = a16.y;
         *(float*)&bShare[storAB + (2*32 + 16 + 0*65*32)*4] = a16.z;
         *(float*)&bShare[storAB + (3*32 + 16 + 0*65*32)*4] = a16.w;
-        {% endif %}
 
-        {% if TRANSPOSE_B %}
+        {% if TRANSPOSE %}
         *(float*)&bShare[storAB + (0*32 +  0 + 1*65*32)*4] = b00.x;
         *(float*)&bShare[storAB + (1*32 +  0 + 1*65*32)*4] = b00.y;
         *(float*)&bShare[storAB + (2*32 +  0 + 1*65*32)*4] = b00.z;

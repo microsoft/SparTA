@@ -25,10 +25,10 @@ __device__ __forceinline__ float2 _add(float2 x, float2 y) \
 }
 
 __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
-    float* A_val,
-    int* A_block_ptr,
-    int* A_block_idx,
-    float* B,
+    float* A,
+    float* B_val,
+    int* B_block_ptr,
+    int* B_block_idx,
     {% if BIASED %}float* bias,{% endif %}
     float* C
 ) {
@@ -36,23 +36,21 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
     description:
     tiling k dimension
     tile size: 32x64x32
-    smm_sd_d_nn: sparse matmul, sparse (MxK, along K, K major bcsr) x dense (NxK, along K) -> dense (MxN, along N)
-    smm_sd_d_nt: sparse matmul, sparse (MxK, along K, K major bcsr) x dense (KxN, along N, need TRANSPOSE_B) -> dense (MxN, along N)
-    smm_sd_d_tn: sparse matmul, sparse (KxM, along M, K major bcsr, need TRANSPOSE_A) x dense (NxK, along K) -> dense (MxN, along N)
-    smm_sd_d_tt: sparse matmul, sparse (KxM, along M, K major bcsr, need TRANSPOSE_A) x dense (KxN, along N, need TRANSPOSE_B) -> dense (MxN, along N)
-    block sparse matrix (block size: 32x64) X dense matrix -> dense matrix
+    smm_sd_d_nn: sparse matmul, dense (MxK, along K) x sparse (NxK, along K, K major bcsr) -> dense (MxN, along N)
+    smm_sd_d_nt: sparse matmul, dense (MxK, along K) x sparse (KxN, along N, K major bcsr, need transpose) -> dense (MxN, along N)
+    dense matrix X block sparse matrix (block size: 64x32) -> dense matrix
     */
     const int BLOCK_SIZE_M = 32;  // 64
     const int BLOCK_SIZE_K = 64;  //8
     const int BLOCK_SIZE_N = 32;  //128
     const int THREAD_SIZE_K = 64;
 
+    A += M*K*blockIdx.z;
     {% if COMPRESSED %}
-    A_val += A_block_ptr[M/32]*64*32*blockIdx.z;
+    B_val += B_block_ptr[N/32]*64*32*blockIdx.z;
     {% else %}
-    A_val += M*K*blockIdx.z;
+    B_val += K*N*blockIdx.z;
     {% endif %}
-    B += K*N*blockIdx.z;
     C += M*N*blockIdx.z;
     {% if BIASED %}
     bias += N*blockIdx.z;
@@ -81,36 +79,30 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
     uint ty = tid / 16;
     assert(THREAD_SIZE_K % 16 == 0);
 
-    {% if COMPRESSED %}
-    // A is stored in sparse format
-        {% if TRANSPOSE_A %}
-    uint offsetA00 = A_block_ptr[by] * BLOCK_SIZE_M * BLOCK_SIZE_K + tid * 4;
-    uint offsetA16 = offsetA00 + BLOCK_SIZE_M * 32;
-    uint storA = (tid * 4 + tid / (BLOCK_SIZE_M/4) / 4 * 2) * 4;
-        {% else %}
-    uint offsetA00 = A_block_ptr[by] * BLOCK_SIZE_M * BLOCK_SIZE_K + ty * BLOCK_SIZE_K + tx * 4;
-    uint offsetA16 = offsetA00 + BLOCK_SIZE_K * 16;
-        {% endif %}
-    {% else %}
     // A is stored in dense format
-        {% if TRANSPOSE_A %}
-    uint ori_offsetA00 = tid / (BLOCK_SIZE_M/4) * M + by * BLOCK_SIZE_M + (tid % (BLOCK_SIZE_M/4)) * 4;
-    uint ori_offsetA16 = ori_offsetA00 + M * 32;
-    uint storA = (tid * 4 + tid / (BLOCK_SIZE_M/4) / 4 * 2) * 4;
-        {% else %}
     uint ori_offsetA00 = (by * 32 + ty) * K + tx * 4;
     uint ori_offsetA16 = ori_offsetA00 + K * 16;
-        {% endif %}
-    {% endif %}
 
+    {% if COMPRESSED %}
+    // B is stored in sparse format
+        {% if TRANSPOSE %}
+    uint offsetB00 = B_block_ptr[bx] * BLOCK_SIZE_N * BLOCK_SIZE_K + ty * BLOCK_SIZE_K + tx * 4;
+    uint offsetB16 = offsetB00 + BLOCK_SIZE_K * 16;
+        {% else %}
+    uint offsetB00 = B_block_ptr[bx] * BLOCK_SIZE_N * BLOCK_SIZE_K + tid * 4;
+    uint offsetB16 = offsetB00 + BLOCK_SIZE_N * 32;
+    uint storB = (tid * 4 + tid / (BLOCK_SIZE_N/4) / 4 * 2) * 4;
+        {% endif %}
+    {% else %}
     // B is stored in dense format
-    {% if TRANSPOSE_B %}
+        {% if TRANSPOSE %}
     uint ori_offsetB00 = (bx * 32 + ty) * K + tx * 4;
     uint ori_offsetB16 = ori_offsetB00 + K * 16;
-    {% else %}
+        {% else %}
     uint ori_offsetB00 = tid / (BLOCK_SIZE_N/4) * N + bx * BLOCK_SIZE_N + (tid % (BLOCK_SIZE_N/4)) * 4;
     uint ori_offsetB16 = ori_offsetB00 + N * 32;
     uint storB = (tid * 4 + tid / (BLOCK_SIZE_N/4) / 4 * 2) * 4;
+        {% endif %}
     {% endif %}
 
     uint tid224 = tid & 224;
@@ -133,48 +125,33 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
     // bx means in index of this thread block on N dimonsion
     // by means in index of this thread block on M dimonsion
     // index_start and index_end is block index on column
-    int index_start = A_block_ptr[by], index_end = A_block_ptr[by+1];
-    for (int bcsr_col_idx = index_start; bcsr_col_idx < index_end; bcsr_col_idx += 1)
+    int index_start = B_block_ptr[bx], index_end = B_block_ptr[bx+1];
+    for (int bcsr_row_idx = index_start; bcsr_row_idx < index_end; bcsr_row_idx += 1)
     {
+        uint offsetA00 = ori_offsetA00 + 64 * B_block_idx[bcsr_row_idx];
+        uint offsetA16 = ori_offsetA16 + 64 * B_block_idx[bcsr_row_idx];
         {% if not COMPRESSED %}
-            {% if TRANSPOSE_A %}
-        uint offsetA00 = ori_offsetA00 + 64 * A_block_idx[bcsr_col_idx] * M;
-        uint offsetA16 = ori_offsetA16 + 64 * A_block_idx[bcsr_col_idx] * M;
+            {% if TRANSPOSE %}
+        uint offsetB00 = ori_offsetB00 + 64 * B_block_idx[bcsr_row_idx];
+        uint offsetB16 = ori_offsetB16 + 64 * B_block_idx[bcsr_row_idx];
             {% else %}
-        uint offsetA00 = ori_offsetA00 + 64 * A_block_idx[bcsr_col_idx];
-        uint offsetA16 = ori_offsetA16 + 64 * A_block_idx[bcsr_col_idx];
+        uint offsetB00 = ori_offsetB00 + 64 * B_block_idx[bcsr_row_idx] * N;
+        uint offsetB16 = ori_offsetB16 + 64 * B_block_idx[bcsr_row_idx] * N;
             {% endif %}
-        {% endif %}
-        {% if TRANSPOSE_B %}
-        uint offsetB00 = ori_offsetB00 + 64 * A_block_idx[bcsr_col_idx];
-        uint offsetB16 = ori_offsetB16 + 64 * A_block_idx[bcsr_col_idx];
-        {% else %}
-        uint offsetB00 = ori_offsetB00 + 64 * A_block_idx[bcsr_col_idx] * N;
-        uint offsetB16 = ori_offsetB16 + 64 * A_block_idx[bcsr_col_idx] * N;
         {% endif %}
 
         float4 a00 = {0}, a16 = {0};
         float4 b00 = {0}, b16 = {0};
-        a00 = __ldg((const float4*)(add_ptr_f(A_val, offsetA00)));
-        a16 = __ldg((const float4*)(add_ptr_f(A_val, offsetA16)));
-        b00 = __ldg((const float4*)(add_ptr_f(B, offsetB00)));
-        b16 = __ldg((const float4*)(add_ptr_f(B, offsetB16)));
+        a00 = __ldg((const float4*)(add_ptr_f(A, offsetA00)));
+        a16 = __ldg((const float4*)(add_ptr_f(A, offsetA16)));
+        b00 = __ldg((const float4*)(add_ptr_f(B_val, offsetB00)));
+        b16 = __ldg((const float4*)(add_ptr_f(B_val, offsetB16)));
 
-        offsetA00 += BLOCK_SIZE_M * BLOCK_SIZE_K;
-        offsetA16 += BLOCK_SIZE_M * BLOCK_SIZE_K;
+        offsetB00 += BLOCK_SIZE_N * BLOCK_SIZE_K;
+        offsetB16 += BLOCK_SIZE_N * BLOCK_SIZE_K;
 
         __syncthreads();
 
-        {% if TRANSPOSE_A %}
-        *(float*)&bShare[storA + (0*65*32 + 0)*4] = a00.x;
-        *(float*)&bShare[storA + (0*65*32 + 1)*4] = a00.y;
-        *(float*)&bShare[storA + (0*65*32 + 2)*4] = a00.z;
-        *(float*)&bShare[storA + (0*65*32 + 3)*4] = a00.w;
-        *(float*)&bShare[storA + (32*32 + 8*2 + 0*65*32 + 0)*4] = a16.x;
-        *(float*)&bShare[storA + (32*32 + 8*2 + 0*65*32 + 1)*4] = a16.y;
-        *(float*)&bShare[storA + (32*32 + 8*2 + 0*65*32 + 2)*4] = a16.z;
-        *(float*)&bShare[storA + (32*32 + 8*2 + 0*65*32 + 3)*4] = a16.w;
-        {% else %}
         *(float*)&bShare[storAB + (0*32 +  0 + 0*65*32)*4] = a00.x;
         *(float*)&bShare[storAB + (1*32 +  0 + 0*65*32)*4] = a00.y;
         *(float*)&bShare[storAB + (2*32 +  0 + 0*65*32)*4] = a00.z;
@@ -183,9 +160,8 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
         *(float*)&bShare[storAB + (1*32 + 16 + 0*65*32)*4] = a16.y;
         *(float*)&bShare[storAB + (2*32 + 16 + 0*65*32)*4] = a16.z;
         *(float*)&bShare[storAB + (3*32 + 16 + 0*65*32)*4] = a16.w;
-        {% endif %}
 
-        {% if TRANSPOSE_B %}
+        {% if TRANSPOSE %}
         *(float*)&bShare[storAB + (0*32 +  0 + 1*65*32)*4] = b00.x;
         *(float*)&bShare[storAB + (1*32 +  0 + 1*65*32)*4] = b00.y;
         *(float*)&bShare[storAB + (2*32 +  0 + 1*65*32)*4] = b00.z;

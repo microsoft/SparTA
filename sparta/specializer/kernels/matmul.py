@@ -3,251 +3,176 @@
 
 import os
 import abc
-from typing import Tuple, Dict
+from typing import Tuple
 
 import jinja2
-import numpy as np
 
-from sparta.specializer.kernels.kernel_base import KernelBase
+from sparta.common.tesa import BCSRH, BCSRV
 from sparta.common.tuning import TunableItemCfg
+from sparta.specializer.kernels import KernelBase
 
 
-TEMPLATE_DIR = os.path.join(os.path.split(os.path.realpath(__file__))[0], "templates")
+TEMPLATE_DIR = os.path.join(os.path.split(os.path.realpath(__file__))[0], 'templates')
 
 
-class MatMulKernelBase(KernelBase):
+class SparseMatMulKernel(KernelBase):
 
     def __init__(
-        self, sparse_type: str, batch_size: int = 1, dtype: str = 'float',
-        biased: bool = True, transpose: bool = True, compressed: bool = True
+        self, sparse_type: str, dtype: str = 'float', biased: bool = True, 
+        transpose_A: bool = False, transpose_B: bool = True, 
+        compressed: bool = True, bcsr_main: str = 'H'
     ):
         if sparse_type not in ['sdd', 'dsd', 'dds']:
             raise ValueError(f'invalid sparse type: {sparse_type}')
         self._biased = biased
-        self._transpose = transpose
+        self._transpose_A = transpose_A
+        self._transpose_B = transpose_B
         self._compressed = compressed
-        self._batch_size = batch_size
+        self._bcsr_main = bcsr_main
         self._stype = sparse_type
         self._dtype = dtype
         super().__init__()
 
-    def get_kernel_name(self) -> str:
-        b_str = '_b' if self._biased else ''
-        t_str = '_t' if self._transpose else ''
-        c_str = '_c' if self._compressed else ''
-        return f'sparse_matmul_{self._stype}{b_str}{t_str}{c_str}'
-
-    @abc.abstractmethod
-    def get_kernel_code(self) -> str:
-        '''
-        Get CUDA code of the kernel
-        '''
+    def set_tesa(self):
+        if self._stype == 'sdd':
+            if self._transpose_A:
+                self.tesa_type['A'] = BCSRV
+                self.tesa_attrs['A'] = ['col_ptr', 'row_idx']
+            else:
+                self.tesa_type['A'] = BCSRH
+                self.tesa_attrs['A'] = ['row_ptr', 'col_idx']
+        elif self._stype == 'dsd':
+            if self._transpose_B:
+                self.tesa_type['B'] = BCSRH
+                self.tesa_attrs['B'] = ['row_ptr', 'col_idx']
+            else:
+                self.tesa_type['B'] = BCSRV
+                self.tesa_attrs['B'] = ['col_ptr', 'row_idx']
+        elif self._stype == 'dds':
+            if self._bcsr_main == 'H':
+                self.tesa_type['C'] = BCSRH
+            else:
+                self.tesa_type['C'] = BCSRV
+            self.tesa_attrs['C'] = ['row_idx', 'col_idx', 'nnz']
 
     def add_parameters(self):
-        self.add_parameter("GLOBAL_M_VALUE")
-        self.add_parameter("GLOBAL_K_VALUE")
-        self.add_parameter("GLOBAL_N_VALUE")
-        self.add_parameter("BIASED", value=self._biased)
-        self.add_parameter("TRANSPOSE", value=self._transpose)
-        self.add_parameter("COMPRESSED", value=self._compressed)
+        self.add_parameter('BATCH_SIZE')
+        self.add_parameter('GLOBAL_M_VALUE')
+        self.add_parameter('GLOBAL_K_VALUE')
+        self.add_parameter('GLOBAL_N_VALUE')
+        self.add_parameter('BIASED', value=self._biased)
+        self.add_parameter('TRANSPOSE_A', value=self._transpose_A)
+        self.add_parameter('TRANSPOSE_B', value=self._transpose_B)
+        self.add_parameter('COMPRESSED', value=self._compressed)
 
-    @abc.abstractmethod
-    def check_parameters(self):
-        '''
-        Check if parameters are valid
-        '''
+    def set_shape(self, batch_size: int, M: int, K: int, N: int):
+        self.set_parameter('BATCH_SIZE', batch_size)
+        self.set_parameter('GLOBAL_M_VALUE', M)
+        self.set_parameter('GLOBAL_K_VALUE', K)
+        self.set_parameter('GLOBAL_N_VALUE', N)
 
-    def add_ports(self):
-        self.add_input('A', self._dtype, 'BCSR' if self._stype == 'sdd' else 'dense')
-        self.add_input('B', self._dtype, 'BCSR' if self._stype == 'dsd' else 'dense')
-        if self._biased:
-            self.add_input('bias', self._dtype, 'dense')
-        self.add_output('C', self._dtype, 'BCSR' if self._stype == 'dds' else 'dense')
-
-    @abc.abstractmethod
-    def set_ports_shape(self):
+    def get_shape(self):
+        batch_size = self.get_parameter('BATCH_SIZE')
         M = self.get_parameter('GLOBAL_M_VALUE')
         K = self.get_parameter('GLOBAL_K_VALUE')
         N = self.get_parameter('GLOBAL_N_VALUE')
-        self.set_input_shape('A', (self._batch_size, M, K))
-        if self._transpose:
-            self.set_input_shape('B', (self._batch_size, N, K))
+        return batch_size, M, K, N
+
+    @abc.abstractmethod
+    def get_block_shape(self) -> Tuple[int, int, int]:
+        '''Get BM, BK and BN.'''
+
+    def blocks_per_grid(self):
+        batch_size, M, K, N = self.get_shape()
+        if self._stype == 'dds':
+            return (self.get_converter('C').get_attr('nnz').item(), batch_size)
         else:
-            self.set_input_shape('B', (self._batch_size, K, N))
-        if self._biased:
-            self.set_input_shape('bias', (self._batch_size, N))
-        self.set_output_shape('C', (self._batch_size, M, N))
+            BM, BK, BN = self.get_block_shape()
+            return (N // BN, M // BM, batch_size)
 
-    @abc.abstractmethod
-    def set_ports_layout(self):
-        '''
-        Set layout configs of inputs and outputs using determined parameters
-        '''
-
-    @abc.abstractmethod
-    def blocks_per_grid(self) -> Tuple[int]:
-        '''
-        Get launch config: number of blocks per grid
-        '''
-
-    @abc.abstractmethod
-    def threads_per_block(self) -> Tuple[int]:
-        '''
-        Get launch config: number of threads per block
-        '''
-
-    def calc_target_outputs(self) -> Dict[str, np.ndarray]:
-        A = self.get_input('A').dense()
-        B = self.get_input('B').dense()
-        if self._transpose:
-            C = np.einsum('bmk, bnk -> bmn', A, B)
+    def pre_compile(self):
+        batch_size, M, K, N = self.get_shape()
+        BM, BK, BN = self.get_block_shape()
+        input_mask = [True] * 3 if self._biased else [True] * 2
+        if self._stype == 'sdd':
+            sparse_tensor = 'A'
+            sparse_tensor_size = (K, M) if self._transpose_A else (M, K)
+            block_size = (BK, BM) if self._transpose_A else (BM, BK)
+            input_mask[1:1] = [False] * 2
+        elif self._stype == 'dsd':
+            sparse_tensor = 'B'
+            sparse_tensor_size = (N, K) if self._transpose_B else (K, N)
+            block_size = (BN, BK) if self._transpose_B else (BK, BN)
+            input_mask[2:2] = [False] * 2
         else:
-            C = np.einsum('bmk, bkn -> bmn', A, B)
-        if self._biased:
-            C += self.get_input('bias').dense().reshape(self._batch_size, 1, -1)
-        self.set_target_output('C', C, auto_mask=(self._stype != 'dds'))
+            sparse_tensor = 'C'
+            sparse_tensor_size = (M, N)
+            block_size = (BM, BN)
+            input_mask[3:3] = [False] * 3
+
+        converter = self.tesa_type[sparse_tensor](
+            mask=self.get_mask(sparse_tensor),
+            size=sparse_tensor_size,
+            block_size=block_size
+        )
+        fixed_inputs = converter.get_attrs(self.tesa_attrs[sparse_tensor])
+        self._converters[sparse_tensor] = converter
+
+        if self._stype == 'dds' and self._compressed:
+            output_shapes = [(batch_size, fixed_inputs[-1].item() * BM * BN)]
+        else:
+            output_shapes = [(batch_size, M, N)]
+        return input_mask, fixed_inputs, output_shapes
 
 
-class SparTATemplateSparseMatMulKernel(MatMulKernelBase):
+class SparTASparseMatMulKernel(SparseMatMulKernel):
 
-    def get_kernel_name(self) -> str:
-        return f'sparta_{super().get_kernel_name()}'
+    def add_parameters(self):
+        super().add_parameters()
+        for dim in ['M', 'N', 'K']:
+            self.add_parameter(
+                f'BLOCK_SIZE_{dim}_VALUE',
+                is_tunable=True,
+                search_space=TunableItemCfg('choice', [16, 32, 64])
+            )
+            self.add_parameter(
+                f'THREAD_SIZE_{dim}_VALUE',
+                is_tunable=True,
+                search_space=TunableItemCfg('choice', [4, 8])
+            )
 
-    def get_kernel_code(self) -> str:
+    def get_kernel_code(self):
         with open(os.path.join(TEMPLATE_DIR, f'sparta_sparse_matmul_{self._stype}.cuh.j2')) as f:
             kernel_template = f.read()
         return jinja2.Template(kernel_template).render(self.get_parameters())
 
-    def add_parameters(self):
-        super().add_parameters()
-        self.add_parameter("BLOCK_SIZE_M_VALUE", is_tunable=True, search_space=TunableItemCfg('choice', [16, 32, 64]))
-        self.add_parameter("BLOCK_SIZE_N_VALUE", is_tunable=True, search_space=TunableItemCfg('choice', [16, 32, 64]))
-        self.add_parameter("BLOCK_SIZE_K_VALUE", is_tunable=True, search_space=TunableItemCfg('choice', [16, 32, 64]))
-        self.add_parameter("THREAD_SIZE_M_VALUE", is_tunable=True, search_space=TunableItemCfg('choice', [4, 8]))
-        self.add_parameter("THREAD_SIZE_N_VALUE", is_tunable=True, search_space=TunableItemCfg('choice', [4, 8]))
-        self.add_parameter("THREAD_SIZE_K_VALUE", is_tunable=True, search_space=TunableItemCfg('choice', [4, 8]))
-
-    def check_parameters(self):
-        M = self.get_parameter('GLOBAL_M_VALUE')
-        K = self.get_parameter('GLOBAL_K_VALUE')
-        N = self.get_parameter('GLOBAL_N_VALUE')
+    def get_block_shape(self):
         BM = self.get_parameter('BLOCK_SIZE_M_VALUE')
         BK = self.get_parameter('BLOCK_SIZE_K_VALUE')
         BN = self.get_parameter('BLOCK_SIZE_N_VALUE')
+        return BM, BK, BN
+
+    def get_thread_shape(self):
         TM = self.get_parameter('THREAD_SIZE_M_VALUE')
         TK = self.get_parameter('THREAD_SIZE_K_VALUE')
         TN = self.get_parameter('THREAD_SIZE_N_VALUE')
-        assert np.log2(BM) % 1 == 0
-        assert np.log2(BK) % 1 == 0
-        assert np.log2(BN) % 1 == 0
-        assert np.log2(TM) % 1 == 0
-        assert np.log2(TK) % 1 == 0
-        assert np.log2(TN) % 1 == 0
-        assert M % BM == 0
-        assert K % BK == 0
-        assert N % BN == 0
-        assert BM % TM == 0
-        assert BK % TK == 0
-        assert BN % TN == 0
-        assert M > BM
-        assert K > BK
-        assert N > BN
-        assert BM > TM
-        assert BK > TK
-        assert BN > TN
+        return TM, TK, TN
 
-    def set_ports_layout(self):
-        BM = self.get_parameter('BLOCK_SIZE_M_VALUE')
-        BK = self.get_parameter('BLOCK_SIZE_K_VALUE')
-        BN = self.get_parameter('BLOCK_SIZE_N_VALUE')
-        if self._stype == 'sdd':
-            self.set_input_layout('A', {
-                'mode': 'H' if self._compressed else 'HD',
-                'block_size': [BM, BK],
-            })
-        elif self._stype == 'dsd':
-            if self._transpose:
-                self.set_input_layout('B', {
-                    'mode': 'H' if self._compressed else 'HD',
-                    'block_size': [BN, BK],
-                })
-            else:
-                self.set_input_layout('B', {
-                    'mode': 'V' if self._compressed else 'VD',
-                    'block_size': [BK, BN],
-                })
-        elif self._stype == 'dds':
-            self.set_output_layout('C', {
-                'mode': 'X' if self._compressed else 'XD',
-                'block_size': [BM, BN],
-            })
-
-    def blocks_per_grid(self) -> Tuple[int]:
-        if self._stype == 'dds':
-            return (int(self.get_output('C').sparse()['nnz'][0]), self._batch_size)
-        else:
-            M = self.get_parameter('GLOBAL_M_VALUE')
-            N = self.get_parameter('GLOBAL_N_VALUE')
-            BM = self.get_parameter('BLOCK_SIZE_M_VALUE')
-            BN = self.get_parameter('BLOCK_SIZE_N_VALUE')
-            return (N // BN, M // BM, self._batch_size)
-
-    def threads_per_block(self) -> Tuple[int]:
-        BM = self.get_parameter('BLOCK_SIZE_M_VALUE')
-        BN = self.get_parameter('BLOCK_SIZE_N_VALUE')
-        TM = self.get_parameter('THREAD_SIZE_M_VALUE')
-        TN = self.get_parameter('THREAD_SIZE_N_VALUE')
+    def threads_per_block(self):
+        BM, BK, BN = self.get_block_shape()
+        TM, TK, TN = self.get_thread_shape()
         return (BN // TN, BM // TM)
 
 
-class OpenAITemplateSparseMatMulKernel(MatMulKernelBase):
+class OpenAISparseMatMulKernel(SparseMatMulKernel):
 
-    def get_kernel_name(self) -> str:
-        return f'openai_{super().get_kernel_name()}'
-
-    def get_kernel_code(self) -> str:
+    def get_kernel_code(self):
         with open(os.path.join(TEMPLATE_DIR, f'openai_sparse_matmul_{self._stype}.cuh.j2')) as f:
             kernel_template = f.read()
         return jinja2.Template(kernel_template).render(self.get_parameters())
 
-    def check_parameters(self):
-        assert 32 < self.get_parameter('GLOBAL_M_VALUE')
-        assert 64 < self.get_parameter('GLOBAL_K_VALUE')
-        assert 32 < self.get_parameter('GLOBAL_N_VALUE')
+    def get_block_shape(self):
+        return 32, 64, 32
 
-    def set_ports_layout(self):
-        BM = 32
-        BK = 64
-        BN = 32
-        if self._stype == 'sdd':
-            self.set_input_layout('A', {
-                'mode': 'H' if self._compressed else 'HD',
-                'block_size': [BM, BK],
-            })
-        elif self._stype == 'dsd':
-            if self._transpose:
-                self.set_input_layout('B', {
-                    'mode': 'H' if self._compressed else 'HD',
-                    'block_size': [BN, BK],
-                })
-            else:
-                self.set_input_layout('B', {
-                    'mode': 'V' if self._compressed else 'VD',
-                    'block_size': [BK, BN],
-                })
-        elif self._stype == 'dds':
-            self.set_output_layout('C', {
-                'mode': 'X' if self._compressed else 'XD',
-                'block_size': [BM, BN],
-            })
-
-    def blocks_per_grid(self) -> Tuple[int]:
-        if self._stype == 'dds':
-            return (int(self.get_output('C').sparse()['nnz'][0]), self._batch_size)
-        else:
-            M = self.get_parameter('GLOBAL_M_VALUE')
-            N = self.get_parameter('GLOBAL_N_VALUE')
-            return (N // 32, M // 32, self._batch_size)
-
-    def threads_per_block(self) -> Tuple[int]:
+    def threads_per_block(self):
         return (256, )

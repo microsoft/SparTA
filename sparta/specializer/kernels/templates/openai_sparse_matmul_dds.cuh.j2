@@ -38,8 +38,11 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
     tiling k dimension
     tile size: 32x64x32
     smm_dd_s_nn: sparse matmul, dense (MxK, along K) x dense (NxK, along K) -> sparse (MxN, along N)
-    smm_dd_s_nt: sparse matmul, dense (MxK, along K) x dense (KxN, along N, need transpose) -> sparse (MxN, along N)
+    smm_dd_s_nt: sparse matmul, dense (MxK, along K) x dense (KxN, along N, need TRANSPOSE_B) -> sparse (MxN, along N)
+    smm_dd_s_tn: sparse matmul, dense (KxM, along M, need TRANSPOSE_A) x dense (NxK, along K) -> sparse (MxN, along N)
+    smm_dd_s_tt: sparse matmul, dense (KxM, along M, need TRANSPOSE_A) x dense (KxN, along N, need TRANSPOSE_B) -> sparse (MxN, along N)
     the output sparse is block size 32x32, the blocks will be written to bcsr 32x64
+    Known issue: the output 
     */
     const int BLOCK_SIZE_M = 32;  // 64
     const int BLOCK_SIZE_N = 32;  //128
@@ -80,11 +83,17 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
     assert(THREAD_SIZE_K % 16 == 0);
 
     // A is stored in dense format
+    {% if TRANSPOSE_A %}
+    uint ori_offsetA00 = tid / (BLOCK_SIZE_M/4) * M + by * BLOCK_SIZE_M + (tid % (BLOCK_SIZE_M/4)) * 4;
+    uint ori_offsetA16 = ori_offsetA00 + M * 32;
+    uint storA = (tid * 4 + tid / (BLOCK_SIZE_M/4) / 4 * 2) * 4;
+    {% else %}
     uint ori_offsetA00 = (by * 32 + ty) * K + tx * 4;
     uint ori_offsetA16 = ori_offsetA00 + K * 16;
+    {% endif %}
 
     // B is stored in dense format
-    {% if TRANSPOSE %}
+    {% if TRANSPOSE_B %}
     uint ori_offsetB00 = (bx * 32 + ty) * K + tx * 4;
     uint ori_offsetB16 = ori_offsetB00 + K * 16;
     {% else %}
@@ -116,9 +125,14 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
 
     for (int k_seq = 0; k_seq < (int)(K/64); k_seq++)
     {
+        {% if TRANSPOSE_A %}
+        uint offsetA00 = ori_offsetA00 + 64 * k_seq * M;
+        uint offsetA16 = ori_offsetA16 + 64 * k_seq * M;
+        {% else %}
         uint offsetA00 = ori_offsetA00 + 64 * k_seq;
         uint offsetA16 = ori_offsetA16 + 64 * k_seq;
-        {% if TRANSPOSE %}
+        {% endif %}
+        {% if TRANSPOSE_B %}
         uint offsetB00 = ori_offsetB00 + 64 * k_seq;
         uint offsetB16 = ori_offsetB16 + 64 * k_seq;
         {% else %}
@@ -135,6 +149,16 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
 
         __syncthreads();
 
+        {% if TRANSPOSE_A %}
+        *(float*)&bShare[storA + (0*65*32 + 0)*4] = a00.x;
+        *(float*)&bShare[storA + (0*65*32 + 1)*4] = a00.y;
+        *(float*)&bShare[storA + (0*65*32 + 2)*4] = a00.z;
+        *(float*)&bShare[storA + (0*65*32 + 3)*4] = a00.w;
+        *(float*)&bShare[storA + (32*32 + 8*2 + 0*65*32 + 0)*4] = a16.x;
+        *(float*)&bShare[storA + (32*32 + 8*2 + 0*65*32 + 1)*4] = a16.y;
+        *(float*)&bShare[storA + (32*32 + 8*2 + 0*65*32 + 2)*4] = a16.z;
+        *(float*)&bShare[storA + (32*32 + 8*2 + 0*65*32 + 3)*4] = a16.w;
+        {% else %}
         *(float*)&bShare[storAB + (0*32 +  0 + 0*65*32)*4] = a00.x;
         *(float*)&bShare[storAB + (1*32 +  0 + 0*65*32)*4] = a00.y;
         *(float*)&bShare[storAB + (2*32 +  0 + 0*65*32)*4] = a00.z;
@@ -143,8 +167,9 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
         *(float*)&bShare[storAB + (1*32 + 16 + 0*65*32)*4] = a16.y;
         *(float*)&bShare[storAB + (2*32 + 16 + 0*65*32)*4] = a16.z;
         *(float*)&bShare[storAB + (3*32 + 16 + 0*65*32)*4] = a16.w;
+        {% endif %}
 
-        {% if TRANSPOSE %}
+        {% if TRANSPOSE_B %}
         *(float*)&bShare[storAB + (0*32 +  0 + 1*65*32)*4] = b00.x;
         *(float*)&bShare[storAB + (1*32 +  0 + 1*65*32)*4] = b00.y;
         *(float*)&bShare[storAB + (2*32 +  0 + 1*65*32)*4] = b00.z;

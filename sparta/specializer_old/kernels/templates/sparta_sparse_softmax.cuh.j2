@@ -1,0 +1,82 @@
+{# Copyright (c) Microsoft Corporation. #}
+{# Licensed under the MIT license. #}
+
+{% if BLOCK_SIZE_W_VALUE < 32 %}
+#define FULL_MASK 0x{% for _ in range(BLOCK_SIZE_W_VALUE // 4) %}f{% endfor %}
+{% else %}
+#define FULL_MASK 0xffffffff
+{% endif %}
+
+const int H = {{ GLOBAL_H_VALUE }};
+const int W = {{ GLOBAL_W_VALUE }};
+const int block_h = {{ BLOCK_SIZE_H_VALUE }};
+const int block_w = {{ BLOCK_SIZE_W_VALUE }};
+const int row_tile = {{ ROW_TILE_VALUE }};
+
+__global__ void SPARSE_SOFTMAX(
+    float* in_val,
+    int* row_ptr,
+    int* col_idx,
+    int* mask,
+    float* out_val
+) {
+    {% if COMPRESSED %}
+    int num_nnz = row_ptr[H / block_h];
+    in_val += blockIdx.y * num_nnz * block_h * block_w;
+    out_val += blockIdx.y * num_nnz * block_h * block_w;
+    {% else %}
+    in_val += blockIdx.y * H * W;
+    out_val += blockIdx.y * H * W;
+    {% endif %}
+
+    uint blk_row_idx = blockIdx.x / (block_h/row_tile) ;
+    int block_inter_row = (blockIdx.x % (block_h/row_tile)) * row_tile;
+    uint bm = threadIdx.x / 32;
+    uint bn = threadIdx.x % 32;
+    float regC = 0.0f;
+    float regSum = 0.0f;
+    float regMax = -100000.0;
+    int block_seq_start = row_ptr[blk_row_idx];
+    int block_seq_end = row_ptr[blk_row_idx+1];
+
+    uint index_list[W / 32];
+    int val_num = 0;
+    for (int block_inter_col = bn; block_inter_col < block_w; block_inter_col += 32) {
+        for (int block_seq = block_seq_start; block_seq < block_seq_end; block_seq++) {
+            {% if COMPRESSED %}
+            uint index = block_h * block_w * block_seq + (block_inter_row + bm) * block_w + block_inter_col;
+            {% else %}
+            uint index = (blk_row_idx * block_h + block_inter_row + bm) * W + (col_idx[block_seq] * block_w + block_inter_col);
+            {% endif %}
+            if (mask[index]) {
+                index_list[val_num++] = index;
+            }
+        }
+    }
+
+    for (int k = 0; k < val_num; k++) {
+        uint index = index_list[k];
+        regMax = max(regMax, in_val[index]);
+    }
+
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        regMax = max(regMax, __shfl_down_sync(FULL_MASK, regMax, offset));
+    }
+    regMax = __shfl_sync(FULL_MASK, regMax, 0);
+
+    for (int k = 0; k < val_num; k++) {
+        uint index = index_list[k];
+        regC = expf(in_val[index] - regMax);
+        regSum += regC;
+    }
+
+    for (int offset = 16; offset > 0; offset >>= 1) {
+        regSum += __shfl_down_sync(FULL_MASK, regSum, offset);
+    }
+    regSum = __shfl_sync(FULL_MASK, regSum, 0);
+
+    for (int k = 0; k < val_num; k++) {
+        uint index = index_list[k];
+        out_val[index] = expf(in_val[index] - regMax) / regSum;
+    }
+}

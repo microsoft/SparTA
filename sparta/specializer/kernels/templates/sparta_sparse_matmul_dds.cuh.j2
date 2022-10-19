@@ -51,8 +51,8 @@ __global__ void BLOCK_SPARSE_MATMUL(
     float a_frag[TM][TK];
     float b_frag[TN][TK];
 
-    int A_THREAD_PER_ROW = BK / 4;
-    int B_THREAD_PER_ROW = {% if TRANSPOSE %}BK{% else %}BN{% endif %} / 4;
+    int A_THREAD_PER_ROW = {% if TRANSPOSE_A %}BM{% else %}BK{% endif %} / 4;
+    int B_THREAD_PER_ROW = {% if TRANSPOSE_B %}BK{% else %}BN{% endif %} / 4;
 
     int bszy = BM / TM;
     int bszx = BN / TN;
@@ -72,17 +72,25 @@ __global__ void BLOCK_SPARSE_MATMUL(
 
     const int vBLOCK_SIZE_M = BM / TM;
     const int vBLOCK_SIZE_N = BN / TN;
-    {% if TRANSPOSE %}float4 tmp_float4;{% endif %}
+    {% if TRANSPOSE_A or TRANSPOSE_B %}float4 tmp_float4;{% endif %}
     for (int tile_idx = 0; tile_idx < K; tile_idx += BK) {
         #pragma unroll
-        for (int k = 0; k < BM; k += A_TILE_ROW_STRIDE) {
+        for (int k = 0; k < {% if TRANSPOSE_A %}BK{% else %}BM{% endif %}; k += A_TILE_ROW_STRIDE) {
+            {% if TRANSPOSE_A %}
+            tmp_float4 = (reinterpret_cast<float4*>(&A[(tile_idx + A_BLOCK_ROW_START+k) * M + by*BM + A_BLOCK_COL_START]))[0];
+            As[(A_BLOCK_COL_START+0) * BK + k+A_BLOCK_ROW_START] = tmp_float4.x;
+            As[(A_BLOCK_COL_START+1) * BK + k+A_BLOCK_ROW_START] = tmp_float4.y;
+            As[(A_BLOCK_COL_START+2) * BK + k+A_BLOCK_ROW_START] = tmp_float4.z;
+            As[(A_BLOCK_COL_START+3) * BK + k+A_BLOCK_ROW_START] = tmp_float4.w;
+            {% else %}
             *((float4 *)(&As[(k+A_BLOCK_ROW_START) * BK + A_BLOCK_COL_START])) =
-                *((float4 *)(&A[(by*BM+k+A_BLOCK_ROW_START) * K + tile_idx+A_BLOCK_COL_START]));
+                *((float4 *)(&A[(by*BM + k+A_BLOCK_ROW_START) * K + tile_idx + A_BLOCK_COL_START]));
+            {% endif %}
         }
 
         #pragma unroll
-        for (int k = 0; k < {% if TRANSPOSE %}BN{% else %}BK{% endif %}; k += B_TILE_ROW_STRIDE) {
-            {% if TRANSPOSE %}
+        for (int k = 0; k < {% if TRANSPOSE_B %}BN{% else %}BK{% endif %}; k += B_TILE_ROW_STRIDE) {
+            {% if TRANSPOSE_B %}
             tmp_float4 = (reinterpret_cast<float4*>(&B[(bx*BN + B_BLOCK_ROW_START+k) * K + tile_idx + B_BLOCK_COL_START]))[0];
             Bs[(B_BLOCK_COL_START+0) * BN + k+B_BLOCK_ROW_START] = tmp_float4.x;
             Bs[(B_BLOCK_COL_START+1) * BN + k+B_BLOCK_ROW_START] = tmp_float4.y;

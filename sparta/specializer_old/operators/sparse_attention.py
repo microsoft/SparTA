@@ -171,7 +171,10 @@ class SparseAttention(OperatorBase):
             result = torch.bmm(QK_softmax, V)
         return self._reshape_output(result)
 
-    def _forward_kernel_test(self, params: Dict, sample_inputs: List[torch.Tensor]):
+    def _forward_kernel_test(
+        self, params: Dict, sample_inputs: List[torch.Tensor],
+        num_warmups: int = 10, num_iters: int = 10
+    ):
         Q, K, V = sample_inputs
         assert Q.shape == (self._batch_size, self._num_heads, self._tgt_seq_len, self._embed_dim)
         assert K.shape == (self._batch_size, self._num_heads, self._src_seq_len, self._embed_dim)
@@ -191,6 +194,8 @@ class SparseAttention(OperatorBase):
             config=matmul_in_config,
             mask={'C': self._mask},
             target_outputs={'C': QK},
+            num_warmups=num_warmups,
+            num_iters=num_iters,
         )
 
         softmax_kernel = self._softmax_possible_implementations[softmax_config['_name']]
@@ -201,6 +206,8 @@ class SparseAttention(OperatorBase):
             config=softmax_config,
             mask={'C_in': self._mask, 'C_mask': self._mask, 'C_out': self._mask},
             target_outputs={'C': QK},
+            num_warmups=num_warmups,
+            num_iters=num_iters,
         )
 
         matmul_out_kernel = self._matmul_out_possible_implementations[matmul_out_config['_name']]
@@ -209,6 +216,8 @@ class SparseAttention(OperatorBase):
         latency += matmul_out_kernel.test(
             config=matmul_out_config,
             mask={'A': self._mask},
+            num_warmups=num_warmups,
+            num_iters=num_iters,
         )
         return latency
 
@@ -254,16 +263,19 @@ class SparseAttention(OperatorBase):
             )
         self._search_space = search_space
 
-    def tester(self, params: Dict, sample_inputs: List, jit: bool = False, weight_bk: float=0.) -> float:
+    def tester(
+        self, params: Dict, sample_inputs: List, jit: bool = False, weight_bk: float=0.0,
+        num_warmups: int = 10, num_iters: int = 10
+    ) -> float:
         if jit:
             self.build(params, sample_inputs, jit)
             # how to get the latency of the compiled kernel?
-            latency = test_latency(self.forward, sample_inputs, None)
+            latency = test_latency(self.forward, sample_inputs, None, num_warmups, num_iters)
             if weight_bk > 0:
                 # TODO add backward time
                 raise NotImplementedError
         else:
-            latency = self._forward_kernel_test(params, sample_inputs)
+            latency = self._forward_kernel_test(params, sample_inputs, num_warmups, num_iters)
             if weight_bk > 0:
                 # TODO add backward time
                 raise NotImplementedError
