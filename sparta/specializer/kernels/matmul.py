@@ -129,7 +129,7 @@ class SparTASparseMatMulKernel(SparseMatMulKernel):
 
     def _add_parameters(self):
         super()._add_parameters()
-        for dim in ['M', 'N', 'K']:
+        for dim in ['M', 'K', 'N']:
             self._add_parameter(
                 f'BLOCK_SIZE_{dim}_VALUE',
                 is_tunable=True,

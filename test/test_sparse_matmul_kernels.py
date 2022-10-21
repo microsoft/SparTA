@@ -10,10 +10,10 @@ from sparta.specializer.kernels import SparseMatMulKernel, SparTASparseMatMulKer
 from sparta.testing import block_mask, test_latency
 
 
-batch_size, M, K, N = 4, 1024, 256, 512
+BATCH_SIZE, M, K, N = 4, 1024, 256, 512
 BM, BK, BN, TM, TK, TN = 64, 16, 32, 8, 4, 2
-block = (8, 8)
-sparsity = 0.95
+BLOCK = (8, 8)
+SPARSITY = 0.95
 
 
 def test_sparse_matmul_kernel(
@@ -26,23 +26,23 @@ def test_sparse_matmul_kernel(
     kernel_name = f'{impl}_sparse_matmul_{sparse_type}{b_str}_{t_A_str}{t_B_str}{c_str}'
 
     torch.manual_seed(2022)
-    A = torch.rand(size=(batch_size, M, K)).cuda()
-    B = torch.rand(size=(batch_size, K, N)).cuda()
-    bias = torch.rand(size=(batch_size, N)).cuda()
+    A = torch.rand(size=(BATCH_SIZE, M, K)).cuda()
+    B = torch.rand(size=(BATCH_SIZE, K, N)).cuda()
+    bias = torch.rand(size=(BATCH_SIZE, N)).cuda()
     if sparse_type == 'sdd':
         sparse_tensor = 'A'
-        mask = block_mask((M, K), block=block, sparsity=sparsity).cuda()
+        mask = block_mask((M, K), block=BLOCK, sparsity=SPARSITY).cuda()
         A *= mask
     elif sparse_type == 'dsd':
         sparse_tensor = 'B'
-        mask = block_mask((K, N), block=block, sparsity=sparsity).cuda()
+        mask = block_mask((K, N), block=BLOCK, sparsity=SPARSITY).cuda()
         B *= mask
     else:
         sparse_tensor = 'C'
-        mask = block_mask((M, N), block=block, sparsity=sparsity).cuda()
+        mask = block_mask((M, N), block=BLOCK, sparsity=SPARSITY).cuda()
     target_C = torch.bmm(A, B)
     if biased:
-        target_C += bias.reshape((batch_size, 1, N))
+        target_C += bias.reshape((BATCH_SIZE, 1, N))
 
     if trans_A:
         A = A.swapaxes(-1, -2).contiguous()
@@ -76,7 +76,7 @@ def test_sparse_matmul_kernel(
         },
         'openai': {},
     }[impl]
-    kernel.set_shape(batch_size, M, K, N)
+    kernel.set_shape(BATCH_SIZE, M, K, N)
     kernel.compile(config, {sparse_tensor: mask})
 
     if sparse_type == 'dds':

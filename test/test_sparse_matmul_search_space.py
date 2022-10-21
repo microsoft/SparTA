@@ -7,7 +7,7 @@ import json
 from sparta.specializer.funtional import SparseBatchMatMulCtx
 
 
-# batch_size, M, K, N = 4, 1024, 256, 512
+# BATCH_SIZE, M, K, N = 4, 1024, 256, 512
 # BM, BK, BN, TM, TK, TN = 32, 32, 32, 4, 4, 4
 
 
@@ -27,8 +27,8 @@ def test_sparse_matmul_search_space(
     with open('tmp.json', 'w') as f:
         f.write(json.dumps({
             impl: {
+                '_space': {k: str(v._value) for k, v in space['_space'].items()},
                 '_conditions': space['_conditions'],
-                '_space': {k: str(v._value) for k, v in space['_space'].items()}
             }
             for impl, space in search_space.items()
         }, indent='\t'))
@@ -46,7 +46,7 @@ class TestSparseMatMulSearchSpace(unittest.TestCase):
         #                     test_sparse_matmul_search_space(
         #                         sparse_type, biased, compressed, trans_A, trans_B
         #                     )
-        test_sparse_matmul_search_space('sdd', False, False, False, True)
+        test_sparse_matmul_search_space('sdd', False, True, False, False)
 
 
 if __name__ == '__main__':

@@ -71,7 +71,7 @@ class SparseCtxBase(object):
         return self._kernels[kernel_name].get_converter(tensor_name)
 
     @abc.abstractmethod
-    def get_conditions(self, impls: Dict[str, str]) -> Optional[List[str]]:
+    def get_conditions(self, impls: Dict[str, str]) -> Optional[List[List]]:
         '''Get conditions given implementation of each kernel.'''
 
     def _expand_search_space(self, kernels: List[str], impls: Dict[str, str]) -> Dict[str, Dict]:

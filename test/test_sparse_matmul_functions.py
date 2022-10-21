@@ -9,10 +9,10 @@ from sparta.specializer.funtional import SparseBatchMatMulCtx, SparseBatchMatMul
 from sparta.testing import block_mask
 
 
-batch_size, M, K, N = 4, 1024, 256, 512
+BATCH_SIZE, M, K, N = 4, 1024, 256, 512
 BM, BK, BN, TM, TK, TN = 32, 32, 32, 4, 4, 4
-block = (8, 8)
-sparsity = 0.95
+BLOCK = (8, 8)
+SPARSITY = 0.95
 
 
 def test_sparse_matmul_function(
@@ -26,21 +26,21 @@ def test_sparse_matmul_function(
 
     torch.manual_seed(2022)
     A_shape = (K, M) if trans_A else (M, K)
-    A = torch.rand(size=(batch_size, *A_shape), device='cuda')
+    A = torch.rand(size=(BATCH_SIZE, *A_shape)).cuda()
     B_shape = (N, K) if trans_B else (K, N)
-    B = torch.rand(size=(batch_size, *B_shape), device='cuda')
-    bias = torch.rand(size=(batch_size, N), device='cuda')
+    B = torch.rand(size=(BATCH_SIZE, *B_shape)).cuda()
+    bias = torch.rand(size=(BATCH_SIZE, N)).cuda()
     if sparse_type == 'sdd':
         sparse_tensor = 'A'
-        mask = block_mask(A_shape, block=block, sparsity=sparsity).cuda()
+        mask = block_mask(A_shape, block=BLOCK, sparsity=SPARSITY).cuda()
         A *= mask
     elif sparse_type == 'dsd':
         sparse_tensor = 'B'
-        mask = block_mask(B_shape, block=block, sparsity=sparsity).cuda()
+        mask = block_mask(B_shape, block=BLOCK, sparsity=SPARSITY).cuda()
         B *= mask
     else:
         sparse_tensor = 'C'
-        mask = block_mask((M, N), block=block, sparsity=sparsity).cuda()
+        mask = block_mask((M, N), block=BLOCK, sparsity=SPARSITY).cuda()
 
     A.requires_grad = True
     B.requires_grad = True
@@ -50,13 +50,13 @@ def test_sparse_matmul_function(
     order_B = 'bjk' if trans_B else 'bkj'
     target_C = torch.einsum(f'{order_A},{order_B}->bij', A, B)
     if biased:
-        target_C += bias.reshape((batch_size, 1, N))
+        target_C += bias.reshape((BATCH_SIZE, 1, N))
 
-    grad_C = torch.rand(size=target_C.shape, device='cuda')
+    grad_C = torch.rand(size=target_C.shape).cuda()
 
     kernel_names = ['forward:C', 'backward:A', 'backward:B']
     sparse_ctx = SparseBatchMatMulCtx(sparse_type, trans_A, trans_B, biased, compressed)
-    sparse_ctx.set_shape(batch_size, M, K, N)
+    sparse_ctx.set_shape(BATCH_SIZE, M, K, N)
     kernel_config = {
         'BLOCK_SIZE_M_VALUE': BM,
         'BLOCK_SIZE_K_VALUE': BK,
@@ -117,14 +117,14 @@ def test_sparse_matmul_function(
     else:
         C = SparseBatchMatMul.apply(sparse_ctx, A, B)
     torch.testing.assert_close(C, target_C)
-    print('forward pass', end='; ')
+    print('forward pass;', end=' ')
 
     C.backward(grad_C)
     torch.testing.assert_close(A.grad, target_grad_A)
     torch.testing.assert_close(B.grad, target_grad_B)
     if biased:
         torch.testing.assert_close(bias.grad, target_grad_bias)
-    print('backward pass')
+    print('backward pass.')
 
 
 

@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-from typing import Dict, Optional
+from typing import Dict, Tuple, Optional
 
 import torch
 
@@ -29,67 +29,49 @@ class SparseBatchMatMulCtx(SparseCtxBase):
         def rearange(s: str, source_order: str, target_order: str):
             return ''.join(select(x, source_order, s) for x in target_order)
 
-        sparse_tensor = select('s', sparse_type, 'ABC')
-        backward_A_order = 'BCA' if transpose_A else 'CBA'
-        backward_B_order = 'CAB' if transpose_B else 'ACB'
-        if sparse_tensor == 'A' and transpose_A:
-            bcsr_main = 'V'
-        elif sparse_tensor == 'B' and not transpose_B:
-            bcsr_main = 'V'
-        else:
-            bcsr_main = 'H'
+        def calc_tesa_shape(sparse_type: str, trans_A: bool, trans_B: bool):
+            if sparse_type == 'sdd':
+                return ('K', 'M') if trans_A else ('M', 'K')
+            elif sparse_type == 'dsd':
+                return ('N', 'K') if trans_B else ('K', 'N')
+            else:
+                return ('M', 'N')
 
-        self._kernels['forward:C'] = KernelPlaceholder(
-            name='forward:C',
-            cat='forward:C',
-            impls={
-                'sparta': SparTASparseMatMulKernel,
-                'openai': OpenAISparseMatMulKernel,
-            },
-            args={
-                'biased': biased,
-                'bcsr_main': bcsr_main,
-                'compressed': compressed,
-                'transpose_A': transpose_A,
-                'transpose_B': transpose_B,
-                'sparse_type': sparse_type,
-            },
-            mask_map={sparse_tensor: sparse_tensor},
-        )
-        self._kernels['backward:A'] = KernelPlaceholder(
-            name='backward:A',
-            cat='backward:A',
-            impls={
-                'sparta': SparTASparseMatMulKernel,
-                'openai': OpenAISparseMatMulKernel,
-            },
-            args={
-                'biased': False,
-                'bcsr_main': bcsr_main,
-                'compressed': compressed,
-                'transpose_A': transpose_A and transpose_B,
-                'transpose_B': transpose_A or not transpose_B,
-                'sparse_type': rearange(sparse_type, 'ABC', backward_A_order),
-            },
-            mask_map={sparse_tensor: select(sparse_tensor, backward_A_order, 'ABC')},
-        )
-        self._kernels['backward:B'] = KernelPlaceholder(
-            name='backward:B',
-            cat='backward:B',
-            impls={
-                'sparta': SparTASparseMatMulKernel,
-                'openai': OpenAISparseMatMulKernel,
-            },
-            args={
-                'biased': False,
-                'bcsr_main': bcsr_main,
-                'compressed': compressed,
-                'transpose_A': not transpose_A or transpose_B,
-                'transpose_B': transpose_A and transpose_B,
-                'sparse_type': rearange(sparse_type, 'ABC', backward_B_order),
-            },
-            mask_map={sparse_tensor: select(sparse_tensor, backward_B_order, 'ABC')},
-        )
+        sparse_tensor = select('s', sparse_type, 'ABC')
+        if sparse_tensor == 'A' and transpose_A:
+            dds_bcsr_main = 'V'
+        elif sparse_tensor == 'B' and not transpose_B:
+            dds_bcsr_main = 'V'
+        else:
+            dds_bcsr_main = 'H'
+
+        self._tesa_shapes: Dict[str, Tuple[str, str]] = {}
+        for kernel_name, bias, target_order, trans_A, trans_B in zip(
+            ['forward:C', 'backward:A', 'backward:B'],
+            [biased, False, False],
+            ['ABC', 'BCA' if transpose_A else 'CBA', 'CAB' if transpose_B else 'ACB'],
+            [transpose_A, transpose_A and transpose_B, not transpose_A or transpose_B],
+            [transpose_B, transpose_A or not transpose_B, transpose_A and transpose_B],
+        ):
+            s_type = rearange(sparse_type, 'ABC', target_order)
+            self._kernels[kernel_name] = KernelPlaceholder(
+                name=kernel_name,
+                cat=kernel_name,
+                impls={
+                    'sparta': SparTASparseMatMulKernel,
+                    'openai': OpenAISparseMatMulKernel,
+                },
+                args={
+                    'biased': bias,
+                    'bcsr_main': dds_bcsr_main,
+                    'compressed': compressed,
+                    'transpose_A': trans_A,
+                    'transpose_B': trans_B,
+                    'sparse_type': s_type,
+                },
+                mask_map={sparse_tensor: select(sparse_tensor, target_order, 'ABC')},
+            )
+            self._tesa_shapes[kernel_name] = calc_tesa_shape(s_type, trans_A, trans_B)
 
     def set_shape(self, batch_size: int, M: int, K: int, N: int):
         self._kernels['forward:C'].set_shape(batch_size, M, K, N)
@@ -103,7 +85,23 @@ class SparseBatchMatMulCtx(SparseCtxBase):
             self._kernels['backward:B'].set_shape(batch_size, K, M, N)
 
     def get_conditions(self, impls: Dict[str, str]):
-        return []
+        if self._compressed and len(impls) > 1:
+            conditions = [[], []]
+            fixed_dims = [None, None]
+            for kernel_name, impl in impls.items():
+                for k, dim in enumerate(self._tesa_shapes[kernel_name]):
+                    if impl == 'sparta':
+                        v = f'{kernel_name};BLOCK_SIZE_{dim}_VALUE'
+                    else:  # impl == 'openai'
+                        v = {'M': 32, 'K': 64, 'N': 32}[dim]
+                        if fixed_dims[k] is None:
+                            fixed_dims[k] = v
+                        elif fixed_dims[k] != v:
+                            return None
+                    conditions[k].append(v)
+            return conditions
+        else:
+            return []
 
     def forward_C(self, *args):
         return self._kernels['forward:C'].active_kernel()(*args)
