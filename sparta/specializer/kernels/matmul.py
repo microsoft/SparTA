@@ -33,7 +33,7 @@ class SparseMatMulKernel(KernelBase):
         self._dtype = dtype
         super().__init__()
 
-    def set_tesa(self):
+    def _set_tesa(self):
         if self._stype == 'sdd':
             if self._transpose_A:
                 self.tesa_type['A'] = BCSRV
@@ -55,15 +55,15 @@ class SparseMatMulKernel(KernelBase):
                 self.tesa_type['C'] = BCSRV
             self.tesa_attrs['C'] = ['row_idx', 'col_idx', 'nnz']
 
-    def add_parameters(self):
-        self.add_parameter('BATCH_SIZE')
-        self.add_parameter('GLOBAL_M_VALUE')
-        self.add_parameter('GLOBAL_K_VALUE')
-        self.add_parameter('GLOBAL_N_VALUE')
-        self.add_parameter('BIASED', value=self._biased)
-        self.add_parameter('TRANSPOSE_A', value=self._transpose_A)
-        self.add_parameter('TRANSPOSE_B', value=self._transpose_B)
-        self.add_parameter('COMPRESSED', value=self._compressed)
+    def _add_parameters(self):
+        self._add_parameter('BATCH_SIZE')
+        self._add_parameter('GLOBAL_M_VALUE')
+        self._add_parameter('GLOBAL_K_VALUE')
+        self._add_parameter('GLOBAL_N_VALUE')
+        self._add_parameter('BIASED', value=self._biased)
+        self._add_parameter('TRANSPOSE_A', value=self._transpose_A)
+        self._add_parameter('TRANSPOSE_B', value=self._transpose_B)
+        self._add_parameter('COMPRESSED', value=self._compressed)
 
     def set_shape(self, batch_size: int, M: int, K: int, N: int):
         self.set_parameter('BATCH_SIZE', batch_size)
@@ -90,7 +90,7 @@ class SparseMatMulKernel(KernelBase):
             BM, BK, BN = self.get_block_shape()
             return (N // BN, M // BM, batch_size)
 
-    def pre_compile(self):
+    def _pre_compile(self):
         batch_size, M, K, N = self.get_shape()
         BM, BK, BN = self.get_block_shape()
         input_mask = [True] * 3 if self._biased else [True] * 2
@@ -127,15 +127,15 @@ class SparseMatMulKernel(KernelBase):
 
 class SparTASparseMatMulKernel(SparseMatMulKernel):
 
-    def add_parameters(self):
-        super().add_parameters()
+    def _add_parameters(self):
+        super()._add_parameters()
         for dim in ['M', 'N', 'K']:
-            self.add_parameter(
+            self._add_parameter(
                 f'BLOCK_SIZE_{dim}_VALUE',
                 is_tunable=True,
                 search_space=TunableItemCfg('choice', [16, 32, 64])
             )
-            self.add_parameter(
+            self._add_parameter(
                 f'THREAD_SIZE_{dim}_VALUE',
                 is_tunable=True,
                 search_space=TunableItemCfg('choice', [4, 8])

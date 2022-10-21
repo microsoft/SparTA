@@ -5,7 +5,7 @@ import unittest
 
 import torch
 
-from sparta.specializer.funtional import SparseBatchMatMulCtx, SparseBatchMatMulFunction
+from sparta.specializer.funtional import SparseBatchMatMulCtx, SparseBatchMatMul
 from sparta.testing import block_mask
 
 
@@ -57,22 +57,23 @@ def test_sparse_matmul_function(
     kernel_names = ['forward:C', 'backward:A', 'backward:B']
     sparse_ctx = SparseBatchMatMulCtx(sparse_type, trans_A, trans_B, biased, compressed)
     sparse_ctx.set_shape(batch_size, M, K, N)
+    kernel_config = {
+        'BLOCK_SIZE_M_VALUE': BM,
+        'BLOCK_SIZE_K_VALUE': BK,
+        'BLOCK_SIZE_N_VALUE': BN,
+        'THREAD_SIZE_M_VALUE': TM,
+        'THREAD_SIZE_K_VALUE': TK,
+        'THREAD_SIZE_N_VALUE': TN,
+    }
     sparse_ctx.build(
-        impl={
-            kernel_name: 'sparta'
-            for kernel_name in kernel_names
-        },
-        config={
-            kernel_name: {
-                'BLOCK_SIZE_M_VALUE': BM,
-                'BLOCK_SIZE_K_VALUE': BK,
-                'BLOCK_SIZE_N_VALUE': BN,
-                'THREAD_SIZE_M_VALUE': TM,
-                'THREAD_SIZE_K_VALUE': TK,
-                'THREAD_SIZE_N_VALUE': TN,
+        config=dict(
+            _impl=';'.join([f'{kernel_name}=sparta' for kernel_name in kernel_names]),
+            **{
+                f'{kernel_name};{param_name}': param_value
+                for param_name, param_value in kernel_config.items()
+                for kernel_name in kernel_names
             }
-            for kernel_name in kernel_names
-        },
+        ),
         mask={sparse_tensor: mask},
     )
 
@@ -112,9 +113,9 @@ def test_sparse_matmul_function(
 
     print(func_name, end=': ')
     if biased:
-        C = SparseBatchMatMulFunction.apply(sparse_ctx, A, B, bias)
+        C = SparseBatchMatMul.apply(sparse_ctx, A, B, bias)
     else:
-        C = SparseBatchMatMulFunction.apply(sparse_ctx, A, B)
+        C = SparseBatchMatMul.apply(sparse_ctx, A, B)
     torch.testing.assert_close(C, target_C)
     print('forward pass', end='; ')
 
@@ -129,7 +130,7 @@ def test_sparse_matmul_function(
 
 class TestSparseMatMulKernels(unittest.TestCase):
 
-    def test_sparse_matmul_kernels(self):
+    def test_sparse_matmul_functions(self):
         print('==================== Testing Sparse MatMul Functions ====================')
         for sparse_type in ['sdd', 'dsd', 'dds']:
             for biased in [False, True]:

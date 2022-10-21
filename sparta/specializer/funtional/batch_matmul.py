@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-from typing import Optional
+from typing import Dict, Optional
 
 import torch
 
@@ -102,6 +102,9 @@ class SparseBatchMatMulCtx(SparseCtxBase):
         else:
             self._kernels['backward:B'].set_shape(batch_size, K, M, N)
 
+    def get_conditions(self, impls: Dict[str, str]):
+        return []
+
     def forward_C(self, *args):
         return self._kernels['forward:C'].active_kernel()(*args)
 
@@ -132,7 +135,7 @@ class SparseBatchMatMulCtx(SparseCtxBase):
             return grad_C.sum(-2)
 
 
-class SparseBatchMatMulFunction(torch.autograd.Function):
+class SparseBatchMatMul(torch.autograd.Function):
 
     @staticmethod
     def forward(

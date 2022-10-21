@@ -2,6 +2,7 @@
 # Licensed under the MIT license.
 
 import unittest
+from typing import Type
 
 import torch
 
@@ -52,7 +53,7 @@ def test_sparse_matmul_kernel(
         if sparse_type == 'dsd':
             mask = mask.T.contiguous()
 
-    kernelClass: type[SparseMatMulKernel] = {
+    kernelClass: Type[SparseMatMulKernel] = {
         'sparta': SparTASparseMatMulKernel,
         'openai': OpenAISparseMatMulKernel,
     }[impl]

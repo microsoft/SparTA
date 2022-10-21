@@ -1,7 +1,7 @@
 import abc
 import warnings
 import dataclasses
-from typing import Any, Dict, List, Tuple, Callable, Optional
+from typing import Any, Dict, List, Tuple, Callable, Optional, Type
 
 import torch
 
@@ -34,21 +34,21 @@ class KernelBase(Callable):
         self._converters: Dict[str, TeSAConverter] = {}
         self._masks: Dict[str, torch.Tensor] = {}
         self._func: Callable = None
-        self.tesa_type: Dict[str, type[TeSAConverter]] = {}
+        self.tesa_type: Dict[str, Type[TeSAConverter]] = {}
         self.tesa_attrs: Dict[str, List[str]] = {}
         self.ready = False
-        self.add_parameters()
-        self.set_tesa()
+        self._add_parameters()
+        self._set_tesa()
 
     @abc.abstractmethod
-    def set_tesa(self):
+    def _set_tesa(self):
         '''Set TeSA types and attrs of sparse tensors.'''
 
     @abc.abstractmethod
-    def add_parameters(self):
+    def _add_parameters(self):
         '''Add kernel-specialized parameters.'''
     
-    def add_parameter(
+    def _add_parameter(
         self, name: str, value: Any = None, is_tunable: bool = False, is_dynamic: bool = False,
         search_space: Optional[List[Any]] = None
     ):
@@ -112,7 +112,7 @@ class KernelBase(Callable):
         '''Get launch config: number of threads per block.'''
 
     @abc.abstractmethod
-    def pre_compile(self) -> Tuple[List[bool], List[torch.Tensor], List[Tuple]]:
+    def _pre_compile(self) -> Tuple[List[bool], List[torch.Tensor], List[Tuple]]:
         '''Calc input_mask, fixed_inputs and output_shapes.'''
 
     def compile(self, config: Dict[str, Any], mask: Dict[str, torch.Tensor]):
@@ -122,7 +122,7 @@ class KernelBase(Callable):
         kernel_name = kernel_code[kernel_code.find('__global__ void') + 15:]
         kernel_name = kernel_name[:kernel_name.find('(')].strip()
 
-        input_mask, fixed_inputs, output_shapes = self.pre_compile()
+        input_mask, fixed_inputs, output_shapes = self._pre_compile()
 
         self._func = JITModule(
             kernel_func_name=kernel_name,
