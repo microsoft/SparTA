@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-from typing import Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional
 
 import torch
 
@@ -102,6 +102,26 @@ class SparseBatchMatMulCtx(SparseCtxBase):
             return conditions
         else:
             return []
+
+    def _split_graph(
+        self, kernels: List[str], sample_inputs: Dict[str, torch.Tensor],
+        sample_grad: Optional[torch.Tensor] = None
+    ):
+        funcs, inputs = [], []
+        for kernel_name in kernels:
+            if kernel_name == 'forward:C':
+                funcs.append(self.forward_C)
+                forward_inputs = [sample_inputs['A'], sample_inputs['B']]
+                if self._biased:
+                    forward_inputs.append(sample_inputs['bias'])
+                inputs.append(forward_inputs)
+            elif kernel_name == 'backward:A':
+                funcs.append(self.backward_A)
+                inputs.append([sample_grad, sample_inputs['B']])
+            elif kernel_name == 'backward:B':
+                funcs.append(self.backward_B)
+                inputs.append([sample_grad, sample_inputs['A']])
+        return funcs, inputs
 
     def forward_C(self, *args):
         return self._kernels['forward:C'].active_kernel()(*args)

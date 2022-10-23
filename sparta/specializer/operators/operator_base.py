@@ -3,7 +3,7 @@
 
 import abc
 import warnings
-from typing import Any, List, Dict, Optional, Type
+from typing import Any, List, Dict, Tuple, Optional, Type
 
 import torch
 
@@ -51,27 +51,17 @@ class OperatorBase(torch.nn.Module):
     def get_search_space(self):
         return self._sparse_ctx.get_search_space()
 
+    def get_kernels(self):
+        return self._sparse_ctx.get_kernels()
+
+    @abc.abstractmethod
+    def _construct_inputs(self, raw_inputs: List[torch.Tensor]) -> Dict[str, torch.Tensor]:
+        '''Construct inputs of the sparse function.'''
+
     def test(
-        self, params: Dict[str, Any], sample_inputs: List, sample_grad: Optional[torch.Tensor] = None,
-        num_warmups: int = 10, num_iters: int = 10, backward_weight: float = 1
+        self, kernels: List[str], sample_inputs: List[torch.Tensor],
+        sample_grad: Optional[torch.Tensor] = None,
+        num_warmups: int = 10, num_iters: int = 10
     ):
-        self.build(params, sample_inputs)
-        forward_latency = test_latency(
-            func=self.forward,
-            inputs=sample_inputs,
-            num_warmups=num_warmups,
-            num_iters=num_iters,
-            cuda=True
-        )
-        latency = {'forward': forward_latency}
-        if backward_weight > 0:
-            output = self.forward(*sample_inputs)
-            backward_latency = test_latency(
-                func=output.backward,
-                inputs=[sample_grad],
-                num_warmups=num_warmups,
-                num_iters=num_iters,
-                cuda=True
-            )
-            latency['backward'] = backward_latency
-        return latency
+        sample_inputs = self._construct_inputs(sample_inputs)
+        return self._sparse_ctx.test(kernels, sample_inputs, sample_grad, num_warmups, num_iters)

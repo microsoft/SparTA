@@ -9,7 +9,7 @@ from sparta.nn import SparseLinear
 from sparta.testing import block_mask
 
 
-M, K, N = 1024, 256, 512
+BATCH_SIZE, IN_DIMS, OUT_DIMS = 1024, 256, 512
 BM, BK, BN, TM, TK, TN = 32, 32, 32, 4, 4, 4
 BLOCK = (8, 8)
 SPARSITY = 0.95
@@ -19,24 +19,24 @@ def test_sparse_linear_operator(sparse_type: str, biased: bool):
     b_str = '_b' if biased else ''
     print(f'sparse_linear_{sparse_type}{b_str}:', end=' ')
 
-    dense_linear = torch.nn.Linear(K, N, bias=biased).cuda()
+    dense_linear = torch.nn.Linear(IN_DIMS, OUT_DIMS, bias=biased).cuda()
 
     torch.manual_seed(2022)
-    sample_input = torch.rand((M, K), dtype=torch.float32).cuda()
-    dense_weight = torch.rand((N, K), dtype=torch.float32).cuda()
-    bias = torch.rand((N, ), dtype=torch.float32).cuda()
-    sample_grad = torch.rand((M, N), dtype=torch.float32).cuda()
+    sample_input = torch.rand((BATCH_SIZE, IN_DIMS), dtype=torch.float32).cuda()
+    dense_weight = torch.rand((OUT_DIMS, IN_DIMS), dtype=torch.float32).cuda()
+    bias = torch.rand((OUT_DIMS, ), dtype=torch.float32).cuda()
+    sample_grad = torch.rand((BATCH_SIZE, OUT_DIMS), dtype=torch.float32).cuda()
 
     if sparse_type == 'sdd':
-        mask = block_mask((M, K), block=BLOCK, sparsity=SPARSITY).cuda()
+        mask = block_mask((BATCH_SIZE, IN_DIMS), block=BLOCK, sparsity=SPARSITY).cuda()
         sample_input *= mask
         mask_dict = {'input_mask': mask}
     elif sparse_type == 'dsd':
-        mask = block_mask((N, K), block=BLOCK, sparsity=SPARSITY).cuda()
+        mask = block_mask((OUT_DIMS, IN_DIMS), block=BLOCK, sparsity=SPARSITY).cuda()
         dense_weight *= mask
         mask_dict = {'weight_mask': mask}
     else:
-        mask = block_mask((M, N), block=BLOCK, sparsity=SPARSITY).cuda()
+        mask = block_mask((BATCH_SIZE, OUT_DIMS), block=BLOCK, sparsity=SPARSITY).cuda()
         sample_grad *= mask
         mask_dict = {'output_mask': mask}
     if biased:

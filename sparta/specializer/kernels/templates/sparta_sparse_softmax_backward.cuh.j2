@@ -19,8 +19,10 @@ __global__ void SPARSE_SOFTMAX(
     int* col_idx,
     int* mask,
     float* out_val,
-    float* reciprocal_temperature
+    float reciprocal_temperature
 ) {
+    // grad[i] = sum(-grad[j]*out[j]*out[i] if i!=j else grad[j]*(1-out[j])*out[j])
+
     {% if COMPRESSED %}
     int num_nnz = row_ptr[H / block_h];
     in_val += blockIdx.y * num_nnz * block_h * block_w;
@@ -55,8 +57,6 @@ __global__ void SPARSE_SOFTMAX(
         }
     }
 
-    float T = reciprocal_temperature[0];
-
     for (int k = 0; k < val_num; k++) {
         uint index = index_list[k];
         regMax = max(regMax, in_val[index]);
@@ -69,7 +69,7 @@ __global__ void SPARSE_SOFTMAX(
 
     for (int k = 0; k < val_num; k++) {
         uint index = index_list[k];
-        regC = expf((in_val[index] - regMax) * T);
+        regC = expf((in_val[index] - regMax) * reciprocal_temperature);
         regSum += regC;
     }
 
@@ -80,6 +80,6 @@ __global__ void SPARSE_SOFTMAX(
 
     for (int k = 0; k < val_num; k++) {
         uint index = index_list[k];
-        out_val[index] = expf((in_val[index] - regMax) * T) / regSum;
+        out_val[index] = expf((in_val[index] - regMax) * reciprocal_temperature) / regSum;
     }
 }

@@ -72,3 +72,9 @@ class SparseLinear(OperatorBase):
         if self.bias is not None:
             inputs.append(self.bias)
         return self.__sparse_func__.apply(*inputs).squeeze(0)
+
+    def _construct_inputs(self, raw_inputs: List[torch.Tensor]):
+        inputs = {'A': raw_inputs[0], 'B': self.weight.detach()}
+        if self.bias is not None:
+            inputs['bias'] = self.bias.detach()
+        return inputs

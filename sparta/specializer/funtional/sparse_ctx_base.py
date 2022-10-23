@@ -2,10 +2,11 @@
 # Licensed under the MIT license.
 
 import abc
-from typing import Any, Dict, List, Type, Optional
+from typing import Any, Dict, List, Tuple, Type, Callable, Optional
 
 import torch
 
+from sparta.testing.utils import test_latency
 from sparta.specializer.kernels import KernelBase
 
 
@@ -49,6 +50,7 @@ class SparseCtxBase(object):
 
     def __init__(self):
         self._kernels: Dict[str, KernelPlaceholder] = {}
+        self._mask: Dict[str, torch.Tensor] = {}
 
     @abc.abstractmethod
     def set_shape(self, *args, **kwargs):
@@ -73,6 +75,33 @@ class SparseCtxBase(object):
     @abc.abstractmethod
     def get_conditions(self, impls: Dict[str, str]) -> Optional[List[List]]:
         '''Get conditions given implementation of each kernel.'''
+
+    def get_kernels(self):
+        return list(self._kernels.keys())
+
+    @abc.abstractmethod
+    def _split_graph(
+        self, kernels: List[str], sample_inputs: Dict[str, torch.Tensor],
+        sample_grad: Optional[torch.Tensor] = None
+    ) -> Tuple[List[Callable], List[List[torch.Tensor]]]:
+        '''Split the calculation graph into kernels with input tensors.'''
+
+    def test(
+        self, kernels: List[str], sample_inputs: Dict[str, torch.Tensor],
+        sample_grad: Optional[torch.Tensor] = None,
+        num_warmups: int = 10, num_iters: int = 10
+    ):
+        funcs, inputs = self._split_graph(kernels, sample_inputs, sample_grad)
+        latency_dict: Dict[str, float] = {}
+        for kernel_name, func, input_list in zip(kernels, funcs, inputs):
+            latency_dict[kernel_name] = test_latency(
+                func=func,
+                inputs=input_list,
+                num_warmups=num_warmups,
+                num_iters=num_iters,
+                cuda=True,
+            )
+        return latency_dict
 
     def _expand_search_space(self, kernels: List[str], impls: Dict[str, str]) -> Dict[str, Dict]:
         if len(kernels) == 0:
