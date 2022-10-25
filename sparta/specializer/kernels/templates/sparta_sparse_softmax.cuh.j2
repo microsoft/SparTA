@@ -18,8 +18,8 @@ __global__ void SPARSE_SOFTMAX(
     int* row_ptr,
     int* col_idx,
     int* mask,
-    float* out_val,
-    float* reciprocal_temperature
+    float temperature,
+    float* out_val
 ) {
     {% if COMPRESSED %}
     int num_nnz = row_ptr[H / block_h];
@@ -34,7 +34,6 @@ __global__ void SPARSE_SOFTMAX(
     int block_inter_row = (blockIdx.x % (block_h/row_tile)) * row_tile;
     uint bm = threadIdx.x / 32;
     uint bn = threadIdx.x % 32;
-    float regC = 0.0f;
     float regSum = 0.0f;
     float regMax = -100000.0;
     int block_seq_start = row_ptr[blk_row_idx];
@@ -49,13 +48,15 @@ __global__ void SPARSE_SOFTMAX(
             {% else %}
             uint index = (blk_row_idx * block_h + block_inter_row + bm) * W + (col_idx[block_seq] * block_w + block_inter_col);
             {% endif %}
+            /*
+            index_list += index * mask[index];
+            val_num += mask[index];
+            */
             if (mask[index]) {
                 index_list[val_num++] = index;
             }
         }
     }
-
-    float T = reciprocal_temperature[0];
 
     for (int k = 0; k < val_num; k++) {
         uint index = index_list[k];
@@ -69,8 +70,7 @@ __global__ void SPARSE_SOFTMAX(
 
     for (int k = 0; k < val_num; k++) {
         uint index = index_list[k];
-        regC = expf((in_val[index] - regMax) * T);
-        regSum += regC;
+        regSum += expf((in_val[index] - regMax) * temperature);
     }
 
     for (int offset = 16; offset > 0; offset >>= 1) {
@@ -80,6 +80,6 @@ __global__ void SPARSE_SOFTMAX(
 
     for (int k = 0; k < val_num; k++) {
         uint index = index_list[k];
-        out_val[index] = expf((in_val[index] - regMax) * T) / regSum;
+        out_val[index] = expf((in_val[index] - regMax) * temperature) / regSum;
     }
 }

@@ -4,6 +4,7 @@
 from typing import Any, List, Dict, Optional
 
 import torch
+import numpy as np
 
 from sparta.specializer.kernels import SparTASparseSoftmaxKernel, SparTASparseSoftmaxBackwardKernel
 from sparta.specializer.funtional import SparseCtxBase, KernelPlaceholder
@@ -15,39 +16,42 @@ class SparseBatchSoftmaxCtx(SparseCtxBase):
         super().__init__()
 
         self._compressed = compressed
-        self._T = None if temperature is None else 1 / temperature
+        self._T = np.float32(1. if temperature is None else 1 / temperature)
         self._mask: torch.Tensor = None
+        self._batch_size: int = None
 
-        for kernel_name, kernel_class in zip([
-            ['forward:output', 'backward:input'],
-            [SparTASparseSoftmaxKernel, SparTASparseSoftmaxBackwardKernel]
-        ]):
+        for kernel_name, kernel_class, first_tensor in zip(
+            ['forward:y', 'backward:x'],
+            [SparTASparseSoftmaxKernel, SparTASparseSoftmaxBackwardKernel],
+            ['x', 'grad_y'],
+        ):
             self._kernels[kernel_name] = KernelPlaceholder(
                 name=kernel_name,
                 cat=kernel_name,
                 impls={'sparta': kernel_class},
                 args={'compressed': compressed},
-                mask_map={p: 'input' for p in ['input', 'mask', 'output']},
+                mask_map={'x': first_tensor},
             )
 
     def set_shape(self, batch_size: int, H: int, W: int):
-        self._kernels['forward:output'].set_shape(batch_size, H, W)
-        self._kernels['backward:input'].set_shape(batch_size, H, W)
-        if self._T is None:
-            self._T = 1 / torch.sqrt(W)
+        self._kernels['forward:y'].set_shape(batch_size, H, W)
+        self._kernels['backward:x'].set_shape(batch_size, H, W)
+        self._batch_size = batch_size
 
     def get_conditions(self, impls: Dict[str, str]):
         if self._compressed and len(impls) > 1:
             return [
-                ['forward:output;BLOCK_SIZE_H_VALUE', 'backward:input;BLOCK_SIZE_H_VALUE'],
-                ['forward:output;BLOCK_SIZE_W_VALUE', 'backward:input;BLOCK_SIZE_W_VALUE'],
+                ['forward:y;BLOCK_SIZE_H_VALUE', 'backward:x;BLOCK_SIZE_H_VALUE'],
+                ['forward:y;BLOCK_SIZE_W_VALUE', 'backward:x;BLOCK_SIZE_W_VALUE'],
             ]
         else:
             return []
 
     def build(self, config: Dict[str, Any], mask: Dict[str, torch.Tensor]):
-        self._mask = mask['input']
         super().build(config, mask)
+        self._mask = mask['x'].to(torch.int32)
+        if self._compressed:
+            self._mask = self.get_converter('forward:y', 'x').convert(self._mask)
 
     def _split_graph(
         self, kernels: List[str], sample_inputs: Dict[str, torch.Tensor],
@@ -57,17 +61,18 @@ class SparseBatchSoftmaxCtx(SparseCtxBase):
         for kernel_name in kernels:
             if kernel_name == 'forward':
                 funcs.append(self.forward)
-                inputs.append([sample_inputs['input'], self._mask, self._T])
+                inputs.append([sample_inputs['x'], self._mask, self._T])
             elif kernel_name == 'backward':
                 funcs.append(self.backward)
-                inputs.append([sample_grad, self._mask, self._T])
+                output = self.forward(sample_inputs['x'], self._mask, self._T)
+                inputs.append([sample_grad, output, self._mask, self._T])
         return funcs, inputs
 
     def forward(self, x: torch.Tensor):
-        return self._kernels['forward:output'].active_kernel()(x, self._mask, self._T)
+        return self._kernels['forward:y'].active_kernel()(x, self._mask, self._T)
 
-    def backward(self, grad: torch.Tensor):
-        return self._kernels['backward:input'].active_kernel()(grad, self._mask, self._T)
+    def backward(self, grad: torch.Tensor, output: torch.Tensor):
+        return self._kernels['backward:x'].active_kernel()(grad, output, self._mask, self._T)
 
 
 class SparseBatchSoftmax(torch.autograd.Function):
@@ -77,11 +82,12 @@ class SparseBatchSoftmax(torch.autograd.Function):
         ctx: torch.autograd.function.FunctionCtx,
         sparta_ctx: SparseBatchSoftmaxCtx, x: torch.Tensor
     ):
-        # ctx.save_for_backward(input, weight, bias)
         ctx.sparta_ctx = sparta_ctx
-        return sparta_ctx.forward(x.detach())
+        output = sparta_ctx.forward(x.detach())
+        ctx.save_for_backward(output)
+        return output
 
     @staticmethod
     def backward(ctx: torch.autograd.function.FunctionCtx, grad: torch.Tensor):
-        # input, weight, bias = ctx.saved_tensors
-        return ctx.sparta_ctx.backward(grad.detach())
+        output, = ctx.saved_tensors
+        return None, ctx.sparta_ctx.backward(grad.detach(), output.detach())

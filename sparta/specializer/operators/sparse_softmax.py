@@ -12,14 +12,16 @@ from sparta.specializer.funtional import SparseBatchSoftmaxCtx, SparseBatchSoftm
 
 class SparseSoftmax(OperatorBase):
 
-    __base_class__ = torch.nn.Linear
+    __base_class__ = torch.nn.Softmax
     __sparse_func__ = SparseBatchSoftmax
 
-    def __init__(self, raw_module: torch.nn.Softmax, mask: torch.Tensor):
+    def __init__(
+        self, raw_module: torch.nn.Softmax, mask: torch.Tensor, temperature: float = 1
+    ):
         super().__init__(raw_module)
         H, W = mask.shape
-        self._sparse_ctx = SparseBatchSoftmaxCtx(compressed=False)
-        self._mask = {'input': mask}
+        self._sparse_ctx = SparseBatchSoftmaxCtx(compressed=False, temperature=temperature)
+        self._mask = {'x': mask}
         self._shape = {'batch_size': 1, 'H': H, 'W': W}
 
     def _read_sample_inputs(self, x: torch.Tensor):
@@ -30,4 +32,4 @@ class SparseSoftmax(OperatorBase):
         return self.__sparse_func__.apply(self._sparse_ctx, x).squeeze(0)
 
     def _construct_inputs(self, raw_inputs: List[torch.Tensor]):
-        return {'input': raw_inputs[0]}
+        return {'x': raw_inputs[0]}

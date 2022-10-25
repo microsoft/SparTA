@@ -14,31 +14,30 @@ const int block_w = {{ BLOCK_SIZE_W_VALUE }};
 const int row_tile = {{ ROW_TILE_VALUE }};
 
 __global__ void SPARSE_SOFTMAX(
-    float* in_val,
+    float* out_grad,
     int* row_ptr,
     int* col_idx,
-    int* mask,
     float* out_val,
-    float reciprocal_temperature
+    int* mask,
+    float temperature,
+    float* in_grad
 ) {
-    // grad[i] = sum(-grad[j]*out[j]*out[i] if i!=j else grad[j]*(1-out[j])*out[j])
-
     {% if COMPRESSED %}
     int num_nnz = row_ptr[H / block_h];
-    in_val += blockIdx.y * num_nnz * block_h * block_w;
+    out_grad += blockIdx.y * num_nnz * block_h * block_w;
     out_val += blockIdx.y * num_nnz * block_h * block_w;
+    in_grad += blockIdx.y * num_nnz * block_h * block_w;
     {% else %}
-    in_val += blockIdx.y * H * W;
+    out_grad += blockIdx.y * H * W;
     out_val += blockIdx.y * H * W;
+    in_grad += blockIdx.y * H * W;
     {% endif %}
 
     uint blk_row_idx = blockIdx.x / (block_h/row_tile) ;
     int block_inter_row = (blockIdx.x % (block_h/row_tile)) * row_tile;
     uint bm = threadIdx.x / 32;
     uint bn = threadIdx.x % 32;
-    float regC = 0.0f;
     float regSum = 0.0f;
-    float regMax = -100000.0;
     int block_seq_start = row_ptr[blk_row_idx];
     int block_seq_end = row_ptr[blk_row_idx+1];
 
@@ -59,18 +58,7 @@ __global__ void SPARSE_SOFTMAX(
 
     for (int k = 0; k < val_num; k++) {
         uint index = index_list[k];
-        regMax = max(regMax, in_val[index]);
-    }
-
-    for (int offset = 16; offset > 0; offset >>= 1) {
-        regMax = max(regMax, __shfl_down_sync(FULL_MASK, regMax, offset));
-    }
-    regMax = __shfl_sync(FULL_MASK, regMax, 0);
-
-    for (int k = 0; k < val_num; k++) {
-        uint index = index_list[k];
-        regC = expf((in_val[index] - regMax) * reciprocal_temperature);
-        regSum += regC;
+        regSum += out_val[index] * out_grad[index];
     }
 
     for (int offset = 16; offset > 0; offset >>= 1) {
@@ -80,6 +68,6 @@ __global__ void SPARSE_SOFTMAX(
 
     for (int k = 0; k < val_num; k++) {
         uint index = index_list[k];
-        out_val[index] = expf((in_val[index] - regMax) * reciprocal_temperature) / regSum;
+        in_grad[index] = temperature * (out_val[index] * out_grad[index] - out_val[index] * regSum);
     }
 }
