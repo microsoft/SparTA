@@ -12,13 +12,10 @@ from sparta.specializer.funtional import SparseBatchSoftmaxCtx, SparseBatchSoftm
 
 class SparseSoftmax(OperatorBase):
 
-    __base_class__ = torch.nn.Softmax
     __sparse_func__ = SparseBatchSoftmax
 
-    def __init__(
-        self, raw_module: torch.nn.Softmax, mask: torch.Tensor, temperature: float = 1
-    ):
-        super().__init__(raw_module)
+    def __init__(self, mask: torch.Tensor, temperature: float = 1):
+        super().__init__()
         H, W = mask.shape
         self._sparse_ctx = SparseBatchSoftmaxCtx(compressed=False, temperature=temperature)
         self._mask = {'x': mask}

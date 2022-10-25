@@ -1,4 +1,4 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-from sparta.specializer.operators import OperatorBase, SparseLinear, SparseSoftmax
+from sparta.specializer.operators import OperatorBase, SparseLinear, SparseSoftmax, SparseAttention

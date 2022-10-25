@@ -20,14 +20,12 @@ T = np.sqrt(DIMS)
 def test_sparse_softmax_operator():
     print(f'sparse_softmax:', end=' ')
 
-    dense_softmax = torch.nn.Softmax(dim=-1).cuda()
-
     torch.manual_seed(2022)
     mask = block_mask((BATCH_SIZE, DIMS), block=BLOCK, sparsity=SPARSITY).cuda()
     sample_input = torch.rand((BATCH_SIZE, DIMS), dtype=torch.float32).cuda()
     sample_grad = torch.rand((BATCH_SIZE, DIMS), dtype=torch.float32).cuda()
 
-    sparse_softmax = SparseSoftmax(dense_softmax, mask=mask, temperature=T)
+    sparse_softmax = SparseSoftmax(mask=mask, temperature=T)
     kernel_names = ['forward:y', 'backward:x']
     kernel_config = {
         'BLOCK_SIZE_H_VALUE': BH,
@@ -49,6 +47,7 @@ def test_sparse_softmax_operator():
     sample_input.requires_grad = True
     target_output = sparse_softmax_reference(sample_input, mask, temperature=T)
     output = sparse_softmax.forward(sample_input)
+    torch.testing.assert_close(output, target_output)
     print('forward pass;', end=' ')
 
     target_output.backward(sample_grad)

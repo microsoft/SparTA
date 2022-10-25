@@ -16,8 +16,8 @@ class OperatorBase(torch.nn.Module):
     __base_class__: Type[torch.nn.Module] = None
     __sparse_func__: Type[torch.autograd.Function] = None
 
-    def __init__(self, raw_module: torch.nn.Module):
-        if type(raw_module) is not self.__base_class__:
+    def __init__(self, raw_module: Optional[torch.nn.Module] = None):
+        if self.__base_class__ is not None and type(raw_module) is not self.__base_class__:
             raise ValueError(f'expected a {self.__base_class__} module')
         super().__init__()
         self._raw_module = raw_module
@@ -44,6 +44,8 @@ class OperatorBase(torch.nn.Module):
         '''Forward function. Calls the corresponding dense operator if not built.'''
         if self.ready:
             return self._sparse_forward(*args)
+        elif self._raw_module is None:
+            raise ValueError('the sparse module is not compiled') 
         else:
             warnings.warn('the sparse module is not compiled, using the dense module to forward')
             return self._raw_module.forward(*args)

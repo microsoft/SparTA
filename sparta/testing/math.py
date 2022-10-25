@@ -2,6 +2,7 @@
 # Licensed under the MIT license.
 
 import torch
+import numpy as np
 
 
 def sparse_softmax_reference(
@@ -42,3 +43,11 @@ def sparse_softmax_backward_reference(
     C_prod = grad * masked_output
     C_sum = C_prod.sum(axis=-1).unsqueeze(-1)
     return (C_prod - masked_output * C_sum) / temperature
+
+
+def sparse_multi_head_attention_reference(
+    q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: torch.Tensor
+) -> torch.Tensor:
+    qk = torch.einsum('bmk, bnk -> bmn', q, k)
+    sm = sparse_softmax_reference(qk, mask, temperature=np.sqrt(q.shape[-1]))
+    return torch.einsum('bmk, bkn -> bmn', sm, v)

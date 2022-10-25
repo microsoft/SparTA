@@ -13,11 +13,10 @@ from sparta.specializer.kernels import KernelBase
 class KernelPlaceholder(object):
 
     def __init__(
-        self, name: str, cat: str, impls: Dict[str, Type[KernelBase]],
+        self, name: str, impls: Dict[str, Type[KernelBase]],
         args: Dict[str, Any], mask_map: Dict[str, str]
     ):
         self.name = name
-        self.category = cat
         self._possible_kernels = {key: impl(**args) for key, impl in impls.items()}
         self._active_impl: str = None
         self._mask_map = mask_map
@@ -65,7 +64,7 @@ class SparseCtxBase(object):
             filtered_config = {
                 param_key.split(';')[1]: param_val
                 for param_key, param_val in config.items()
-                if param_key.startswith(kernel_name)
+                if param_key.split(';')[0] == kernel_name
             }
             self._kernels[kernel_name].build(impl_name, filtered_config, mask)
 

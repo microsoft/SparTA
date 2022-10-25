@@ -56,7 +56,6 @@ class SparseBatchMatMulCtx(SparseCtxBase):
             s_type = rearange(sparse_type, 'ABC', target_order)
             self._kernels[kernel_name] = KernelPlaceholder(
                 name=kernel_name,
-                cat=kernel_name,
                 impls={
                     'sparta': SparTASparseMatMulKernel,
                     'openai': OpenAISparseMatMulKernel,
@@ -108,19 +107,18 @@ class SparseBatchMatMulCtx(SparseCtxBase):
         sample_grad: Optional[torch.Tensor] = None
     ):
         funcs, inputs = [], []
-        for kernel_name in kernels:
-            if kernel_name == 'forward:C':
-                funcs.append(self.forward_C)
-                forward_inputs = [sample_inputs['A'], sample_inputs['B']]
-                if self._biased:
-                    forward_inputs.append(sample_inputs['bias'])
-                inputs.append(forward_inputs)
-            elif kernel_name == 'backward:A':
-                funcs.append(self.backward_A)
-                inputs.append([sample_grad, sample_inputs['B']])
-            elif kernel_name == 'backward:B':
-                funcs.append(self.backward_B)
-                inputs.append([sample_grad, sample_inputs['A']])
+        if 'forward:C' in kernels:
+            funcs.append(self.forward_C)
+            forward_inputs = [sample_inputs['A'], sample_inputs['B']]
+            if self._biased:
+                forward_inputs.append(sample_inputs['bias'])
+            inputs.append(forward_inputs)
+        if 'backward:A' in kernels:
+            funcs.append(self.backward_A)
+            inputs.append([sample_grad, sample_inputs['B']])
+        if 'backward:B' in kernels:
+            funcs.append(self.backward_B)
+            inputs.append([sample_grad, sample_inputs['A']])
         return funcs, inputs
 
     def forward_C(self, *args):
