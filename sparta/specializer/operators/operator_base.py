@@ -3,12 +3,11 @@
 
 import abc
 import warnings
-from typing import Any, List, Dict, Tuple, Optional, Type
+from typing import Any, List, Dict, Optional, Type
 
 import torch
 
 from sparta.specializer.funtional import SparseCtxBase
-from sparta.testing.utils import test_latency
 
 
 class OperatorBase(torch.nn.Module):
