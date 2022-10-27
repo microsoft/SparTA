@@ -1,3 +1,6 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT license.
+
 import abc
 import warnings
 import dataclasses
@@ -67,8 +70,8 @@ class KernelBase(Callable):
             return  # ignore some special key words
         self._parameters[name].value = value
 
-    def set_parameters(self, dic: Dict[str, Any]):
-        for name, value in dic.items():
+    def set_parameters(self, params: Dict[str, Any]):
+        for name, value in params.items():
             self.set_parameter(name, value)
 
     def get_parameter(self, name: str):
@@ -113,11 +116,16 @@ class KernelBase(Callable):
         '''Get launch config: number of threads per block.'''
 
     @abc.abstractmethod
+    def _check_parameters(self, params: Dict[str, Any]):
+        '''Raise an error if the input paramater dict is invalid.'''
+
+    @abc.abstractmethod
     def _pre_compile(self) -> Tuple[List[bool], List[torch.Tensor], List[Tuple]]:
         '''Calc input_mask, fixed_inputs and output_shapes.'''
 
-    def compile(self, config: Dict[str, Any], mask: Dict[str, torch.Tensor]):
-        self.set_parameters(config)
+    def compile(self, params: Dict[str, Any], mask: Dict[str, torch.Tensor]):
+        self._check_parameters(params)
+        self.set_parameters(params)
         self.set_masks(mask)
         kernel_code = self.get_kernel_code()
         kernel_name = kernel_code[kernel_code.find('__global__ void') + 15:]
@@ -152,8 +160,7 @@ class JITModule(torch.nn.Module):
         output_shapes: List[Tuple[int]]
     ):
         super().__init__()
-        params = [torch.nn.Parameter(x, requires_grad=False) for x in fixed_inputs]
-        self._params = torch.nn.ParameterList(params).cuda()
+        self._params = [x.cuda() for x in fixed_inputs]
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
             source_module = SourceModule(kernel_func_body, options=['-O3'])
@@ -170,8 +177,6 @@ class JITModule(torch.nn.Module):
         self._threads_per_block = fill_launch_config(threads_per_block)
         self._input_mask = input_mask
         self._outputs = [torch.zeros(shape).cuda() for shape in output_shapes]
-        self.func_name = kernel_func_name
-        self.func_body = kernel_func_body
 
     def forward(self, *args):
         inputs = []

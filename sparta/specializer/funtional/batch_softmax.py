@@ -57,13 +57,14 @@ class SparseBatchSoftmaxCtx(SparseCtxBase):
         sample_grad: Optional[torch.Tensor] = None
     ):
         funcs, inputs = [], []
-        if 'forward:y' in kernels:
-            funcs.append(self.forward)
-            inputs.append([sample_inputs['x'], self._mask, self._T])
-        if 'backward:x' in kernels:
-            funcs.append(self.backward)
-            output = self.forward(sample_inputs['x'], self._mask, self._T)
-            inputs.append([sample_grad, output, self._mask, self._T])
+        for kernel_name in kernels:
+            if kernel_name == 'forward:y':
+                funcs.append(self.forward)
+                inputs.append([sample_inputs['x'], self._mask, self._T])
+            elif kernel_name == 'backward:x':
+                funcs.append(self.backward)
+                output = self.forward(sample_inputs['x'], self._mask, self._T)
+                inputs.append([sample_grad, output, self._mask, self._T])
         return funcs, inputs
 
     def forward(self, x: torch.Tensor):

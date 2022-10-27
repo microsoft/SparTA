@@ -46,7 +46,8 @@ class SparseLinear(OperatorBase):
             raise ValueError(f'expected a sparse mask on input / weight / output')
 
         self._shape = {'batch_size': 1, 'M': M, 'K': K, 'N': N}
-        self.weight = raw_module.weight
+        self._raw_weight = torch.clone(raw_module.weight)
+        self.weight = None
         self.bias = raw_module.bias
 
     def _read_sample_inputs(self, A: torch.Tensor):
@@ -59,13 +60,14 @@ class SparseLinear(OperatorBase):
 
     def build(self, params: Dict[str, Any], sample_inputs: List[Any]):
         super().build(params, sample_inputs)
+        weight = self._raw_weight
         if 'B' in self._mask:
-            weight_converter = self._sparse_ctx.get_converter('forward:C', 'B')
-            if self.weight.requires_grad:
-                weight = weight_converter.convert(self.weight.detach())
-                self.weight = torch.nn.Parameter(weight)
-            else:
-                self.weight = weight_converter.convert(self.weight)
+            kernel_name = params['_impl'].split(';')[0].split('=')[0]
+            weight_converter = self._sparse_ctx.get_converter(kernel_name, 'B')
+            weight = weight_converter.convert(self._raw_weight.detach())
+            if kernel_name == 'backward:A':
+                weight = weight_converter.reorder_V_to_H(weight)
+        self.weight = torch.nn.Parameter(weight, requires_grad=True)
 
     def _sparse_forward(self, input_tensor: torch.Tensor):
         inputs = [self._sparse_ctx, input_tensor, self.weight]

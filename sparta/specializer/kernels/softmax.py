@@ -3,7 +3,7 @@
 
 import os
 import abc
-from typing import Tuple
+from typing import Any, Dict, Tuple
 
 import jinja2
 
@@ -113,6 +113,12 @@ class SparTASparseSoftmaxKernel(SparseSoftmaxKernel):
         T = self.get_parameter('ROW_TILE_VALUE')
         return (T * 32, )
 
+    def _check_parameters(self, params: Dict[str, Any]):
+        BH = params['BLOCK_SIZE_H_VALUE']
+        BW = params['BLOCK_SIZE_W_VALUE']
+        T = params['ROW_TILE_VALUE']
+        assert BH > T
+
 
 class SparseSoftmaxBackwardKernel(KernelBase):
 
@@ -214,3 +220,9 @@ class SparTASparseSoftmaxBackwardKernel(SparseSoftmaxBackwardKernel):
     def threads_per_block(self) -> Tuple[int]:
         T = self.get_parameter('ROW_TILE_VALUE')
         return (T * 32, )
+
+    def _check_parameters(self, params: Dict[str, Any]):
+        BH = params['BLOCK_SIZE_H_VALUE']
+        BW = params['BLOCK_SIZE_W_VALUE']
+        T = params['ROW_TILE_VALUE']
+        assert BH > T

@@ -3,7 +3,7 @@
 
 import os
 import abc
-from typing import Tuple
+from typing import Any, Dict, Tuple
 
 import jinja2
 
@@ -163,6 +163,22 @@ class SparTASparseMatMulKernel(SparseMatMulKernel):
         TM, TK, TN = self.get_thread_shape()
         return (BN // TN, BM // TM)
 
+    def _check_parameters(self, params: Dict[str, Any]):
+        BM = params['BLOCK_SIZE_M_VALUE']
+        BK = params['BLOCK_SIZE_K_VALUE']
+        BN = params['BLOCK_SIZE_N_VALUE']
+        TM = params['THREAD_SIZE_M_VALUE']
+        TK = params['THREAD_SIZE_K_VALUE']
+        TN = params['THREAD_SIZE_N_VALUE']
+        assert BM > TM
+        assert BK > TK
+        assert BN > TN
+        A_thread_per_rows = (BM if self._transpose_A else BK) // 4
+        B_thread_per_rows = (BK if self._transpose_A else BN) // 4
+        threads_per_block = (BM // TM) * (BN // TN)
+        assert threads_per_block >= A_thread_per_rows
+        assert threads_per_block >= B_thread_per_rows
+
 
 class OpenAISparseMatMulKernel(SparseMatMulKernel):
 
@@ -176,3 +192,6 @@ class OpenAISparseMatMulKernel(SparseMatMulKernel):
 
     def threads_per_block(self):
         return (256, )
+
+    def _check_parameters(self, params: Dict[str, Any]):
+        assert len(params.keys()) == 0, 'The OpenAI sparse matmul kernel has no tubable parameters.'

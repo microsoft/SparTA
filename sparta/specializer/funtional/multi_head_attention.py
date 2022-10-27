@@ -99,30 +99,31 @@ class SparseMultiHeadAttentionCtx(SparseCtxBase):
         sm = self.forward_sm(qk)
         grad_sm = self.backward_sm(sample_grad, sample_inputs['v'])
         grad_qk = self.backward_qk(grad_sm, sm)
-        if 'forward:qk' in kernels:
-            funcs.append(self.forward_qk)
-            inputs.append([q, k])
-        if 'forward:sm' in kernels:
-            funcs.append(self.forward_sm)
-            inputs.append([qk])
-        if 'forward:out' in kernels:
-            funcs.append(self.forward_out)
-            inputs.append([sm, v])
-        if 'backward:v' in kernels:
-            funcs.append(self.backward_v)
-            inputs.append([sample_grad, sm])
-        if 'backward:sm' in kernels:
-            funcs.append(self.backward_sm)
-            inputs.append([sample_grad, v])
-        if 'backward:qk' in kernels:
-            funcs.append(self.backward_sm)
-            inputs.append([grad_sm, sm])
-        if 'backward:q' in kernels:
-            funcs.append(self.backward_q)
-            inputs.append([grad_qk, k])
-        if 'backward:k' in kernels:
-            funcs.append(self.backward_k)
-            inputs.append([grad_qk, q])
+        for kernel_name in kernels:
+            if kernel_name == 'forward:qk':
+                funcs.append(self.forward_qk)
+                inputs.append([q, k])
+            elif kernel_name == 'forward:sm':
+                funcs.append(self.forward_sm)
+                inputs.append([qk])
+            elif kernel_name == 'forward:out':
+                funcs.append(self.forward_out)
+                inputs.append([sm, v])
+            elif kernel_name == 'backward:v':
+                funcs.append(self.backward_v)
+                inputs.append([sample_grad, sm])
+            elif kernel_name == 'backward:sm':
+                funcs.append(self.backward_sm)
+                inputs.append([sample_grad, v])
+            elif kernel_name == 'backward:qk':
+                funcs.append(self.backward_sm)
+                inputs.append([grad_sm, sm])
+            elif kernel_name == 'backward:q':
+                funcs.append(self.backward_q)
+                inputs.append([grad_qk, k])
+            elif kernel_name == 'backward:k':
+                funcs.append(self.backward_k)
+                inputs.append([grad_qk, q])
         return funcs, inputs
 
     def forward_qk(self, q: torch.Tensor, k: torch.Tensor):
@@ -169,13 +170,13 @@ class SparseMultiHeadAttention(torch.autograd.Function):
         grad_q = grad_k = grad_v = None
         converter = ctx.sparta_ctx.get_converter('forward:qk', 'qk')
         if ctx.needs_input_grad[3]:
-            grad_v = ctx.sparta_ctx.backward_v(grad_out.detach(), converter.swapaxes(sm))
+            grad_v = ctx.sparta_ctx.backward_v(grad_out.detach(), converter.reorder_H_to_V(sm))
         if ctx.needs_input_grad[1] or ctx.needs_input_grad[2]:
             grad_sm = ctx.sparta_ctx.backward_sm(grad_out.detach(), v.detach())
             grad_qk = ctx.sparta_ctx.backward_qk(grad_sm, sm)
             if ctx.needs_input_grad[1]:
                 grad_q = ctx.sparta_ctx.backward_q(grad_qk, k.detach())
             if ctx.needs_input_grad[2]:
-                grad_k = ctx.sparta_ctx.backward_k(converter.swapaxes(grad_qk), q.detach())
+                grad_k = ctx.sparta_ctx.backward_k(converter.reorder_H_to_V(grad_qk), q.detach())
 
         return None, grad_q, grad_k, grad_v

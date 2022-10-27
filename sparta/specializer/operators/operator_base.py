@@ -49,8 +49,8 @@ class OperatorBase(torch.nn.Module):
             warnings.warn('the sparse module is not compiled, using the dense module to forward')
             return self._raw_module.forward(*args)
 
-    def get_search_space(self):
-        return self._sparse_ctx.get_search_space()
+    def get_search_space(self, backward: bool):
+        return self._sparse_ctx.get_search_space(backward)
 
     def get_kernels(self):
         return self._sparse_ctx.get_kernels()

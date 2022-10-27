@@ -94,7 +94,7 @@ def test_sparse_multi_head_attention_function():
 class TestSparseAttentionFunctions(unittest.TestCase):
 
     def test_sparse_multi_head_attention_functions(self):
-        print('==================== Testing Sparse Softmax Functions ====================')
+        print('=============== Testing Sparse Multi-Head Attention Functions ===============')
         test_sparse_multi_head_attention_function()
 
 

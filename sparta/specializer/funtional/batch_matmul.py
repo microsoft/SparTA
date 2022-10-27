@@ -107,18 +107,19 @@ class SparseBatchMatMulCtx(SparseCtxBase):
         sample_grad: Optional[torch.Tensor] = None
     ):
         funcs, inputs = [], []
-        if 'forward:C' in kernels:
-            funcs.append(self.forward_C)
-            forward_inputs = [sample_inputs['A'], sample_inputs['B']]
-            if self._biased:
-                forward_inputs.append(sample_inputs['bias'])
-            inputs.append(forward_inputs)
-        if 'backward:A' in kernels:
-            funcs.append(self.backward_A)
-            inputs.append([sample_grad, sample_inputs['B']])
-        if 'backward:B' in kernels:
-            funcs.append(self.backward_B)
-            inputs.append([sample_grad, sample_inputs['A']])
+        for kernel_name in kernels:
+            if kernel_name == 'forward:C':
+                funcs.append(self.forward_C)
+                forward_inputs = [sample_inputs['A'], sample_inputs['B']]
+                if self._biased:
+                    forward_inputs.append(sample_inputs['bias'])
+                inputs.append(forward_inputs)
+            elif kernel_name == 'backward:A':
+                funcs.append(self.backward_A)
+                inputs.append([sample_grad, sample_inputs['B']])
+            elif kernel_name == 'backward:B':
+                funcs.append(self.backward_B)
+                inputs.append([sample_grad, sample_inputs['A']])
         return funcs, inputs
 
     def forward_C(self, *args):
@@ -127,7 +128,10 @@ class SparseBatchMatMulCtx(SparseCtxBase):
     def backward_A(self, grad_C: torch.Tensor, B: torch.Tensor):
         if self._compressed:
             if self._sparse_type == 'dsd':
-                B = self._kernels['forward:C'].get_converter('B').swapaxes(B)
+                if self._transpose_B:
+                    B = self._kernels['backward:A'].get_converter('B').reorder_H_to_V(B)
+                else:
+                    B = self._kernels['backward:A'].get_converter('B').reorder_V_to_H(B)
         if self._transpose_A:
             return self._kernels['backward:A'].active_kernel()(B, grad_C)
         else:
@@ -136,9 +140,12 @@ class SparseBatchMatMulCtx(SparseCtxBase):
     def backward_B(self, grad_C: torch.Tensor, A: torch.Tensor):
         if self._compressed:
             if self._sparse_type == 'sdd':
-                A = self._kernels['forward:C'].get_converter('A').swapaxes(A)
+                if self._transpose_A:
+                    A = self._kernels['backward:B'].get_converter('A').reorder_V_to_H(A)
+                else:
+                    A = self._kernels['backward:B'].get_converter('A').reorder_H_to_V(A)
             if self._sparse_type == 'dds':
-                grad_C = self._kernels['forward:C'].get_converter('C').swapaxes(grad_C)
+                grad_C = self._kernels['backward:B'].get_converter('C').reorder_H_to_V(grad_C)
         if self._transpose_B:
             return self._kernels['backward:B'].active_kernel()(grad_C, A)
         else:
