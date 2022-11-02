@@ -7,6 +7,7 @@ import torch
 
 from sparta.nn import SparseLinear
 from sparta.testing import block_mask
+from sparta.nn.module_tuner import tune_sparse_operator
 
 
 BATCH_SIZE, IN_DIMS, OUT_DIMS = 1024, 256, 512
@@ -28,29 +29,37 @@ class TestGridSearchTuner(unittest.TestCase):
         mask = block_mask((OUT_DIMS, IN_DIMS), block=BLOCK, sparsity=SPARSITY).cuda()
 
         sparse_linear = SparseLinear(dense_linear, weight_mask=mask)
-        kernel_names = ['forward:C', 'backward:A', 'backward:B']
-        kernel_config = {
-            'BLOCK_SIZE_M_VALUE': BM,
-            'BLOCK_SIZE_K_VALUE': BK,
-            'BLOCK_SIZE_N_VALUE': BN,
-            'THREAD_SIZE_M_VALUE': TM,
-            'THREAD_SIZE_K_VALUE': TK,
-            'THREAD_SIZE_N_VALUE': TN,
-        }
-        sparse_linear.build(
-            params=dict(
-                _impl=';'.join([f'{kernel_name}=sparta' for kernel_name in kernel_names]),
-                **{
-                    f'{kernel_name};{param_name}': param_value
-                    for param_name, param_value in kernel_config.items()
-                    for kernel_name in kernel_names
-                }
-            ),
-            sample_inputs=[sample_input]
-        )
+        # kernel_names = ['forward:C', 'backward:A', 'backward:B']
+        # kernel_config = {
+        #     'BLOCK_SIZE_M_VALUE': BM,
+        #     'BLOCK_SIZE_K_VALUE': BK,
+        #     'BLOCK_SIZE_N_VALUE': BN,
+        #     'THREAD_SIZE_M_VALUE': TM,
+        #     'THREAD_SIZE_K_VALUE': TK,
+        #     'THREAD_SIZE_N_VALUE': TN,
+        # }
+        # sparse_linear.build(
+        #     params=dict(
+        #         _impl=';'.join([f'{kernel_name}=sparta' for kernel_name in kernel_names]),
+        #         **{
+        #             f'{kernel_name};{param_name}': param_value
+        #             for param_name, param_value in kernel_config.items()
+        #             for kernel_name in kernel_names
+        #         }
+        #     ),
+        #     sample_inputs=[sample_input]
+        # )
 
-        latency = sparse_linear.test(kernel_names, [sample_input], sample_grad)
-        print(latency)
+        # latency = sparse_linear.test(kernel_names, [sample_input], sample_grad)
+        # print(latency)
+        tune_sparse_operator(
+            sparse_linear,
+            [sample_input],
+            sample_grad,
+            backward_weight=1,
+            max_trials=1,
+            algo='rand',
+        )
 
 
 if __name__ == '__main__':

@@ -29,6 +29,10 @@ class TeSAConverter(Callable):
         '''Convert dense tensor to compressed sparse value.'''
 
     @abc.abstractmethod
+    def inverse(self, sparse_val: torch.Tensor) -> torch.Tensor:
+        '''Inversely convert compressed sparse value to dense tensor.'''
+
+    @abc.abstractmethod
     def get_mask(self) -> torch.Tensor:
         '''Get the mask actually used.'''
 
@@ -79,7 +83,7 @@ class BCSR(TeSAConverter):
         assert dense_shape[-2] == self._H
         assert dense_shape[-1] == self._W
         batch_size = int(np.prod(dense_shape[:-2]))
-        sparse_shape = [batch_size, -1]
+        sparse_shape = (batch_size, -1)
         dense = dense.reshape((batch_size, self._H, self._W))
         sparse_val = []
         for batch in range(batch_size):
@@ -92,6 +96,23 @@ class BCSR(TeSAConverter):
                 sparse_val.append(block.flatten())
         # Note: torch.stack() may lose data here
         return torch.stack(sparse_val).reshape(sparse_shape).contiguous()
+
+    def inverse(self, sparse_val: torch.Tensor):
+        nnz = self.get_attr('nnz').item()
+        block_size = self._BH * self._BW
+        sparse_val = sparse_val.reshape((-1, nnz, block_size))
+        batch_size = sparse_val.shape[0]
+        dense_shape = (batch_size, self._H, self._W)
+        dense = torch.zeros(dense_shape, device=sparse_val.device)
+        for batch in range(batch_size):
+            for i, (row, col) in enumerate(zip(self.get_attr('row_idx'), self.get_attr('col_idx'))):
+                block_start_i = row * self._BH
+                block_end_i = block_start_i + self._BH
+                block_start_j = col * self._BW
+                block_end_j = block_start_j + self._BW
+                block = sparse_val[batch, i].reshape((self._BH, self._BW))
+                dense[batch, block_start_i:block_end_i, block_start_j:block_end_j] = block
+        return dense.contiguous()
 
     def reorder_H_to_V(self, sparse_val: torch.Tensor):
         # TODO: use CUDA kernel

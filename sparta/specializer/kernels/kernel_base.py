@@ -176,10 +176,11 @@ class JITModule(torch.nn.Module):
         self._blocks_per_grid = fill_launch_config(blocks_per_grid)
         self._threads_per_block = fill_launch_config(threads_per_block)
         self._input_mask = input_mask
-        self._outputs = [torch.zeros(shape).cuda() for shape in output_shapes]
+        self._output_shapes = output_shapes
 
     def forward(self, *args):
         inputs = []
+        outputs = [torch.zeros(shape, device='cuda') for shape in self._output_shapes]
         arg_idx = 0
         param_idx = 0
         for is_arg in self._input_mask:
@@ -190,11 +191,11 @@ class JITModule(torch.nn.Module):
                 inputs.append(self._params[param_idx])
                 param_idx += 1
         self._kernel_func_call(
-            *inputs, *(self._outputs),
+            *inputs, *outputs,
             block=self._threads_per_block,
             grid=self._blocks_per_grid
         )
-        if len(self._outputs) == 1:
-            return self._outputs[0]
+        if len(outputs) == 1:
+            return outputs[0]
         else:
-            return self._outputs
+            return outputs
