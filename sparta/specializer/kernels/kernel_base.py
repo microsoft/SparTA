@@ -14,8 +14,9 @@ if __env_ready__:
     import pycuda.autoprimaryctx
     from pycuda.compiler import SourceModule
 
-from sparta.common.tesa import TeSAConverter
+from sparta.common.tesa import TeSAConverter, BCSR
 from sparta.common.tuning import TunableItemCfg
+from sparta.testing import profile
 
 
 @dataclasses.dataclass
@@ -31,22 +32,89 @@ class _Parameter:
             assert self.is_tunable
 
 
+@dataclasses.dataclass
+class PortConfig(object):
+    name: str
+    is_input: bool
+    tesa_type: Optional[Type[TeSAConverter]] = None
+
+    def __post_init__(self):
+        self._tesa_config: Optional[List[Any]] = None
+        self._tesa_params: Optional[List[str]] = None
+        self.mask: Optional[torch.Tensor] = None
+        self.parent: Optional[PortConfig] = None
+        self.children: List[PortConfig] = []
+        self.converter: Optional[TeSAConverter] = None
+
+    def set_tesa(self, tesa_type: Type[TeSAConverter], tesa_params: List[str]):
+        self.tesa_type = tesa_type
+        self._tesa_params = tesa_params
+
+    def set_mask(self, mask: torch.Tensor):
+        if self.parent is not None:
+            self.parent.set_mask()
+        else:
+            self.mask = mask
+            for child in self.children:
+                child.mask = mask
+            self._update_converter()
+
+    def set_params(self, params: Dict[str, Any]):
+        if self._tesa_params is not None:
+            tesa_config = [params[p] for p in self._tesa_params]
+            if self._tesa_config is not None:
+                if all([a != b for a, b in zip(tesa_config, self._tesa_config)]):
+                    return
+            self._tesa_config = tesa_config
+            self._update_converter()
+
+    def _update_converter(self):
+        if self._tesa_config is not None and self.mask is not None:
+            if self.tesa_type is not None:
+                if issubclass(self.tesa_type, BCSR):
+                    H, W, BH, BW = self._tesa_config
+                    converter = self.tesa_type(
+                        mask=self.mask,
+                        size=(H, W),
+                        block_size=(BH, BW)
+                    )
+                else:
+                    raise ValueError(f'unsupported TeSA type {self.tesa_type}')
+                self.set_converter(converter)
+
+    def set_converter(self, converter: TeSAConverter):
+        if self.parent is not None:
+            self.parent.set_converter(converter)
+        else:
+            self.converter = converter
+            for child in self.children:
+                child.converter = converter
+
+    def connect(self, port: 'PortConfig'):
+        if self.parent is not None:
+            self.parent.connect(port)
+        elif port.parent is not None:
+            self.connect(port.parent)
+        else:
+            self.children.append(port)
+            if len(port.children) > 0:
+                self.children = list(self.children, *port.children)
+                port.children = []
+
+
 class KernelBase(Callable):
 
     def __init__(self):
         self._parameters: Dict[str, _Parameter] = {}
-        self._converters: Dict[str, TeSAConverter] = {}
-        self._masks: Dict[str, torch.Tensor] = {}
         self._func: Callable = None
-        self.tesa_type: Dict[str, Type[TeSAConverter]] = {}
-        self.tesa_attrs: Dict[str, List[str]] = {}
+        self.ports: Dict[str, PortConfig] = {}
         self.ready = False
         self._add_parameters()
-        self._set_tesa()
+        self._set_ports()
 
     @abc.abstractmethod
-    def _set_tesa(self):
-        '''Set TeSA types and attrs of sparse tensors.'''
+    def _set_ports(self):
+        '''Set input and output ports.'''
 
     @abc.abstractmethod
     def _add_parameters(self):
@@ -74,6 +142,10 @@ class KernelBase(Callable):
         for name, value in params.items():
             self.set_parameter(name, value)
 
+    def set_port_params(self):
+        for port in self.ports.values():
+            port.set_params(self.get_parameters())
+
     def get_parameter(self, name: str):
         return self._parameters[name].value
 
@@ -84,20 +156,17 @@ class KernelBase(Callable):
             return {k: self._parameters[k].value for k in names}
 
     def set_mask(self, name: str, value: torch.Tensor):
-        self._masks[name] = value
+        self.ports[name].set_mask(value)
 
     def set_masks(self, mask_dict: Dict[str, torch.Tensor]):
         for name, value in mask_dict.items():
             self.set_mask(name, value)
 
     def get_mask(self, name: str):
-        return self._masks[name]
+        return self.ports[name].mask
 
-    def set_converter(self, name: str, converter: TeSAConverter):
-        self._converters[name] = converter
-
-    def get_converter(self, name: str):
-        return self._converters[name]
+    def get_converter(self, name: str) -> TeSAConverter:
+        return self.ports[name].converter
 
     @abc.abstractmethod
     def set_shape(self, *args, **kwargs):
@@ -120,82 +189,33 @@ class KernelBase(Callable):
         '''Raise an error if the input paramater dict is invalid.'''
 
     @abc.abstractmethod
-    def _pre_compile(self) -> Tuple[List[bool], List[torch.Tensor], List[Tuple]]:
-        '''Calc input_mask, fixed_inputs and output_shapes.'''
+    def _set_func_call(self, kernel_func_call: Callable) -> Callable:
+        '''Convert python function call to pycuda kernel function call.'''
 
     def compile(self, params: Dict[str, Any], mask: Dict[str, torch.Tensor]):
         self._check_parameters(params)
-        self.set_parameters(params)
         self.set_masks(mask)
+        self.set_parameters(params)
+        self.set_port_params()
         kernel_code = self.get_kernel_code()
         kernel_name = kernel_code[kernel_code.find('__global__ void') + 15:]
         kernel_name = kernel_name[:kernel_name.find('(')].strip()
-
-        input_mask, fixed_inputs, output_shapes = self._pre_compile()
-
-        self._func = JITModule(
-            kernel_func_name=kernel_name,
-            kernel_func_body=kernel_code,
-            blocks_per_grid=self.blocks_per_grid(),
-            threads_per_block=self.threads_per_block(),
-            input_mask=input_mask,
-            fixed_inputs=fixed_inputs,
-            output_shapes=output_shapes
-        ).forward
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')
+            source_module = SourceModule(kernel_code, options=['-O3'])
+        kernel_func_call = source_module.get_function(kernel_name)
+        self._func = self._set_func_call(kernel_func_call)
         self.ready = True
+
+    @abc.abstractmethod
+    def reference(self, inputs: List[torch.Tensor]) -> List[torch.Tensor]:
+        '''Calc target output by dense method.'''
+
+    def test(self, inputs: List[torch.Tensor]):
+        return profile(self, inputs, self.reference(inputs), cuda=True)
 
     def __call__(self, *args) -> torch.Tensor:
         if self.ready:
             return self._func(*args)
         else:
             raise ValueError('The kernel is not compiled.')
-
-
-class JITModule(torch.nn.Module):
-
-    def __init__(
-        self, kernel_func_name: str, kernel_func_body: str,
-        blocks_per_grid: Tuple[int], threads_per_block: Tuple[int],
-        input_mask: List[bool], fixed_inputs: List[torch.Tensor],
-        output_shapes: List[Tuple[int]]
-    ):
-        super().__init__()
-        self._params = [x.cuda() for x in fixed_inputs]
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore')
-            source_module = SourceModule(kernel_func_body, options=['-O3'])
-        self._kernel_func_call = source_module.get_function(kernel_func_name)
-
-        def fill_launch_config(x: Tuple[int]):
-            dims = len(x)
-            if dims < 3:
-                return x + tuple(1 for _ in range(3 - len(x)))
-            else:
-                return x[:3]
-
-        self._blocks_per_grid = fill_launch_config(blocks_per_grid)
-        self._threads_per_block = fill_launch_config(threads_per_block)
-        self._input_mask = input_mask
-        self._output_shapes = output_shapes
-
-    def forward(self, *args):
-        inputs = []
-        outputs = [torch.zeros(shape, device='cuda') for shape in self._output_shapes]
-        arg_idx = 0
-        param_idx = 0
-        for is_arg in self._input_mask:
-            if is_arg:
-                inputs.append(args[arg_idx])
-                arg_idx += 1
-            else:
-                inputs.append(self._params[param_idx])
-                param_idx += 1
-        self._kernel_func_call(
-            *inputs, *outputs,
-            block=self._threads_per_block,
-            grid=self._blocks_per_grid
-        )
-        if len(outputs) == 1:
-            return outputs[0]
-        else:
-            return outputs

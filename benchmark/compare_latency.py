@@ -7,7 +7,7 @@ import pandas as pd
 
 from sparta.nn import SparseLinear
 from sparta.nn.module_tuner import tune_sparse_operator
-from sparta.testing import block_mask, test_latency
+from sparta.testing import block_mask, profile
 
 
 M, K, N = 1024, 1024, 1024
@@ -47,7 +47,7 @@ def test_triton(A: torch.Tensor, B: torch.Tensor, mask: torch.Tensor, block_size
     )
 
     # triton.testing.do_bench(lambda: op(A_tri, B_tri), warmup=1000, rep=1000)
-    return test_latency(tri_matmul, inputs=[A_tri, B_tri]), test_latency(tri_matmul, inputs=[A_tri, B_tri], cuda=True)
+    return profile(tri_matmul, inputs=[A_tri, B_tri]), profile(tri_matmul, inputs=[A_tri, B_tri], cuda=True)
 
 
 def test_sparta(A: torch.Tensor, B: torch.Tensor, mask: torch.Tensor):
@@ -55,13 +55,13 @@ def test_sparta(A: torch.Tensor, B: torch.Tensor, mask: torch.Tensor):
     dense_linear.load_state_dict({'weight': B})
     sparse_linear = SparseLinear(dense_linear, weight_mask=mask)
     tune_sparse_operator(sparse_linear, sample_inputs=[A], max_trials=1, algo='rand')
-    return test_latency(sparse_linear, inputs=[A]), test_latency(sparse_linear, inputs=[A], cuda=True)
+    return profile(sparse_linear, inputs=[A]), profile(sparse_linear, inputs=[A], cuda=True)
 
 
 def test_dense(A: torch.Tensor, B: torch.Tensor):
     dense_linear = torch.nn.Linear(K, N, bias=False).cuda()
     dense_linear.load_state_dict({'weight': B})
-    return test_latency(dense_linear, inputs=[A]), test_latency(dense_linear, inputs=[A], cuda=True)
+    return profile(dense_linear, inputs=[A]), profile(dense_linear, inputs=[A], cuda=True)
 
 
 class TestLatency(unittest.TestCase):

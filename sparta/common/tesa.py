@@ -52,18 +52,18 @@ class BCSR(TeSAConverter):
         self._block_mask = self._block_mask.swapaxes(1, 2).any(dim=-1).any(dim=-1)
         attr_names = ('row_idx', 'col_idx', 'row_ptr', 'col_ptr', 'nnz')
         for name, value in zip(attr_names, self.read_block_mask(self._block_mask)):
-            self._set_attr(name, torch.tensor(value, dtype=torch.int32))
-        nnz = self.get_attr('nnz')
+            self._set_attr(name, torch.tensor(value, dtype=torch.int32, device='cuda'))
+        nnz = self.get_attr('nnz').item()
         row_idx = self.get_attr('row_idx')
         col_idx = self.get_attr('col_idx')
         self._H_order = torch.argsort(row_idx * col_num + col_idx)
         self._V_order = torch.argsort(col_idx * row_num + row_idx)
         if torch.all(torch.diff(self._H_order) >= 0):
-            self._H_order = torch.zeros(nnz, dtype=torch.int64)
+            self._H_order = torch.zeros(nnz, dtype=torch.int64, device='cuda')
             for i, x in enumerate(self._V_order):
                 self._H_order[x] = i
         else:
-            self._V_order = torch.zeros(nnz, dtype=torch.int64)
+            self._V_order = torch.zeros(nnz, dtype=torch.int64, device='cuda')
             for i, x in enumerate(self._H_order):
                 self._V_order[x] = i
 

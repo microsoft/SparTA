@@ -7,7 +7,7 @@ import torch
 import numpy as np
 
 from sparta.specializer.funtional import SparseBatchSoftmaxCtx, SparseBatchSoftmax
-from sparta.testing import block_mask, sparse_softmax_reference
+from sparta.testing import block_mask, sparse_softmax_forward_reference
 
 
 BATCH_SIZE, H, W = 4, 1024, 512
@@ -27,7 +27,7 @@ def test_sparse_softmax_function(compressed: bool):
     grad_y = torch.rand(size=(BATCH_SIZE, H, W)).cuda()
 
     x.requires_grad = True
-    target_y = sparse_softmax_reference(x, mask, temperature=T)
+    target_y = sparse_softmax_forward_reference(x, mask, temperature=T)
 
     kernel_names = ['forward:y', 'backward:x']
     sparse_ctx = SparseBatchSoftmaxCtx(compressed, T)

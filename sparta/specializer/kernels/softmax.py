@@ -2,14 +2,15 @@
 # Licensed under the MIT license.
 
 import os
-import abc
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple, Callable
 
+import torch
 import jinja2
 
 from sparta.common.tesa import BCSRH
 from sparta.common.tuning import TunableItemCfg
-from sparta.specializer.kernels import KernelBase
+from sparta.specializer.kernels import KernelBase, PortConfig
+from sparta.testing import sparse_softmax_forward_reference, sparse_softmax_backward_reference
 
 
 TEMPLATE_DIR = os.path.join(os.path.split(os.path.realpath(__file__))[0], 'templates')
@@ -17,18 +18,17 @@ TEMPLATE_DIR = os.path.join(os.path.split(os.path.realpath(__file__))[0], 'templ
 
 class SparseSoftmaxKernel(KernelBase):
 
-    def __init__(self, dtype: str = 'float', compressed: bool = False):
+    def __init__(self, compressed: bool = False, dtype: str = 'float'):
         self._compressed = compressed
         self._dtype = dtype
         super().__init__()
 
-    def _set_tesa(self):
-        self.tesa_type['x'] = BCSRH
-        self.tesa_attrs['x'] = ['row_ptr', 'col_idx']
-        self.tesa_type['mask'] = BCSRH
-        self.tesa_attrs['mask'] = []
-        self.tesa_type['y'] = BCSRH
-        self.tesa_attrs['y'] = []
+    def _set_ports(self):
+        for port in self.ports.values():
+            port.set_tesa(BCSRH, [
+                'GLOBAL_H_VALUE', 'GLOBAL_W_VALUE',
+                'BLOCK_SIZE_H_VALUE', 'BLOCK_SIZE_W_VALUE'
+            ])
 
     def _add_parameters(self):
         self._add_parameter('BATCH_SIZE')
@@ -46,143 +46,105 @@ class SparseSoftmaxKernel(KernelBase):
         H = self.get_parameter('GLOBAL_H_VALUE')
         W = self.get_parameter('GLOBAL_W_VALUE')
         return batch_size, H, W
-
-    @abc.abstractmethod
-    def get_block_shape(self) -> Tuple[int, int]:
-        '''Get BH and BW.'''
-
-    def _pre_compile(self):
-        batch_size, H, W = self.get_shape()
-        BH, BW = self.get_block_shape()
-
-        input_mask = [True, False, False, True, True]
-
-        converter = self.tesa_type['x'](
-            mask=self.get_mask('x'),
-            size=(H, W),
-            block_size=(BH, BW),
-        )
-        fixed_inputs = converter.get_attrs(self.tesa_attrs['x'])
-        self._converters['x'] = converter
-        self._converters['mask'] = converter
-        self._converters['y'] = converter
-
-        if self._compressed:
-            output_shapes = [(batch_size, converter.get_attr('nnz').item() * BH * BW)]
-        else:
-            output_shapes = [(batch_size, H, W)]
-        return input_mask, fixed_inputs, output_shapes
-
-
-class SparTASparseSoftmaxKernel(SparseSoftmaxKernel):
-
-    def _add_parameters(self):
-        super()._add_parameters()
-        self._add_parameter(
-            'BLOCK_SIZE_H_VALUE',
-            is_tunable=True,
-            search_space=TunableItemCfg('choice', [8, 16, 32, 64, 128])
-        )
-        self._add_parameter(
-            'BLOCK_SIZE_W_VALUE',
-            is_tunable=True,
-            search_space=TunableItemCfg('choice', [32, 64, 128])
-        )
-        self._add_parameter(
-            'ROW_TILE_VALUE',
-            is_tunable=True,
-            search_space=TunableItemCfg('choice', [2, 4, 8, 16])
-        )
-
-    def get_kernel_code(self):
-        with open(os.path.join(TEMPLATE_DIR, 'sparta_sparse_softmax.cuh.j2')) as f:
-            kernel_template = f.read()
-        return jinja2.Template(kernel_template).render(self.get_parameters())
 
     def get_block_shape(self):
         BH = self.get_parameter('BLOCK_SIZE_H_VALUE')
         BW = self.get_parameter('BLOCK_SIZE_W_VALUE')
         return BH, BW
 
-    def blocks_per_grid(self):
-        batch_size, H, W = self.get_shape()
-        T = self.get_parameter('ROW_TILE_VALUE')
-        return (H // T, batch_size)
 
-    def threads_per_block(self) -> Tuple[int]:
-        T = self.get_parameter('ROW_TILE_VALUE')
-        return (T * 32, )
+class SparseSoftmaxForwardKernel(SparseSoftmaxKernel):
 
-    def _check_parameters(self, params: Dict[str, Any]):
-        BH = params['BLOCK_SIZE_H_VALUE']
-        BW = params['BLOCK_SIZE_W_VALUE']
-        T = params['ROW_TILE_VALUE']
-        assert BH > T
+    def set_port_params(self):
+        self.ports['x'].set_params(self.get_parameters())
 
+    def _set_ports(self):
+        self.ports['x'] = PortConfig(name='x', is_input=True)
+        self.ports['y'] = PortConfig(name='y', is_input=False)
+        super()._set_ports()
+        self.ports['x'].connect(self.ports['y'])
 
-class SparseSoftmaxBackwardKernel(KernelBase):
-
-    def __init__(self, dtype: str = 'float', compressed: bool = False):
-        self._compressed = compressed
-        self._dtype = dtype
-        super().__init__()
-
-    def _set_tesa(self):
-        self.tesa_type['grad_y'] = BCSRH
-        self.tesa_attrs['grad_y'] = ['row_ptr', 'col_idx']
-        self.tesa_type['y'] = BCSRH
-        self.tesa_attrs['y'] = []
-        self.tesa_type['mask'] = BCSRH
-        self.tesa_attrs['mask'] = []
-        self.tesa_type['grad_x'] = BCSRH
-        self.tesa_attrs['grad_x'] = []
-
-    def _add_parameters(self):
-        self._add_parameter('BATCH_SIZE')
-        self._add_parameter('GLOBAL_H_VALUE')
-        self._add_parameter('GLOBAL_W_VALUE')
-        self._add_parameter('COMPRESSED', value=self._compressed)
-
-    def set_shape(self, batch_size: int, H: int, W: int):
-        self.set_parameter('BATCH_SIZE', batch_size)
-        self.set_parameter('GLOBAL_H_VALUE', H)
-        self.set_parameter('GLOBAL_W_VALUE', W)
-
-    def get_shape(self):
-        batch_size = self.get_parameter('BATCH_SIZE')
-        H = self.get_parameter('GLOBAL_H_VALUE')
-        W = self.get_parameter('GLOBAL_W_VALUE')
-        return batch_size, H, W
-
-    @abc.abstractmethod
-    def get_block_shape(self) -> Tuple[int, int]:
-        '''Get BH and BW.'''
-
-    def _pre_compile(self):
+    def _set_func_call(self, kernel_func_call: Callable):
         batch_size, H, W = self.get_shape()
         BH, BW = self.get_block_shape()
 
-        input_mask = [True, False, False, True, True, True]
-
-        converter = self.tesa_type['grad_y'](
-            mask=self.get_mask('grad_y'),
-            size=(H, W),
-            block_size=(BH, BW),
-        )
-        fixed_inputs = converter.get_attrs(self.tesa_attrs['grad_y'])
-        self._converters['grad_y'] = converter
-        self._converters['y'] = converter
-        self._converters['mask'] = converter
-        self._converters['grad_x'] = converter
-
+        converter = self.get_converter('x')
+        row_ptr = converter.get_attr('row_ptr')
+        col_idx = converter.get_attr('col_idx')
+        block_nnz = converter.get_attr('nnz').item()
+        shape = (batch_size, block_nnz * BH * BW) if self._compressed else (batch_size, H, W)
+        mask = self.get_mask('x').unsqueeze(0).tile([batch_size, 1, 1]).to(torch.float32)
         if self._compressed:
-            output_shapes = [(batch_size, converter.get_attr('nnz').item() * BH * BW)]
-        else:
-            output_shapes = [(batch_size, H, W)]
-        return input_mask, fixed_inputs, output_shapes
+            mask = self.get_converter('x').convert(mask)
+        block = self.threads_per_block()
+        grid = self.blocks_per_grid()
+
+        def softmax_forward_func(x, T):
+            y = torch.zeros(shape, device=x.device)
+            kernel_func_call(x, row_ptr, col_idx, mask, T, y, block=block, grid=grid)
+            return y
+
+        return softmax_forward_func
+
+    def reference(self, inputs: List[torch.Tensor]) -> List[torch.Tensor]:
+        x, T = inputs
+        if self._compressed:
+            x = self.get_converter('x').inverse(x)
+        mask = self.get_mask('x')
+        y = sparse_softmax_forward_reference(x, mask, 1 / T)
+        if self._compressed:
+            y = self.get_converter('y').convert(y)
+        return y
 
 
-class SparTASparseSoftmaxBackwardKernel(SparseSoftmaxBackwardKernel):
+class SparseSoftmaxBackwardKernel(SparseSoftmaxKernel):
+
+    def set_port_params(self):
+        self.ports['grad_y'].set_params(self.get_parameters())
+
+    def _set_ports(self):
+        self.ports['grad_y'] = PortConfig(name='grad_y', is_input=True)
+        self.ports['y'] = PortConfig(name='y', is_input=True)
+        self.ports['grad_x'] = PortConfig(name='grad_x', is_input=False)
+        super()._set_ports()
+        self.ports['grad_y'].connect(self.ports['y'])
+        self.ports['grad_y'].connect(self.ports['grad_x'])
+
+    def _set_func_call(self, kernel_func_call: Callable):
+        batch_size, H, W = self.get_shape()
+        BH, BW = self.get_block_shape()
+
+        converter = self.get_converter('grad_y')
+        row_ptr = converter.get_attr('row_ptr')
+        col_idx = converter.get_attr('col_idx')
+        block_nnz = converter.get_attr('nnz').item()
+        shape = (batch_size, block_nnz * BH * BW) if self._compressed else (batch_size, H, W)
+        mask = self.get_mask('grad_y').unsqueeze(0).tile([batch_size, 1, 1]).to(torch.float32)
+        if self._compressed:
+            mask = self.get_converter('grad_y').convert(mask)
+        block = self.threads_per_block()
+        grid = self.blocks_per_grid()
+
+        def softmax_backward_func(grad_y, y, T):
+            x = torch.zeros(shape, device=grad_y.device)
+            kernel_func_call(grad_y, row_ptr, col_idx, y, mask, T, x, block=block, grid=grid)
+            return x
+
+        return softmax_backward_func
+
+    def reference(self, inputs: List[torch.Tensor]) -> List[torch.Tensor]:
+        grad_y, y, T = inputs
+        if self._compressed:
+            grad_y = self.get_converter('grad_y').inverse(grad_y)
+            y = self.get_converter('y').inverse(y)
+        mask = self.get_mask('grad_y')
+        grad_x = sparse_softmax_backward_reference(grad_y, y, mask, 1 / T)
+        if self._compressed:
+            grad_x = self.get_converter('grad_x').convert(grad_x)
+        return grad_x
+
+
+class SparTASoftmaxKernel(SparseSoftmaxKernel):
 
     def _add_parameters(self):
         super()._add_parameters()
@@ -201,28 +163,34 @@ class SparTASparseSoftmaxBackwardKernel(SparseSoftmaxBackwardKernel):
             is_tunable=True,
             search_space=TunableItemCfg('choice', [2, 4, 8, 16])
         )
+
+    def blocks_per_grid(self):
+        batch_size, H, W = self.get_shape()
+        RT = self.get_parameter('ROW_TILE_VALUE')
+        return (H // RT, batch_size, 1)
+
+    def threads_per_block(self) -> Tuple[int]:
+        RT = self.get_parameter('ROW_TILE_VALUE')
+        return (RT * 32, 1, 1)
+
+    def _check_parameters(self, params: Dict[str, Any]):
+        BH = params['BLOCK_SIZE_H_VALUE']
+        BW = params['BLOCK_SIZE_W_VALUE']
+        RT = params['ROW_TILE_VALUE']
+        assert BH > RT
+
+
+class SparTASparseSoftmaxForwardKernel(SparseSoftmaxForwardKernel, SparTASoftmaxKernel):
+
+    def get_kernel_code(self):
+        with open(os.path.join(TEMPLATE_DIR, 'sparta_sparse_softmax_forward.cuh.j2')) as f:
+            kernel_template = f.read()
+        return jinja2.Template(kernel_template).render(self.get_parameters())
+
+
+class SparTASparseSoftmaxBackwardKernel(SparseSoftmaxBackwardKernel, SparTASoftmaxKernel):
 
     def get_kernel_code(self):
         with open(os.path.join(TEMPLATE_DIR, 'sparta_sparse_softmax_backward.cuh.j2')) as f:
             kernel_template = f.read()
         return jinja2.Template(kernel_template).render(self.get_parameters())
-
-    def get_block_shape(self):
-        BH = self.get_parameter('BLOCK_SIZE_H_VALUE')
-        BW = self.get_parameter('BLOCK_SIZE_W_VALUE')
-        return BH, BW
-
-    def blocks_per_grid(self):
-        batch_size, H, W = self.get_shape()
-        T = self.get_parameter('ROW_TILE_VALUE')
-        return (H // T, batch_size)
-
-    def threads_per_block(self) -> Tuple[int]:
-        T = self.get_parameter('ROW_TILE_VALUE')
-        return (T * 32, )
-
-    def _check_parameters(self, params: Dict[str, Any]):
-        BH = params['BLOCK_SIZE_H_VALUE']
-        BW = params['BLOCK_SIZE_W_VALUE']
-        T = params['ROW_TILE_VALUE']
-        assert BH > T

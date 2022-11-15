@@ -7,7 +7,7 @@ import torch
 import numpy as np
 
 from sparta.nn import SparseSoftmax
-from sparta.testing import block_mask, sparse_softmax_reference
+from sparta.testing import block_mask, sparse_softmax_forward_reference
 
 
 BATCH_SIZE, DIMS = 1024, 512
@@ -45,7 +45,7 @@ def test_sparse_softmax_operator():
     )
 
     sample_input.requires_grad = True
-    target_output = sparse_softmax_reference(sample_input, mask, temperature=T)
+    target_output = sparse_softmax_forward_reference(sample_input, mask, temperature=T)
     output = sparse_softmax.forward(sample_input)
     torch.testing.assert_close(output, target_output)
     print('forward pass;', end=' ')

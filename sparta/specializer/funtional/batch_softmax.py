@@ -6,7 +6,7 @@ from typing import Any, List, Dict, Optional
 import torch
 import numpy as np
 
-from sparta.specializer.kernels import SparTASparseSoftmaxKernel, SparTASparseSoftmaxBackwardKernel
+from sparta.specializer.kernels import SparTASparseSoftmaxForwardKernel, SparTASparseSoftmaxBackwardKernel
 from sparta.specializer.funtional import SparseCtxBase, KernelPlaceholder
 
 
@@ -22,7 +22,7 @@ class SparseBatchSoftmaxCtx(SparseCtxBase):
 
         for kernel_name, kernel_class, first_tensor in zip(
             ['forward:y', 'backward:x'],
-            [SparTASparseSoftmaxKernel, SparTASparseSoftmaxBackwardKernel],
+            [SparTASparseSoftmaxForwardKernel, SparTASparseSoftmaxBackwardKernel],
             ['x', 'grad_y'],
         ):
             self._kernels[kernel_name] = KernelPlaceholder(

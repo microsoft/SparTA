@@ -5,7 +5,7 @@ import torch
 import numpy as np
 
 
-def sparse_softmax_reference(
+def sparse_softmax_forward_reference(
     x: torch.Tensor, mask: torch.Tensor, temperature: float = 1.
 ) -> torch.Tensor:
     '''Sparse softmax reference function. Masked input values are treated as negative infinity.
@@ -49,5 +49,5 @@ def sparse_multi_head_attention_reference(
     q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: torch.Tensor
 ) -> torch.Tensor:
     qk = torch.einsum('bmk, bnk -> bmn', q, k)
-    sm = sparse_softmax_reference(qk, mask, temperature=np.sqrt(q.shape[-1]))
+    sm = sparse_softmax_forward_reference(qk, mask, temperature=np.sqrt(q.shape[-1]))
     return torch.einsum('bmk, bkn -> bmn', sm, v)

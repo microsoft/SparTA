@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Tuple, Type, Callable, Optional
 
 import torch
 
-from sparta.testing.utils import test_latency
+from sparta.testing.utils import profile
 from sparta.specializer.kernels import KernelBase
 
 
@@ -93,7 +93,7 @@ class SparseCtxBase(object):
         funcs, inputs = self._split_graph(kernels, sample_inputs, sample_grad)
         latency_dict: Dict[str, float] = {}
         for kernel_name, func, input_list in zip(kernels, funcs, inputs):
-            latency_dict[kernel_name] = test_latency(
+            latency_dict[kernel_name] = profile(
                 func=func,
                 inputs=input_list,
                 num_warmups=num_warmups,

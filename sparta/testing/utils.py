@@ -6,9 +6,9 @@ from typing import Optional, Callable, List
 import torch
 
 
-def test_latency(
+def profile(
     func: Callable, inputs: List, target_outputs: Optional[List] = None,
-    num_warmups: int = 1000, num_iters: int = 1000, cuda: bool = False
+    num_warmups: int = 10, num_iters: int = 10, cuda: bool = False
 ) -> float:
     '''Test latency of a CUDA function.
 
@@ -25,7 +25,7 @@ def test_latency(
     '''
     try:
         if target_outputs is not None:
-            test_correctness(func, inputs, target_outputs)
+            check(func, inputs, target_outputs)
         if cuda:
             with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CUDA]) as p:
                 for _ in range(num_iters):
@@ -53,7 +53,7 @@ def test_latency(
     return latency
 
 
-def test_correctness(func: Callable, inputs: List, target_outputs: List):
+def check(func: Callable, inputs: List, target_outputs: List):
     '''Test correctness of a CUDA function.
 
     Args:
@@ -66,4 +66,4 @@ def test_correctness(func: Callable, inputs: List, target_outputs: List):
         outputs = [outputs]
     assert len(outputs) == len(target_outputs), f'expected {len(target_outputs)} outputs, got {len(outputs)}'
     for output, target_output in zip(outputs, target_outputs):
-        torch.testing.assert_close(output, target_output)
+        torch.testing.assert_close(output, target_output, atol=1e-4, rtol=1e-4)
