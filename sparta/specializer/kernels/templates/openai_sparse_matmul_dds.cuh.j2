@@ -28,10 +28,10 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
     float* A,
     float* B,
     {% if BIASED %}float* bias,{% endif %}
+    float* C_val,
     int* C_row_idx,
     int* C_col_idx,
-    int* C_block_nnz,
-    float* C_val
+    int* C_block_nnz
 ) {
     /*
     description:

@@ -13,18 +13,20 @@ const int TN = {{ THREAD_SIZE_N_VALUE }};
 
 __global__ void BLOCK_SPARSE_MATMUL(
     float* input_A_val,
-    int* input_A_block_ptr,
-    int* input_A_block_idx,
     float* input_B,
     {% if BIASED %}float* input_bias,{% endif %}
-    float* output_C
+    float* output_C,
+    int* input_A_block_ptr,
+    int* input_A_block_idx,
+    int* input_A_block_nnz
 ) {
     float * A_val = reinterpret_cast<float*>(input_A_val);
-    int * A_block_ptr = reinterpret_cast<int*>(input_A_block_ptr);
-    int * A_block_idx = reinterpret_cast<int*>(input_A_block_idx);
     float * B = reinterpret_cast<float*>(input_B);
     {% if BIASED %}float * bias = reinterpret_cast<float*>(input_bias);{% endif %}
     float * C = reinterpret_cast<float*>(output_C);
+    int * A_block_ptr = reinterpret_cast<int*>(input_A_block_ptr);
+    int * A_block_idx = reinterpret_cast<int*>(input_A_block_idx);
+    int * A_block_nnz = reinterpret_cast<int*>(input_A_block_nnz);
 
     int by = blockIdx.y;
     int bx = blockIdx.x;
@@ -32,7 +34,7 @@ __global__ void BLOCK_SPARSE_MATMUL(
     int tx = threadIdx.x;
 
     {% if COMPRESSED %}
-    A_val += A_block_ptr[M / BM] * BM * BK * blockIdx.z;
+    A_val += A_block_nnz[0] * BM * BK * blockIdx.z;
     {% else %}
     A_val += M * K * blockIdx.z;
     {% endif %}

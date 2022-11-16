@@ -2,7 +2,7 @@
 # Licensed under the MIT license.
 
 import os
-from typing import Any, Dict, List, Tuple, Callable
+from typing import Any, Dict, List, Tuple, Callable, Optional
 
 import torch
 import jinja2
@@ -16,45 +16,38 @@ TEMPLATE_DIR = os.path.join(os.path.split(os.path.realpath(__file__))[0], 'templ
 
 
 def get_matmul_func_call(
-    func: Callable, stype: str, biased: bool, C_shape: Tuple, tesa_vars: List[torch.Tensor],
-    block: Tuple[int, int, int], grid: Tuple[int, int, int]
+    func: Callable, biased: bool, C_shape: Tuple, tesa_vars: List[torch.Tensor],
+    block: Tuple[int, int, int], grid: Tuple[int, int, int], sparse_port: str,
+    reorder_func: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
 ):
-    if stype == 'sdd':
-        if biased:
-            def matmul_func(A, B, bias):
-                C = torch.zeros(C_shape, device=A.device)
-                func(A, *tesa_vars, B, bias, C, block=block, grid=grid)
-                return C
+    ptr, idx, nnz = tesa_vars
+    if biased:
+        def matmul_func(A, B, bias):
+            C = torch.zeros(C_shape, device=A.device)
+            func(A, B, bias, C, ptr, idx, nnz, block=block, grid=grid)
+            return C
+        if sparse_port == 'A' and reorder_func is not None:
+            combined_func = lambda A, B, bias: matmul_func(reorder_func(A), B, bias)
+        elif sparse_port == 'B' and reorder_func is not None:
+            combined_func = lambda A, B, bias: matmul_func(A, reorder_func(B), bias)
+        elif sparse_port == 'C' and reorder_func is not None:
+            combined_func = lambda A, B, bias: reorder_func(matmul_func(A, B, bias))
         else:
-            def matmul_func(A, B):
-                C = torch.zeros(C_shape, device=A.device)
-                func(A, *tesa_vars, B, C, block=block, grid=grid)
-                return C
-    elif stype == 'dsd':
-        if biased:
-            def matmul_func(A, B, bias):
-                C = torch.zeros(C_shape, device=A.device)
-                func(A, B, *tesa_vars, bias, C, block=block, grid=grid)
-                return C
-        else:
-            def matmul_func(A, B):
-                C = torch.zeros(C_shape, device=A.device)
-                func(A, B, *tesa_vars, C, block=block, grid=grid)
-                return C
-    elif stype == 'dds':
-        if biased:
-            def matmul_func(A, B, bias):
-                C = torch.zeros(C_shape, device=A.device)
-                func(A, B, bias, *tesa_vars, C, block=block, grid=grid)
-                return C
-        else:
-            def matmul_func(A, B):
-                C = torch.zeros(C_shape, device=A.device)
-                func(A, B, *tesa_vars, C, block=block, grid=grid)
-                return C
+            combined_func = matmul_func
     else:
-        raise ValueError(f'invalid stype "{stype}"')
-    return matmul_func
+        def matmul_func(A, B):
+            C = torch.zeros(C_shape, device=A.device)
+            func(A, B, C, ptr, idx, nnz, block=block, grid=grid)
+            return C
+        if sparse_port == 'A' and reorder_func is not None:
+            combined_func = lambda A, B: matmul_func(reorder_func(A), B)
+        elif sparse_port == 'B' and reorder_func is not None:
+            combined_func = lambda A, B: matmul_func(A, reorder_func(B))
+        elif sparse_port == 'C' and reorder_func is not None:
+            combined_func = lambda A, B: reorder_func(matmul_func(A, B))
+        else:
+            combined_func = matmul_func
+    return combined_func
 
 
 class SparseMatMulKernel(KernelBase):
@@ -62,7 +55,7 @@ class SparseMatMulKernel(KernelBase):
     def __init__(
         self, sparse_type: str, dtype: str = 'float', biased: bool = True, 
         transpose_A: bool = False, transpose_B: bool = True, 
-        compressed: bool = True, bcsr_main: str = 'H'
+        compressed: bool = True, bcsr_main: Optional[str] = None
     ):
         if sparse_type not in ['sdd', 'dsd', 'dds']:
             raise ValueError(f'invalid sparse type: {sparse_type}')
@@ -89,20 +82,27 @@ class SparseMatMulKernel(KernelBase):
             ]
 
         if self._stype == 'sdd':
+            sparse_port_name = 'A'
             if self._transpose_A:
-                self.ports['A'].set_tesa(BCSRV, shape_to_params('K', 'M'))
+                tesa_params = shape_to_params('K', 'M')
+                real_tesa_type = BCSRV
             else:
-                self.ports['A'].set_tesa(BCSRH, shape_to_params('M', 'K'))
+                tesa_params = shape_to_params('M', 'K')
+                real_tesa_type = BCSRH
         elif self._stype == 'dsd':
+            sparse_port_name = 'B'
             if self._transpose_B:
-                self.ports['B'].set_tesa(BCSRH, shape_to_params('N', 'K'))
+                tesa_params = shape_to_params('N', 'K')
+                real_tesa_type = BCSRH
             else:
-                self.ports['B'].set_tesa(BCSRV, shape_to_params('K', 'N'))
+                tesa_params = shape_to_params('K', 'N')
+                real_tesa_type = BCSRV
         elif self._stype == 'dds':
-            if self._bcsr_main == 'H':
-                self.ports['C'].set_tesa(BCSRH, shape_to_params('M', 'N'))
-            else:
-                self.ports['C'].set_tesa(BCSRV, shape_to_params('M', 'N'))
+            sparse_port_name = 'C'
+            tesa_params = shape_to_params('M', 'N')
+            real_tesa_type = {'H': BCSRH, 'V': BCSRV, None: BCSRH}[self._bcsr_main]
+        tesa_type = {'H': BCSRH, 'V': BCSRV, None: real_tesa_type}[self._bcsr_main]
+        self.ports[sparse_port_name].set_tesa(tesa_type, tesa_params, real_tesa_type)
 
     def _add_parameters(self):
         self._add_parameter('BATCH_SIZE')
@@ -145,27 +145,38 @@ class SparseMatMulKernel(KernelBase):
         batch_size, M, K, N = self.get_shape()
         BM, BK, BN = self.get_block_shape()
         if self._stype == 'sdd':
-            converter = self.get_converter('A')
+            sparse_port = self.ports['A']
             tesa_attrs = ['col_ptr', 'row_idx'] if self._transpose_A else ['row_ptr', 'col_idx']
         elif self._stype == 'dsd':
-            converter = self.get_converter('B')
+            sparse_port = self.ports['B']
             tesa_attrs = ['row_ptr', 'col_idx'] if self._transpose_B else ['col_ptr', 'row_idx']
         else:
-            converter = self.get_converter('C')
-            tesa_attrs = ['row_idx', 'col_idx', 'nnz']
+            sparse_port = self.ports['C']
+            tesa_attrs = ['row_idx', 'col_idx']
+        tesa_attrs.append('nnz')
+        converter = sparse_port.converter
         if self._stype == 'dds' and self._compressed:
             C_shape = (batch_size, converter.get_attr('nnz').item() * BM * BN)
         else:
             C_shape = (batch_size, M, N)
         tesa_vars = converter.get_attrs(tesa_attrs)
+        reorder_func = None
+        if self._compressed:
+            H_to_V = converter.reorder_H_to_V
+            V_to_H = converter.reorder_V_to_H
+            if sparse_port.real_tesa_type is BCSRH and sparse_port.tesa_type is BCSRV:
+                reorder_func = H_to_V if self._stype == 'dds' else V_to_H
+            elif sparse_port.real_tesa_type is BCSRV and sparse_port.tesa_type is BCSRH:
+                reorder_func = V_to_H if self._stype == 'dds' else H_to_V
         return get_matmul_func_call(
             func=kernel_func_call,
-            stype=self._stype,
             biased=self._biased,
             C_shape=C_shape,
             tesa_vars=tesa_vars,
             grid=self.blocks_per_grid(),
             block=self.threads_per_block(),
+            sparse_port=sparse_port.name,
+            reorder_func=reorder_func,
         )
 
     def reference(self, inputs: List[torch.Tensor]):

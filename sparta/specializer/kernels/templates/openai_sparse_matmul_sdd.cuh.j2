@@ -26,11 +26,12 @@ __device__ __forceinline__ float2 _add(float2 x, float2 y) \
 
 __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
     float* A_val,
-    int* A_block_ptr,
-    int* A_block_idx,
     float* B,
     {% if BIASED %}float* bias,{% endif %}
-    float* C
+    float* C,
+    int* A_block_ptr,
+    int* A_block_idx,
+    int* A_block_nnz
 ) {
     /*
     description:
@@ -48,7 +49,7 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
     const int THREAD_SIZE_K = 64;
 
     {% if COMPRESSED %}
-    A_val += A_block_ptr[M/32]*64*32*blockIdx.z;
+    A_val += A_block_nnz[0]*64*32*blockIdx.z;
     {% else %}
     A_val += M*K*blockIdx.z;
     {% endif %}

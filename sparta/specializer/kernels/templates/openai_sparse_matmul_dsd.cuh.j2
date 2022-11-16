@@ -27,10 +27,11 @@ __device__ __forceinline__ float2 _add(float2 x, float2 y) \
 __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
     float* A,
     float* B_val,
+    {% if BIASED %}float* bias,{% endif %}
+    float* C,
     int* B_block_ptr,
     int* B_block_idx,
-    {% if BIASED %}float* bias,{% endif %}
-    float* C
+    int* B_block_nnz
 ) {
     /*
     description:
@@ -49,7 +50,7 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
 
     A += M*K*blockIdx.z;
     {% if COMPRESSED %}
-    B_val += B_block_ptr[N/32]*64*32*blockIdx.z;
+    B_val += B_block_nnz[0]*64*32*blockIdx.z;
     {% else %}
     B_val += K*N*blockIdx.z;
     {% endif %}

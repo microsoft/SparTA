@@ -36,9 +36,10 @@ class _Parameter:
 class PortConfig(object):
     name: str
     is_input: bool
-    tesa_type: Optional[Type[TeSAConverter]] = None
 
     def __post_init__(self):
+        self.tesa_type: Optional[Type[TeSAConverter]] = None
+        self.real_tesa_type: Optional[Type[TeSAConverter]] = None
         self._tesa_config: Optional[List[Any]] = None
         self._tesa_params: Optional[List[str]] = None
         self.mask: Optional[torch.Tensor] = None
@@ -46,9 +47,13 @@ class PortConfig(object):
         self.children: List[PortConfig] = []
         self.converter: Optional[TeSAConverter] = None
 
-    def set_tesa(self, tesa_type: Type[TeSAConverter], tesa_params: List[str]):
+    def set_tesa(
+        self, tesa_type: Type[TeSAConverter], tesa_params: List[str],
+        real_tesa_type: Type[TeSAConverter] = None
+    ):
         self.tesa_type = tesa_type
         self._tesa_params = tesa_params
+        self.real_tesa_type = tesa_type if real_tesa_type is None else real_tesa_type 
 
     def set_mask(self, mask: torch.Tensor):
         if self.parent is not None:
@@ -70,16 +75,16 @@ class PortConfig(object):
 
     def _update_converter(self):
         if self._tesa_config is not None and self.mask is not None:
-            if self.tesa_type is not None:
-                if issubclass(self.tesa_type, BCSR):
+            if self.real_tesa_type is not None:
+                if issubclass(self.real_tesa_type, BCSR):
                     H, W, BH, BW = self._tesa_config
-                    converter = self.tesa_type(
+                    converter = self.real_tesa_type(
                         mask=self.mask,
                         size=(H, W),
                         block_size=(BH, BW)
                     )
                 else:
-                    raise ValueError(f'unsupported TeSA type {self.tesa_type}')
+                    raise ValueError(f'unsupported TeSA type {self.real_tesa_type}')
                 self.set_converter(converter)
 
     def set_converter(self, converter: TeSAConverter):

@@ -17,7 +17,6 @@ class SparseBatchSoftmaxCtx(SparseCtxBase):
 
         self._compressed = compressed
         self._T = np.float32(1. if temperature is None else 1 / temperature)
-        self._mask: torch.Tensor = None
         self._batch_size: int = None
 
         for kernel_name, kernel_class, first_tensor in zip(
@@ -46,12 +45,6 @@ class SparseBatchSoftmaxCtx(SparseCtxBase):
         else:
             return []
 
-    def build(self, config: Dict[str, Any], mask: Dict[str, torch.Tensor]):
-        super().build(config, mask)
-        self._mask = mask['x'].to(torch.int32)
-        if self._compressed:
-            self._mask = self.get_converter('forward:y', 'x').convert(self._mask)
-
     def _split_graph(
         self, kernels: List[str], sample_inputs: Dict[str, torch.Tensor],
         sample_grad: Optional[torch.Tensor] = None
@@ -60,18 +53,18 @@ class SparseBatchSoftmaxCtx(SparseCtxBase):
         for kernel_name in kernels:
             if kernel_name == 'forward:y':
                 funcs.append(self.forward)
-                inputs.append([sample_inputs['x'], self._mask, self._T])
+                inputs.append([sample_inputs['x'], self._T])
             elif kernel_name == 'backward:x':
                 funcs.append(self.backward)
-                output = self.forward(sample_inputs['x'], self._mask, self._T)
-                inputs.append([sample_grad, output, self._mask, self._T])
+                output = self.forward(sample_inputs['x'], self._T)
+                inputs.append([sample_grad, output, self._T])
         return funcs, inputs
 
     def forward(self, x: torch.Tensor):
-        return self._kernels['forward:y'].active_kernel()(x, self._mask, self._T)
+        return self._kernels['forward:y'].active_kernel()(x, self._T)
 
     def backward(self, grad: torch.Tensor, output: torch.Tensor):
-        return self._kernels['backward:x'].active_kernel()(grad, output, self._mask, self._T)
+        return self._kernels['backward:x'].active_kernel()(grad, output, self._T)
 
 
 class SparseBatchSoftmax(torch.autograd.Function):

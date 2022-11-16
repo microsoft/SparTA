@@ -46,6 +46,7 @@ class BCSR(TeSAConverter):
         super().__init__()
         self._H, self._W = size
         self._BH, self._BW = block_size
+        self._block_size = self._BH * self._BW
         row_num = self._H // self._BH
         col_num = self._W // self._BW
         self._block_mask = mask.reshape((row_num, self._BH, col_num, self._BW))
@@ -116,19 +117,27 @@ class BCSR(TeSAConverter):
 
     def reorder_H_to_V(self, sparse_val: torch.Tensor):
         # TODO: use CUDA kernel
-        sparse_shape = sparse_val.shape
-        batch_size = int(np.prod(sparse_shape[:-1]))
-        val = sparse_val.reshape((batch_size, -1, self._BH * self._BW))
-        val = val[:, self._V_order, :]
-        return val.reshape(sparse_shape).contiguous()
+        # sparse_shape = sparse_val.shape
+        # batch_size = int(np.prod(sparse_shape[:-1]))
+        # val = sparse_val.reshape((batch_size, -1, self._BH * self._BW))
+        # val = val[:, self._V_order, :]
+        # return val.reshape(sparse_shape).contiguous()
+        batch_size = sparse_val.shape[0]
+        val = sparse_val.reshape((batch_size, -1, self._block_size))
+        val = val[:, self._V_order, :].contiguous()
+        return val.reshape((batch_size, -1))
 
     def reorder_V_to_H(self, sparse_val: torch.Tensor):
         # TODO: use CUDA kernel
-        sparse_shape = sparse_val.shape
-        batch_size = int(np.prod(sparse_shape[:-1]))
-        val = sparse_val.reshape((batch_size, -1, self._BH * self._BW))
-        val = val[:, self._H_order, :]
-        return val.reshape(sparse_shape).contiguous()
+        # sparse_shape = sparse_val.shape
+        # batch_size = int(np.prod(sparse_shape[:-1]))
+        # val = sparse_val.reshape((batch_size, -1, self._BH * self._BW))
+        # val = val[:, self._H_order, :]
+        # return val.reshape(sparse_shape).contiguous()
+        batch_size = sparse_val.shape[0]
+        val = sparse_val.reshape((batch_size, -1, self._block_size))
+        val = val[:, self._H_order, :].contiguous()
+        return val.reshape((batch_size, -1))
 
     def sum(self, sparse_val: torch.Tensor, axis: int):
         sparse_shape = sparse_val.shape
