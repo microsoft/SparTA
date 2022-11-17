@@ -36,7 +36,10 @@ class KernelPlaceholder(object):
         return self.active_kernel().get_converter(self._mask_map[name])
 
     def active_kernel(self):
-        return self._possible_kernels[self._active_impl]
+        if self._active_impl is None:
+            return None
+        else:
+            return self._possible_kernels[self._active_impl]
 
     def get_search_spase(self):
         return {

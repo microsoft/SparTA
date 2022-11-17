@@ -26,6 +26,10 @@ def profile(
     try:
         if target_outputs is not None:
             check(func, inputs, target_outputs)
+        torch.cuda.synchronize()
+        for _ in range(num_warmups):
+            func(*inputs)
+        torch.cuda.synchronize()
         if cuda:
             with torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CUDA]) as p:
                 for _ in range(num_iters):
@@ -36,10 +40,6 @@ def profile(
                     latency += event.cuda_time * event.count
             latency /= num_iters * 1000
         else:
-            torch.cuda.synchronize()
-            for _ in range(num_warmups):
-                func(*inputs)
-            torch.cuda.synchronize()
             start = torch.cuda.Event(enable_timing=True)
             end = torch.cuda.Event(enable_timing=True)
             start.record()

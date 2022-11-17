@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-from typing import List, Dict, Tuple, Optional
+from typing import Any, List, Dict, Tuple, Optional
 
 import torch
 
@@ -72,11 +72,6 @@ class SparseBatchMatMulCtx(SparseCtxBase):
             )
             self._tesa_shapes[kernel_name] = calc_tesa_shape(s_type, trans_A, trans_B)
 
-        if self._transpose_A:
-            self.backward_A = self.backward_A_T
-        if self._transpose_B:
-            self.backward_B = self.backward_B_T
-
     def set_shape(self, batch_size: int, M: int, K: int, N: int):
         self._kernels['forward:C'].set_shape(batch_size, M, K, N)
         if self._transpose_A:
@@ -127,26 +122,31 @@ class SparseBatchMatMulCtx(SparseCtxBase):
                 inputs.append([sample_grad, sample_inputs['A']])
         return funcs, inputs
 
-    def forward_C(self, *args):
-        return self._kernels['forward:C'].active_kernel()(*args)
-
-    def backward_A_T(self, grad_C: torch.Tensor, B: torch.Tensor):
-        return self._kernels['backward:A'].active_kernel()(B, grad_C)
-
-    def backward_A(self, grad_C: torch.Tensor, B: torch.Tensor):
-        return self._kernels['backward:A'].active_kernel()(grad_C, B)
-
-    def backward_B_T(self, grad_C: torch.Tensor, A: torch.Tensor):
-        return self._kernels['backward:B'].active_kernel()(grad_C, A)
-
-    def backward_B(self, grad_C: torch.Tensor, A: torch.Tensor):
-        return self._kernels['backward:B'].active_kernel()(A, grad_C)
-
-    def backward_bias(self, grad_C: torch.Tensor):
-        if self._sparse_type == 'dds' and self._compressed:
-            return self._kernels['forward:C'].get_converter('C').sum(grad_C, axis=-2)
-        else:
-            return grad_C.sum(-2)
+    def build(self, config: Dict[str, Any], mask: Dict[str, torch.Tensor]):
+        super().build(config, mask)
+        forward_kernel = self._kernels['forward:C'].active_kernel()
+        if forward_kernel is not None:
+            if self._biased:
+                self.forward_C = lambda A, B, bias: forward_kernel(A, B, bias)
+            else:
+                self.forward_C = lambda A, B: forward_kernel(A, B)
+            if self._sparse_type == 'dds' and self._compressed:
+                C_converter = self._kernels['forward:C'].get_converter('C')
+                self.backward_bias = lambda grad_C: C_converter.sum(grad_C, axis=-2)
+            else:
+                self.backward_bias = lambda grad_C: grad_C.sum(-2)
+        backward_A_kernel = self._kernels['backward:A'].active_kernel()
+        if backward_A_kernel is not None:
+            if self._transpose_A:
+                self.backward_A = lambda grad_C, B: backward_A_kernel(B, grad_C)
+            else:
+                self.backward_A = lambda grad_C, B: backward_A_kernel(grad_C, B)
+        backward_B_kernel = self._kernels['backward:B'].active_kernel()
+        if backward_B_kernel is not None:
+            if self._transpose_B:
+                self.backward_B = lambda grad_C, A: backward_B_kernel(grad_C, A)
+            else:
+                self.backward_B = lambda grad_C, A: backward_B_kernel(A, grad_C)
 
 
 class SparseBatchMatMul(torch.autograd.Function):
@@ -156,22 +156,24 @@ class SparseBatchMatMul(torch.autograd.Function):
         ctx: torch.autograd.function.FunctionCtx, sparta_ctx: SparseBatchMatMulCtx,
         input: torch.Tensor, weight: torch.Tensor, bias: Optional[torch.Tensor] = None
     ):
+        input = input.detach()
+        weight = weight.detach()
         ctx.save_for_backward(input, weight, bias)
         ctx.sparta_ctx = sparta_ctx
         if bias is None:
-            return sparta_ctx.forward_C(input.detach(), weight.detach())
+            return sparta_ctx.forward_C(input, weight)
         else:
-            return sparta_ctx.forward_C(input.detach(), weight.detach(), bias.detach())
+            return sparta_ctx.forward_C(input, weight, bias.detach())
 
     @staticmethod
     def backward(ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor):
         input, weight, bias = ctx.saved_tensors
         grad_input = grad_weight = grad_bias = None
+        grad_output = grad_output.detach()
         if ctx.needs_input_grad[1]:
-            grad_input = ctx.sparta_ctx.backward_A(grad_output.detach(), weight.detach())
+            grad_input = ctx.sparta_ctx.backward_A(grad_output, weight)
         if ctx.needs_input_grad[2]:
-            grad_weight = ctx.sparta_ctx.backward_B(grad_output.detach(), input.detach())
+            grad_weight = ctx.sparta_ctx.backward_B(grad_output, input)
         if bias is not None and ctx.needs_input_grad[3]:
-            grad_bias = ctx.sparta_ctx.backward_bias(grad_output.detach())
-
+            grad_bias = ctx.sparta_ctx.backward_bias(grad_output)
         return None, grad_input, grad_weight, grad_bias
