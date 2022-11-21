@@ -17,13 +17,13 @@ SPARSITY = 0.95
 
 
 @pytest.mark.parametrize("impl", ['sparta', 'openai'])
-@pytest.mark.parametrize("sparse_type", ['sdd', 'dsd', 'dds'])
+@pytest.mark.parametrize("mode", ['sdd', 'dsd', 'dds'])
 @pytest.mark.parametrize("biased", [False, True])
 @pytest.mark.parametrize("trans_A", [False, True])
 @pytest.mark.parametrize("trans_B", [False, True])
 @pytest.mark.parametrize("compressed", [False, True])
 def test_sparse_matmul_kernel(
-    impl: str, sparse_type: str, biased: bool, compressed: bool, trans_A: bool, trans_B: bool
+    impl: str, mode: str, biased: bool, compressed: bool, trans_A: bool, trans_B: bool
 ):
     A_shape = (K, M) if trans_A else (M, K)
     B_shape = (N, K) if trans_B else (K, N)
@@ -33,11 +33,11 @@ def test_sparse_matmul_kernel(
     B = torch.rand(size=(BATCH_SIZE, *B_shape), device='cuda')
     bias = torch.rand(size=(BATCH_SIZE, N), device='cuda')
 
-    if sparse_type == 'sdd':
+    if mode == 'sdd':
         A_mask = block_mask(A_shape, block=BLOCK, sparsity=SPARSITY, device='cuda')
         mask = {'A': A_mask}
         A *= A_mask
-    elif sparse_type == 'dsd':
+    elif mode == 'dsd':
         B_mask = block_mask(B_shape, block=BLOCK, sparsity=SPARSITY, device='cuda')
         mask = {'B': B_mask}
         B *= B_mask
@@ -50,7 +50,7 @@ def test_sparse_matmul_kernel(
         'openai': OpenAISparseMatMulKernel,
     }[impl]
     kernel = kernelClass(
-        sparse_type=sparse_type,
+        mode=mode,
         biased=biased,
         transpose_A=trans_A,
         transpose_B=trans_B,

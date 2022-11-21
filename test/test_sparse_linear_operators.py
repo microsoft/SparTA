@@ -14,9 +14,9 @@ BLOCK = (8, 8)
 SPARSITY = 0.95
 
 
-@pytest.mark.parametrize('sparse_type', ['sdd', 'dsd', 'dds'])
+@pytest.mark.parametrize('mode', ['sdd', 'dsd', 'dds'])
 @pytest.mark.parametrize('biased', [False, True])
-def test_sparse_linear_operator(sparse_type: str, biased: bool):
+def test_sparse_linear_operator(mode: str, biased: bool):
     dense_linear = torch.nn.Linear(IN_DIMS, OUT_DIMS, bias=biased).cuda()
 
     torch.manual_seed(2022)
@@ -25,11 +25,11 @@ def test_sparse_linear_operator(sparse_type: str, biased: bool):
     bias = torch.rand((OUT_DIMS, ), dtype=torch.float32).cuda()
     sample_grad = torch.rand((BATCH_SIZE, OUT_DIMS), dtype=torch.float32).cuda()
 
-    if sparse_type == 'sdd':
+    if mode == 'sdd':
         mask = block_mask((BATCH_SIZE, IN_DIMS), block=BLOCK, sparsity=SPARSITY).cuda()
         sample_input *= mask
         mask_dict = {'input_mask': mask}
-    elif sparse_type == 'dsd':
+    elif mode == 'dsd':
         mask = block_mask((OUT_DIMS, IN_DIMS), block=BLOCK, sparsity=SPARSITY).cuda()
         dense_weight *= mask
         mask_dict = {'weight_mask': mask}
@@ -63,7 +63,7 @@ def test_sparse_linear_operator(sparse_type: str, biased: bool):
     sample_input.requires_grad = True
     target_output = dense_linear.forward(sample_input)
 
-    if sparse_type == 'dds':
+    if mode == 'dds':
         output_converter = sparse_linear._sparse_ctx.get_converter('forward:C', 'C')
         target_output *= output_converter.get_mask()
 
@@ -76,10 +76,10 @@ def test_sparse_linear_operator(sparse_type: str, biased: bool):
         target_grad_bias = dense_linear.bias.grad
         dense_linear.bias.grad = None
 
-    if sparse_type == 'sdd':
+    if mode == 'sdd':
         input_converter = sparse_linear._sparse_ctx.get_converter('backward:A', 'A')
         target_grad_input *= input_converter.get_mask()
-    elif sparse_type == 'dsd':
+    elif mode == 'dsd':
         weight_converter = sparse_linear._sparse_ctx.get_converter('backward:B', 'B')
         target_grad_weight = weight_converter.convert(target_grad_weight)
 

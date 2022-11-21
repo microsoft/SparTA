@@ -70,3 +70,18 @@ class SparseLinear(OperatorBase):
         if self.bias is not None:
             inputs.append(self.bias)
         return self.__sparse_func__.apply(*inputs).squeeze(0)
+
+    def set_sample_inputs(
+        self, sample_inputs: List[torch.Tensor],
+        sample_grads: Optional[List[torch.Tensor]] = None
+    ):
+        self._read_sample_inputs(*sample_inputs)
+        self._sparse_ctx.set_shape(**self._shape)
+        if self.bias is None:
+            sample_inputs = [sample_inputs[0], self._raw_weight]
+        else:
+            sample_inputs = [sample_inputs[0], self._raw_weight, self.bias]
+        sample_inputs = [x.unsqueeze(0) for x in sample_inputs]
+        if sample_grads is not None:
+            sample_grads = [x.unsqueeze(0) for x in sample_grads]
+        self._sparse_ctx.set_sample_inputs(sample_inputs, sample_grads)

@@ -35,6 +35,7 @@ class OperatorBase(torch.nn.Module):
         self._read_sample_inputs(*sample_inputs)
         self._sparse_ctx.set_shape(**self._shape)
         self._sparse_ctx.build(params)
+        self.forward = self._sparse_forward
         self.ready = True
 
     def _sparse_forward(self, *args):
@@ -48,16 +49,15 @@ class OperatorBase(torch.nn.Module):
 
     def forward(self, *args) -> torch.Tensor:
         '''Forward function. Calls the corresponding dense operator if not built.'''
-        if self.ready:
-            return self._sparse_forward(*args)
-        else:
-            warnings.warn('the sparse module is not compiled, using the dense module to forward')
-            return self._dense_forward(*args)
+        warnings.warn('the sparse module is not compiled, using the dense module to forward')
+        return self._dense_forward(*args)
 
     def set_sample_inputs(
         self, sample_inputs: List[torch.Tensor],
         sample_grads: Optional[List[torch.Tensor]] = None
     ):
+        self._read_sample_inputs(*sample_inputs)
+        self._sparse_ctx.set_shape(**self._shape)
         self._sparse_ctx.set_sample_inputs(sample_inputs, sample_grads)
 
     def get_search_space(self, backward: bool = False):

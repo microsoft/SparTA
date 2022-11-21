@@ -12,7 +12,7 @@ from sparta.specializer.funtional import SparseCtxBase, KernelPlaceholder
 class SparseBatchMatMulCtx(SparseCtxBase):
 
     def __init__(
-        self, sparse_type: str, transpose_A: bool, transpose_B: bool,
+        self, mode: str, transpose_A: bool, transpose_B: bool,
         biased: bool, compressed: bool
     ):
         super().__init__()
@@ -21,7 +21,7 @@ class SparseBatchMatMulCtx(SparseCtxBase):
         self._compressed = compressed
         self._transpose_A = transpose_A
         self._transpose_B = transpose_B
-        self._sparse_type = sparse_type
+        self._mode = mode
 
         def select(x: str, source: str, target: str):
             return target[source.find(x)]
@@ -29,15 +29,15 @@ class SparseBatchMatMulCtx(SparseCtxBase):
         def rearange(s: str, source_order: str, target_order: str):
             return ''.join(select(x, source_order, s) for x in target_order)
 
-        def calc_tesa_shape(sparse_type: str, trans_A: bool, trans_B: bool):
-            if sparse_type == 'sdd':
+        def calc_tesa_shape(mode: str, trans_A: bool, trans_B: bool):
+            if mode == 'sdd':
                 return ('K', 'M') if trans_A else ('M', 'K')
-            elif sparse_type == 'dsd':
+            elif mode == 'dsd':
                 return ('N', 'K') if trans_B else ('K', 'N')
             else:
                 return ('M', 'N')
 
-        sparse_tensor = select('s', sparse_type, 'ABC')
+        sparse_tensor = select('s', mode, 'ABC')
         if sparse_tensor == 'A' and transpose_A:
             bcsr_main = 'V'
         elif sparse_tensor == 'B' and not transpose_B:
@@ -53,7 +53,7 @@ class SparseBatchMatMulCtx(SparseCtxBase):
             [transpose_A, transpose_A and transpose_B, not transpose_A or transpose_B],
             [transpose_B, transpose_A or not transpose_B, transpose_A and transpose_B],
         ):
-            s_type = rearange(sparse_type, 'ABC', target_order)
+            s_type = rearange(mode, 'ABC', target_order)
             self._kernels[kernel_name] = KernelPlaceholder(
                 name=kernel_name,
                 impls={
@@ -66,7 +66,7 @@ class SparseBatchMatMulCtx(SparseCtxBase):
                     'compressed': compressed,
                     'transpose_A': trans_A,
                     'transpose_B': trans_B,
-                    'sparse_type': s_type,
+                    'mode': s_type,
                 },
                 mask_map={sparse_tensor: select(sparse_tensor, target_order, 'ABC')},
             )
@@ -91,7 +91,7 @@ class SparseBatchMatMulCtx(SparseCtxBase):
                 self.forward_C = lambda A, B, bias: forward_kernel(A, B, bias)
             else:
                 self.forward_C = lambda A, B: forward_kernel(A, B)
-            if self._sparse_type == 'dds' and self._compressed:
+            if self._mode == 'dds' and self._compressed:
                 C_converter = self._kernels['forward:C'].get_converter('C')
                 self.backward_bias = lambda grad_C: C_converter.sum(grad_C, axis=-2)
             else:

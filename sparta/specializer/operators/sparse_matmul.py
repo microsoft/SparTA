@@ -38,21 +38,21 @@ class SparseMatMul(OperatorBase):
             raise ValueError(f'linear operators with multiple sparse masks are not supported')
 
         if A_mask is not None:
-            self._sparse_ctx = SparseBatchMatMulCtx(sparse_type='sdd', **ctx_args)
+            self._sparse_ctx = SparseBatchMatMulCtx(mode='sdd', **ctx_args)
             self._set_masks({'A': A_mask})
             if transpose_A:
                 K, M = A_mask.shape
             else:
                 M, K = A_mask.shape
         elif B_mask is not None:
-            self._sparse_ctx = SparseBatchMatMulCtx(sparse_type='dsd', **ctx_args)
+            self._sparse_ctx = SparseBatchMatMulCtx(mode='dsd', **ctx_args)
             self._set_masks({'B': B_mask})
             if transpose_B:
                 N, K = B_mask.shape
             else:
                 K, N = B_mask.shape
         elif C_mask is not None:
-            self._sparse_ctx = SparseBatchMatMulCtx(sparse_type='dds', **ctx_args)
+            self._sparse_ctx = SparseBatchMatMulCtx(mode='dds', **ctx_args)
             self._set_masks({'C': C_mask})
             M, N = C_mask.shape
         else:

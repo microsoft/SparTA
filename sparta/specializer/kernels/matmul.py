@@ -53,18 +53,18 @@ def get_matmul_func_call(
 class SparseMatMulKernel(KernelBase):
 
     def __init__(
-        self, sparse_type: str, dtype: str = 'float', biased: bool = True, 
+        self, mode: str, dtype: str = 'float', biased: bool = True, 
         transpose_A: bool = False, transpose_B: bool = True, 
         compressed: bool = True, bcsr_main: Optional[str] = None
     ):
-        if sparse_type not in ['sdd', 'dsd', 'dds']:
-            raise ValueError(f'invalid sparse type: {sparse_type}')
+        if mode not in ['sdd', 'dsd', 'dds']:
+            raise ValueError(f'invalid sparse type: {mode}')
         self._biased = biased
         self._transpose_A = transpose_A
         self._transpose_B = transpose_B
         self._compressed = compressed
         self._bcsr_main = bcsr_main
-        self._stype = sparse_type
+        self._mode = mode
         self._dtype = dtype
         super().__init__()
 
@@ -81,7 +81,7 @@ class SparseMatMulKernel(KernelBase):
                 f'BLOCK_SIZE_{H}_VALUE', f'BLOCK_SIZE_{W}_VALUE'
             ]
 
-        if self._stype == 'sdd':
+        if self._mode == 'sdd':
             sparse_port_name = 'A'
             if self._transpose_A:
                 tesa_params = shape_to_params('K', 'M')
@@ -89,7 +89,7 @@ class SparseMatMulKernel(KernelBase):
             else:
                 tesa_params = shape_to_params('M', 'K')
                 real_tesa_type = BCSRH
-        elif self._stype == 'dsd':
+        elif self._mode == 'dsd':
             sparse_port_name = 'B'
             if self._transpose_B:
                 tesa_params = shape_to_params('N', 'K')
@@ -97,7 +97,7 @@ class SparseMatMulKernel(KernelBase):
             else:
                 tesa_params = shape_to_params('K', 'N')
                 real_tesa_type = BCSRV
-        elif self._stype == 'dds':
+        elif self._mode == 'dds':
             sparse_port_name = 'C'
             tesa_params = shape_to_params('M', 'N')
             real_tesa_type = {'H': BCSRH, 'V': BCSRV, None: BCSRH}[self._bcsr_main]
@@ -135,7 +135,7 @@ class SparseMatMulKernel(KernelBase):
 
     def blocks_per_grid(self):
         batch_size, M, K, N = self.get_shape()
-        if self._stype == 'dds':
+        if self._mode == 'dds':
             return (self.get_converter('C').get_attr('nnz').item(), batch_size, 1)
         else:
             BM, BK, BN = self.get_block_shape()
@@ -144,10 +144,10 @@ class SparseMatMulKernel(KernelBase):
     def _set_func_call(self, kernel_func_call: Callable):
         batch_size, M, K, N = self.get_shape()
         BM, BK, BN = self.get_block_shape()
-        if self._stype == 'sdd':
+        if self._mode == 'sdd':
             sparse_port = self.ports['A']
             tesa_attrs = ['col_ptr', 'row_idx'] if self._transpose_A else ['row_ptr', 'col_idx']
-        elif self._stype == 'dsd':
+        elif self._mode == 'dsd':
             sparse_port = self.ports['B']
             tesa_attrs = ['row_ptr', 'col_idx'] if self._transpose_B else ['col_ptr', 'row_idx']
         else:
@@ -155,7 +155,7 @@ class SparseMatMulKernel(KernelBase):
             tesa_attrs = ['row_idx', 'col_idx']
         tesa_attrs.append('nnz')
         converter = sparse_port.converter
-        if self._stype == 'dds' and self._compressed:
+        if self._mode == 'dds' and self._compressed:
             C_shape = (batch_size, converter.get_attr('nnz').item() * BM * BN)
         else:
             C_shape = (batch_size, M, N)
@@ -165,9 +165,9 @@ class SparseMatMulKernel(KernelBase):
             H_to_V = converter.reorder_H_to_V
             V_to_H = converter.reorder_V_to_H
             if sparse_port.real_tesa_type is BCSRH and sparse_port.tesa_type is BCSRV:
-                reorder_func = H_to_V if self._stype == 'dds' else V_to_H
+                reorder_func = H_to_V if self._mode == 'dds' else V_to_H
             elif sparse_port.real_tesa_type is BCSRV and sparse_port.tesa_type is BCSRH:
-                reorder_func = V_to_H if self._stype == 'dds' else H_to_V
+                reorder_func = V_to_H if self._mode == 'dds' else H_to_V
         return get_matmul_func_call(
             func=kernel_func_call,
             biased=self._biased,
@@ -181,11 +181,11 @@ class SparseMatMulKernel(KernelBase):
 
     def _convert_data(self, inputs, outputs):
         if self._compressed:
-            if self._stype == 'sdd':
+            if self._mode == 'sdd':
                 inputs[0] = self.get_converter('A').convert(inputs[0])
-            elif self._stype == 'dsd':
+            elif self._mode == 'dsd':
                 inputs[1] = self.get_converter('B').convert(inputs[1])
-            elif self._stype == 'dds':
+            elif self._mode == 'dds':
                 outputs[0] = self.get_converter('C').convert(outputs[0])
 
     def reference_matmul(self, A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
@@ -200,7 +200,7 @@ class SparseMatMulKernel(KernelBase):
         C = self.reference_matmul(args[0], args[1])
         if self._biased:
             C = self.reference_bias(C, args[2])
-        if self._stype == 'dds' and self.ready:
+        if self._mode == 'dds' and self.ready:
             C *= self.get_converter('C').get_mask()  # DDS known issue
         return C
 
@@ -222,7 +222,7 @@ class SparTASparseMatMulKernel(SparseMatMulKernel):
             )
 
     def get_kernel_code(self):
-        with open(os.path.join(TEMPLATE_DIR, f'sparta_sparse_matmul_{self._stype}.cuh.j2')) as f:
+        with open(os.path.join(TEMPLATE_DIR, f'sparta_sparse_matmul_{self._mode}.cuh.j2')) as f:
             kernel_template = f.read()
         return jinja2.Template(kernel_template).render(self.get_parameters())
 
@@ -258,12 +258,27 @@ class OpenAISparseMatMulKernel(SparseMatMulKernel):
 
     def _add_parameters(self):
         super()._add_parameters()
-        self._add_parameter('BLOCK_SIZE_M_VALUE', value=32)
-        self._add_parameter('BLOCK_SIZE_K_VALUE', value=64)
-        self._add_parameter('BLOCK_SIZE_N_VALUE', value=32)
+        self._add_parameter(
+            'BLOCK_SIZE_M_VALUE',
+            value=32,
+            is_tunable=True,
+            search_space=TunableItemCfg('choice', [32]),
+        )
+        self._add_parameter(
+            'BLOCK_SIZE_K_VALUE',
+            value=64,
+            is_tunable=True,
+            search_space=TunableItemCfg('choice', [64]),
+        )
+        self._add_parameter(
+            'BLOCK_SIZE_N_VALUE',
+            value=32,
+            is_tunable=True,
+            search_space=TunableItemCfg('choice', [32]),
+        )
 
     def get_kernel_code(self):
-        with open(os.path.join(TEMPLATE_DIR, f'openai_sparse_matmul_{self._stype}.cuh.j2')) as f:
+        with open(os.path.join(TEMPLATE_DIR, f'openai_sparse_matmul_{self._mode}.cuh.j2')) as f:
             kernel_template = f.read()
         return jinja2.Template(kernel_template).render(self.get_parameters())
 

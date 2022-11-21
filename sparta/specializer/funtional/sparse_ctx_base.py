@@ -60,9 +60,9 @@ class KernelPlaceholder(object):
 
     def set_sample_inputs(self, sample_inputs: List[torch.Tensor]):
         self.sample_inputs = [x.detach() for x in sample_inputs]
-        self.target_outputs = self.dense_func(sample_inputs)
+        self.target_outputs = self.dense_func(*sample_inputs)
         if type(self.target_outputs) is not tuple:
-            self.target_outputs = (self.target_outputs)
+            self.target_outputs = (self.target_outputs, )
 
     def test(self, num_warmups: int = 10, num_iters: int = 10, cuda: bool = True):
         return self.active_kernel().test(
