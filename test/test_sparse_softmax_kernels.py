@@ -6,7 +6,7 @@ import pytest
 import numpy as np
 
 from sparta.specializer.kernels import SparTASparseSoftmaxForwardKernel, SparTASparseSoftmaxBackwardKernel
-from sparta.testing import block_mask, check
+from sparta.testing import block_mask
 
 
 BATCH_SIZE, H, W = 4, 1024, 512
@@ -32,24 +32,14 @@ def test_sparse_softmax_forward_kernel(compressed: bool):
         'ROW_TILE_VALUE': RT,
     }
     forward_kernel.set_shape(BATCH_SIZE, H, W)
-    forward_kernel.compile(config, {'x': mask})
+    forward_kernel.set_masks({'x': mask})
+    forward_kernel.compile(config)
     backward_kernel.set_shape(BATCH_SIZE, H, W)
-    backward_kernel.compile(config, {'grad_y': mask})
+    backward_kernel.set_masks({'grad_y': mask})
+    backward_kernel.compile(config)
 
-    if compressed:
-        x = forward_kernel.get_converter('x').convert(x)
-        grad_y = backward_kernel.get_converter('grad_y').convert(grad_y)
+    target_y = forward_kernel.reference(x, T)
+    target_grad_x = backward_kernel.reference(grad_y, target_y, T)
 
-    forward_inputs = [x, T]
-    check(forward_kernel, forward_inputs, forward_kernel.reference(forward_inputs))
-
-    y = forward_kernel.reference(forward_inputs)
-    backward_inputs = [grad_y, y, T]
-    check(backward_kernel, backward_inputs, backward_kernel.reference(backward_inputs))
-
-
-if __name__ == '__main__':
-    test_sparse_softmax_forward_kernel(False)
-    print('uncompressed pass')
-    test_sparse_softmax_forward_kernel(True)
-    print('compressed pass')
+    forward_kernel.test([x, T], [target_y], 0, 1, False)
+    backward_kernel.test([grad_y, target_y, T], [target_grad_x], 0, 1, False)

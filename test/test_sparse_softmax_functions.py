@@ -1,13 +1,12 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-import unittest
-
 import torch
+import pytest
 import numpy as np
 
 from sparta.specializer.funtional import SparseBatchSoftmaxCtx, SparseBatchSoftmax
-from sparta.testing import block_mask, sparse_softmax_forward_reference
+from sparta.testing import block_mask, check, sparse_softmax_forward_reference
 
 
 BATCH_SIZE, H, W = 4, 1024, 512
@@ -17,38 +16,30 @@ SPARSITY = 0.95
 T = np.sqrt(W)
 
 
+@pytest.mark.parametrize("compressed", [False, True])
 def test_sparse_softmax_function(compressed: bool):
-    c_str = '_c' if compressed else ''
-    func_name = f'sparta_sparse_softmax{c_str}'
-
     torch.manual_seed(2022)
-    mask = block_mask((H, W), block=BLOCK, sparsity=SPARSITY).cuda()
-    x = torch.rand(size=(BATCH_SIZE, H, W)).cuda()
-    grad_y = torch.rand(size=(BATCH_SIZE, H, W)).cuda()
+    mask = block_mask((H, W), block=BLOCK, sparsity=SPARSITY, device='cuda')
+    x = torch.rand(size=(BATCH_SIZE, H, W), device='cuda')
+    grad_y = torch.rand(size=(BATCH_SIZE, H, W), device='cuda')
 
     x.requires_grad = True
-    target_y = sparse_softmax_forward_reference(x, mask, temperature=T)
 
     kernel_names = ['forward:y', 'backward:x']
     sparse_ctx = SparseBatchSoftmaxCtx(compressed, T)
     sparse_ctx.set_shape(BATCH_SIZE, H, W)
-    kernel_config = {
-        'BLOCK_SIZE_H_VALUE': BH,
-        'BLOCK_SIZE_W_VALUE': BW,
-        'ROW_TILE_VALUE': RT,
-    }
-    sparse_ctx.build(
-        config=dict(
-            _impl=';'.join([f'{kernel_name}=sparta' for kernel_name in kernel_names]),
-            **{
-                f'{kernel_name};{param_name}': param_value
-                for param_name, param_value in kernel_config.items()
-                for kernel_name in kernel_names
-            }
-        ),
-        mask={'x': mask},
-    )
+    sparse_ctx.set_masks({'x': mask})
+    sparse_ctx.build({
+        kernel_name: {
+            '_impl': 'sparta',
+            'BLOCK_SIZE_H_VALUE': BH,
+            'BLOCK_SIZE_W_VALUE': BW,
+            'ROW_TILE_VALUE': RT,
+        }
+        for kernel_name in kernel_names
+    })
 
+    target_y = sparse_ctx.dense_forward(x)
     target_y.backward(grad_y)
     target_grad_x = x.grad
     x.grad = None
@@ -60,23 +51,9 @@ def test_sparse_softmax_function(compressed: bool):
         grad_y = sparse_ctx.get_converter('backward:x', 'x').convert(grad_y)
         target_grad_x = sparse_ctx.get_converter('backward:x', 'x').convert(target_grad_x)
 
-    print(func_name, end=': ')
-    y = SparseBatchSoftmax.apply(sparse_ctx, x)
-    torch.testing.assert_close(y, target_y)
-    print('forward pass;', end=' ')
+    def softmax_forward_backward(x, grad_y):
+        y = SparseBatchSoftmax.apply(sparse_ctx, x)
+        y.backward(grad_y)
+        return y, x.grad
 
-    y.backward(grad_y)
-    torch.testing.assert_close(x.grad, target_grad_x)
-    print('backward pass.')
-
-
-class TestSparseSoftmaxFunctions(unittest.TestCase):
-
-    def test_sparse_softmax_functions(self):
-        print('==================== Testing Sparse Softmax Functions ====================')
-        for compressed in [False, True]:
-            test_sparse_softmax_function(compressed)
-
-
-if __name__ == '__main__':
-    unittest.main()
+    check(softmax_forward_backward, [x, grad_y], [target_y, target_grad_x])

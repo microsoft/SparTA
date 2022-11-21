@@ -179,27 +179,30 @@ class SparseMatMulKernel(KernelBase):
             reorder_func=reorder_func,
         )
 
-    def reference(self, inputs: List[torch.Tensor]):
-        A = inputs[0]
-        B = inputs[1]
-        if self._stype == 'sdd':
-            if self._compressed:
-                A = self.get_converter('A').inverse(A)
-            A *= self.get_mask('A')
-        elif self._stype == 'dsd':
-            if self._compressed:
-                B = self.get_converter('B').inverse(B)
-            B *= self.get_mask('B')
+    def _convert_data(self, inputs, outputs):
+        if self._compressed:
+            if self._stype == 'sdd':
+                inputs[0] = self.get_converter('A').convert(inputs[0])
+            elif self._stype == 'dsd':
+                inputs[1] = self.get_converter('B').convert(inputs[1])
+            elif self._stype == 'dds':
+                outputs[0] = self.get_converter('C').convert(outputs[0])
+
+    def reference_matmul(self, A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
         A_str = 'bkm' if self._transpose_A else 'bmk'
         B_str = 'bnk' if self._transpose_B else 'bkn'
-        C = torch.einsum(f'{A_str}, {B_str} -> bmn', A, B)
+        return torch.einsum(f'{A_str}, {B_str} -> bmn', A, B)
+
+    def reference_bias(self, C: torch.Tensor, bias: torch.Tensor):
+        return C + bias.unsqueeze(1)
+
+    def reference(self, *args):
+        C = self.reference_matmul(args[0], args[1])
         if self._biased:
-            C += inputs[2].unsqueeze(1)
-        if self._stype == 'dds':
+            C = self.reference_bias(C, args[2])
+        if self._stype == 'dds' and self.ready:
             C *= self.get_converter('C').get_mask()  # DDS known issue
-            if self._compressed:
-                C = self.get_converter('C').convert(C)
-        return [C]
+        return C
 
 
 class SparTASparseMatMulKernel(SparseMatMulKernel):

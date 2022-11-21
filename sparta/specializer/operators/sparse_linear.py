@@ -1,4 +1,3 @@
-
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
@@ -31,16 +30,16 @@ class SparseLinear(OperatorBase):
         if input_mask is not None:
             self._sparse_ctx = SparseBatchMatMulCtx('sdd', False, True, biased, False)
             assert input_mask.shape[1] == K, f'expected input mask shape (?, {K}), got {input_mask.shape}'
-            self._mask = {'A': input_mask}
+            self._set_masks({'A': input_mask})
             M = input_mask.shape[0]
         elif weight_mask is not None:
             self._sparse_ctx = SparseBatchMatMulCtx('dsd', False, True, biased, True)
             assert weight_mask.shape == (N, K), f'expected weight mask shape ({N}, {K}), got {weight_mask.shape}'
-            self._mask = {'B': weight_mask}
+            self._set_masks({'B': weight_mask})
         elif output_mask is not None:
             self._sparse_ctx = SparseBatchMatMulCtx('dds', False, True, biased, False)
             assert output_mask.shape[1] == N, f'expected output mask shape (?, {N}), got {output_mask.shape}'
-            self._mask = {'C': output_mask}
+            self._set_masks({'C': output_mask})
             M = output_mask.shape[0]
         else:
             raise ValueError(f'expected a sparse mask on input / weight / output')
@@ -61,12 +60,9 @@ class SparseLinear(OperatorBase):
     def build(self, params: Dict[str, Any], sample_inputs: List[Any]):
         super().build(params, sample_inputs)
         weight = self._raw_weight
-        if 'B' in self._mask:
-            kernel_name = params['_impl'].split(';')[0].split('=')[0]
-            weight_converter = self._sparse_ctx.get_converter(kernel_name, 'B')
-            weight = weight_converter.convert(self._raw_weight.detach())
-            if kernel_name == 'backward:A':
-                weight = weight_converter.reorder_V_to_H(weight)
+        weight_converter = self._sparse_ctx.get_converter('forward:C', 'B')
+        if weight_converter is not None:
+            weight = weight_converter.convert(weight.detach())
         self.weight = torch.nn.Parameter(weight, requires_grad=True)
 
     def _sparse_forward(self, input_tensor: torch.Tensor):
@@ -74,9 +70,3 @@ class SparseLinear(OperatorBase):
         if self.bias is not None:
             inputs.append(self.bias)
         return self.__sparse_func__.apply(*inputs).squeeze(0)
-
-    def _construct_inputs(self, raw_inputs: List[torch.Tensor]):
-        inputs = {'A': raw_inputs[0], 'B': self.weight.detach()}
-        if self.bias is not None:
-            inputs['bias'] = self.bias.detach()
-        return inputs

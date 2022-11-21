@@ -22,9 +22,9 @@ from sparta.testing import profile
 @dataclasses.dataclass
 class _Parameter:
     name: str
-    value: Any
-    is_tunable: Optional[bool] = False
-    is_dynamic: Optional[bool] = False
+    value: Optional[Any] = None
+    is_tunable: bool = False
+    is_dynamic: bool = False
     search_space: Optional[TunableItemCfg] = None
 
     def __post_init__(self):
@@ -135,11 +135,29 @@ class KernelBase(Callable):
         for name, space in search_space.items():
             self._parameters[name].search_space = space
 
-    def get_search_space(self):
-        return {p.name: p.search_space for p in self._parameters.values() if p.is_tunable}
+    def get_search_space(self, fixed_params: Optional[Dict[str, Any]] = None):
+        search_space = {
+            name: param.search_space
+            for name, param in self._parameters.items()
+            if param.is_tunable
+        }
+        if fixed_params is not None:
+            for name, value in fixed_params.items():
+                if name not in self._parameters.keys():
+                    return None
+                param = self._parameters[name]
+                if param.is_tunable:
+                    if param.search_space.includes(value):
+                        search_space[name] = TunableItemCfg('choice', [value])
+                    else:
+                        return None
+                else:
+                    if param.value is not None and param.value != value:
+                        return None
+        return search_space
 
     def set_parameter(self, name: str, value: Any):
-        if name not in self._parameters and name in ['_name']:
+        if name not in self._parameters and name in ['_name', '_impl']:
             return  # ignore some special key words
         self._parameters[name].value = value
 
@@ -197,9 +215,8 @@ class KernelBase(Callable):
     def _set_func_call(self, kernel_func_call: Callable) -> Callable:
         '''Convert python function call to pycuda kernel function call.'''
 
-    def compile(self, params: Dict[str, Any], mask: Dict[str, torch.Tensor]):
+    def compile(self, params: Dict[str, Any]):
         self._check_parameters(params)
-        self.set_masks(mask)
         self.set_parameters(params)
         self.set_port_params()
         kernel_code = self.get_kernel_code()
@@ -213,11 +230,22 @@ class KernelBase(Callable):
         self.ready = True
 
     @abc.abstractmethod
-    def reference(self, inputs: List[torch.Tensor]) -> List[torch.Tensor]:
-        '''Calc target output by dense method.'''
+    def reference(self, *args) -> Any:
+        '''Dense reference. Note that all inputs and outputs are dense tensors here.'''
 
-    def test(self, inputs: List[torch.Tensor]):
-        return profile(self, inputs, self.reference(inputs), cuda=True)
+    @abc.abstractmethod
+    def _convert_data(self, inputs: List[torch.Tensor], outputs: List[torch.Tensor]):
+        '''Convert sample inputs and target outputs to sparse tenors in place if necessary.'''
+
+    def test(
+        self, inputs: List[torch.Tensor], target_outputs: List[torch.Tensor],
+        num_warmups: int = 10, num_iters: int = 10, cuda: bool = True
+    ):
+        '''Note that all inputs and outputs are dense tensors here.'''
+        sparse_inputs = [x for x in inputs]
+        sparse_outputs = [y for y in target_outputs]
+        self._convert_data(sparse_inputs, sparse_outputs)
+        return profile(self, sparse_inputs, sparse_outputs, num_warmups, num_iters, cuda)
 
     def __call__(self, *args) -> torch.Tensor:
         if self.ready:

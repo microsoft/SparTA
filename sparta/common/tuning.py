@@ -67,6 +67,12 @@ class TunableItemCfg:
             subspaces.append(dic)
         return {'_type': self._type, '_value': subspaces}
 
+    def includes(self, value: Any):
+        if self._is_nested:
+            return False
+        else:
+            return value in self._value
+
 
 class Tunable:
     '''The wrapper of NNI tuners that supports nested choice search space.

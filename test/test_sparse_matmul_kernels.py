@@ -7,7 +7,7 @@ import torch
 import pytest
 
 from sparta.specializer.kernels import SparseMatMulKernel, SparTASparseMatMulKernel, OpenAISparseMatMulKernel
-from sparta.testing import block_mask, check
+from sparta.testing import block_mask
 
 
 BATCH_SIZE, M, K, N = 4, 1024, 256, 512
@@ -69,13 +69,9 @@ def test_sparse_matmul_kernel(
         'openai': {},
     }[impl]
     kernel.set_shape(BATCH_SIZE, M, K, N)
-    kernel.compile(config, mask)
-
-    if compressed:
-        if sparse_type == 'sdd':
-            A = kernel.get_converter('A').convert(A)
-        elif sparse_type == 'dsd':
-            B = kernel.get_converter('B').convert(B)
+    kernel.set_masks(mask)
+    kernel.compile(config)
 
     inputs = [A, B, bias] if biased else [A, B]
-    check(kernel, inputs, kernel.reference(inputs))
+    target_outputs = [kernel.reference(*inputs)]
+    kernel.test(inputs, target_outputs, num_warmups=0, num_iters=1, cuda=False)

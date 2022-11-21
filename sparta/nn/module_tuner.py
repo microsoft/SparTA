@@ -5,7 +5,7 @@ import sys
 import logging
 import warnings
 import subprocess
-from typing import List, Dict
+from typing import List, Dict, Callable
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -19,9 +19,9 @@ _logger = logging.Logger(__name__)
 
 
 def tune_combined_module(
-    module: torch.nn.Module, sample_inputs: List[torch.Tensor],
-    algo: str = 'grid', max_trials: int = sys.maxsize, tester_kw: Dict = None,
-    build_kw: Dict = None, tuner_kw: Dict = None, verbose: bool = False
+    module: torch.nn.Module, sample_inputs: List[torch.Tensor], sample_grads: List[torch.Tensor],
+    algo: str = 'grid', max_trials: int = sys.maxsize, backward_weight: float = 0,
+    tester_kw: Dict = None, build_kw: Dict = None, tuner_kw: Dict = None, verbose: bool = False
 ):
     '''Find, tune and build all sparse operators in the model.
 
@@ -104,6 +104,17 @@ def tune_combined_module(
     return ctx.best_params
 
 
+def iter_sparse_modules(
+    module: torch.nn.Module, module_name: str,
+    func: Callable[[OperatorBase, str], None]
+):
+    if isinstance(module, OperatorBase):
+        func(module, module_name)
+        return
+    for chile_name, child_module in module.named_children():
+        iter_sparse_modules(child_module, chile_name, func)
+
+
 def get_input_hook(input_dict: Dict[str, list], module_name: str):
     '''Create a hook to capture the input tensor(s) and save to a dictionary
 
@@ -118,3 +129,19 @@ def get_input_hook(input_dict: Dict[str, list], module_name: str):
         input_dict[module_name] = list(fea_in)
 
     return input_hook
+
+
+def get_grad_hook(grad_dict: Dict[str, list], module_name: str):
+    '''Create a hook to capture the grad tensor(s) and save to a dictionary
+
+    Args:
+        grad_dict (Dict): The dictionary to save grad tensor(s).
+        module_name (str): Module name as the index of the grad dictionary.
+
+    Returns:
+        Callable: The grad hook function.
+    '''
+    def grad_hook(module, fea_in, fea_out):
+        grad_dict[module_name] = list(fea_in)
+
+    return grad_hook

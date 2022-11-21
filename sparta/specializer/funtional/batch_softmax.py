@@ -60,11 +60,37 @@ class SparseBatchSoftmaxCtx(SparseCtxBase):
                 inputs.append([sample_grad, output, self._T])
         return funcs, inputs
 
-    def forward(self, x: torch.Tensor):
-        return self._kernels['forward:y'].active_kernel()(x, self._T)
+    def build(self, config: Dict[str, Dict[str, Any]]):
+        super().build(config)
+        forward_kernel = self._kernels['forward:y'].active_kernel()
+        if forward_kernel is not None:
+            self.forward = lambda x: forward_kernel(x, self._T)
+        backward_kernel = self._kernels['backward:x'].active_kernel()
+        if backward_kernel is not None:
+            self.backward = lambda grad, output: backward_kernel(grad, output, self._T)
 
-    def backward(self, grad: torch.Tensor, output: torch.Tensor):
-        return self._kernels['backward:x'].active_kernel()(grad, output, self._T)
+    def set_sample_inputs(
+        self, sample_inputs: List[torch.Tensor],
+        sample_grads: Optional[List[torch.Tensor]] = None
+    ):
+        x = sample_inputs[0]
+        self._kernels['forward:y'].set_sample_inputs([x, self._T])
+        if sample_grads is not None:
+            grad_y = sample_grads[0]
+            y = self._kernels['forward:y'].target_outputs[0]
+            self._kernels['backward:x'].set_sample_inputs([grad_y, y, self._T])
+
+    def get_connections(self, backward: bool = False):
+        if self._compressed and backward:
+            return [
+                {'forward:y': 'BLOCK_SIZE_H_VALUE', 'backward:x': 'BLOCK_SIZE_H_VALUE'},
+                {'forward:y': 'BLOCK_SIZE_W_VALUE', 'backward:x': 'BLOCK_SIZE_W_VALUE'},
+            ]
+        else:
+            return []
+
+    def dense_forward(self, *args):
+        return self._kernels['forward:y'].dense_func(*args, self._T)
 
 
 class SparseBatchSoftmax(torch.autograd.Function):

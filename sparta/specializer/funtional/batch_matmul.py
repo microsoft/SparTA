@@ -83,47 +83,8 @@ class SparseBatchMatMulCtx(SparseCtxBase):
         else:
             self._kernels['backward:B'].set_shape(batch_size, K, M, N)
 
-    def get_conditions(self, impls: Dict[str, str]):
-        if self._compressed and len(impls) > 1:
-            conditions = [[], []]
-            fixed_dims = [None, None]
-            for kernel_name, impl in impls.items():
-                for k, dim in enumerate(self._tesa_shapes[kernel_name]):
-                    if impl == 'sparta':
-                        v = f'{kernel_name};BLOCK_SIZE_{dim}_VALUE'
-                    else:  # impl == 'openai'
-                        v = {'M': 32, 'K': 64, 'N': 32}[dim]
-                        if fixed_dims[k] is None:
-                            fixed_dims[k] = v
-                        elif fixed_dims[k] != v:
-                            return None
-                    conditions[k].append(v)
-            return conditions
-        else:
-            return []
-
-    def _split_graph(
-        self, kernels: List[str], sample_inputs: Dict[str, torch.Tensor],
-        sample_grad: Optional[torch.Tensor] = None
-    ):
-        funcs, inputs = [], []
-        for kernel_name in kernels:
-            if kernel_name == 'forward:C':
-                funcs.append(self.forward_C)
-                forward_inputs = [sample_inputs['A'], sample_inputs['B']]
-                if self._biased:
-                    forward_inputs.append(sample_inputs['bias'])
-                inputs.append(forward_inputs)
-            elif kernel_name == 'backward:A':
-                funcs.append(self.backward_A)
-                inputs.append([sample_grad, sample_inputs['B']])
-            elif kernel_name == 'backward:B':
-                funcs.append(self.backward_B)
-                inputs.append([sample_grad, sample_inputs['A']])
-        return funcs, inputs
-
-    def build(self, config: Dict[str, Any], mask: Dict[str, torch.Tensor]):
-        super().build(config, mask)
+    def build(self, config: Dict[str, Dict[str, Any]]):
+        super().build(config)
         forward_kernel = self._kernels['forward:C'].active_kernel()
         if forward_kernel is not None:
             if self._biased:
@@ -147,6 +108,37 @@ class SparseBatchMatMulCtx(SparseCtxBase):
                 self.backward_B = lambda grad_C, A: backward_B_kernel(grad_C, A)
             else:
                 self.backward_B = lambda grad_C, A: backward_B_kernel(A, grad_C)
+
+    def set_sample_inputs(
+        self, sample_inputs: List[torch.Tensor],
+        sample_grads: Optional[List[torch.Tensor]] = None
+    ):
+        self._kernels['forward:C'].set_sample_inputs(sample_inputs)
+        if sample_grads is not None:
+            A = sample_inputs[0]
+            B = sample_inputs[1]
+            grad_C = sample_grads[0]
+            if self._transpose_A:
+                self._kernels['backward:A'].set_sample_inputs([B, grad_C])
+            else:
+                self._kernels['backward:A'].set_sample_inputs([grad_C, B])
+            if self._transpose_B:
+                self._kernels['backward:B'].set_sample_inputs([grad_C, A])
+            else:
+                self._kernels['backward:B'].set_sample_inputs([A, grad_C])
+
+    def get_connections(self, backward: bool = False):
+        if self._compressed and backward:
+            conditions = [{}, {}]
+            for kernel_name, tesa_shapes in self._tesa_shapes.items():
+                for k, dim in enumerate(tesa_shapes):
+                    conditions[k][kernel_name] = f'BLOCK_SIZE_{dim}_VALUE'
+            return conditions
+        else:
+            return []
+
+    def dense_forward(self, *args):
+        return self._kernels['forward:C'].dense_func(*args)
 
 
 class SparseBatchMatMul(torch.autograd.Function):

@@ -1,12 +1,11 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-import unittest
-
 import torch
+import pytest
 
 from sparta.nn import SparseLinear
-from sparta.testing import block_mask
+from sparta.testing import block_mask, check
 
 
 BATCH_SIZE, IN_DIMS, OUT_DIMS = 1024, 256, 512
@@ -15,10 +14,9 @@ BLOCK = (8, 8)
 SPARSITY = 0.95
 
 
+@pytest.mark.parametrize('sparse_type', ['sdd', 'dsd', 'dds'])
+@pytest.mark.parametrize('biased', [False, True])
 def test_sparse_linear_operator(sparse_type: str, biased: bool):
-    b_str = '_b' if biased else ''
-    print(f'sparse_linear_{sparse_type}{b_str}:', end=' ')
-
     dense_linear = torch.nn.Linear(IN_DIMS, OUT_DIMS, bias=biased).cuda()
 
     torch.manual_seed(2022)
@@ -46,62 +44,56 @@ def test_sparse_linear_operator(sparse_type: str, biased: bool):
 
     sparse_linear = SparseLinear(dense_linear, **mask_dict)
     kernel_names = ['forward:C', 'backward:A', 'backward:B']
-    kernel_config = {
-        'BLOCK_SIZE_M_VALUE': BM,
-        'BLOCK_SIZE_K_VALUE': BK,
-        'BLOCK_SIZE_N_VALUE': BN,
-        'THREAD_SIZE_M_VALUE': TM,
-        'THREAD_SIZE_K_VALUE': TK,
-        'THREAD_SIZE_N_VALUE': TN,
-    }
     sparse_linear.build(
-        params=dict(
-            _impl=';'.join([f'{kernel_name}=sparta' for kernel_name in kernel_names]),
-            **{
-                f'{kernel_name};{param_name}': param_value
-                for param_name, param_value in kernel_config.items()
-                for kernel_name in kernel_names
+        params={
+            kernel_name: {
+                '_impl': 'sparta',
+                'BLOCK_SIZE_M_VALUE': BM,
+                'BLOCK_SIZE_K_VALUE': BK,
+                'BLOCK_SIZE_N_VALUE': BN,
+                'THREAD_SIZE_M_VALUE': TM,
+                'THREAD_SIZE_K_VALUE': TK,
+                'THREAD_SIZE_N_VALUE': TN,
             }
-        ),
-        sample_inputs=[sample_input]
+            for kernel_name in kernel_names
+        },
+        sample_inputs=[sample_input],
     )
 
     sample_input.requires_grad = True
     target_output = dense_linear.forward(sample_input)
-    output = sparse_linear.forward(sample_input)
+
     if sparse_type == 'dds':
-        torch.testing.assert_close(output * mask, target_output * mask, rtol=1e-4, atol=1e-4)
-    else:
-        torch.testing.assert_close(output, target_output, rtol=1e-4, atol=1e-4)
-    print('forward pass;', end=' ')
+        output_converter = sparse_linear._sparse_ctx.get_converter('forward:C', 'C')
+        target_output *= output_converter.get_mask()
 
     target_output.backward(sample_grad)
-    target_grad_input = torch.clone(sample_input.grad)
-    target_grad_weight = torch.clone(dense_linear.weight.grad)
-    sample_input.grad *= 0
-    dense_linear.weight.grad *= 0
-    output.backward(sample_grad)
-    grad_input = sample_input.grad
-    grad_weight = sparse_linear.weight.grad
+    target_grad_input = sample_input.grad
+    sample_input.grad = None
+    target_grad_weight = dense_linear.weight.grad
+    dense_linear.weight.grad = None
+    if biased:
+        target_grad_bias = dense_linear.bias.grad
+        dense_linear.bias.grad = None
+
     if sparse_type == 'sdd':
-        torch.testing.assert_close(grad_input * mask, target_grad_input * mask, rtol=1e-4, atol=1e-4)
-    else:
-        torch.testing.assert_close(grad_input, target_grad_input, rtol=1e-4, atol=1e-4)
-    if sparse_type == 'dsd':
+        input_converter = sparse_linear._sparse_ctx.get_converter('backward:A', 'A')
+        target_grad_input *= input_converter.get_mask()
+    elif sparse_type == 'dsd':
         weight_converter = sparse_linear._sparse_ctx.get_converter('backward:B', 'B')
-        target_grad_weight = weight_converter(target_grad_weight)
-    torch.testing.assert_close(grad_weight, target_grad_weight, rtol=1e-4, atol=1e-4)
-    print('backward pass.')
+        target_grad_weight = weight_converter.convert(target_grad_weight)
 
+    if biased:
+        def linear_forward_backward(x: torch.Tensor, grad: torch.Tensor):
+            y = sparse_linear.forward(x)
+            y.backward(grad)
+            return y, x.grad, sparse_linear.weight.grad, sparse_linear.bias.grad
+        target_outputs = [target_output, target_grad_input, target_grad_weight, target_grad_bias]
+    else:
+        def linear_forward_backward(x: torch.Tensor, grad: torch.Tensor):
+            y = sparse_linear.forward(x)
+            y.backward(grad)
+            return y, x.grad, sparse_linear.weight.grad
+        target_outputs = [target_output, target_grad_input, target_grad_weight]
 
-class TestSparseLinearOperators(unittest.TestCase):
-
-    def test_sparse_linear_operators(self):
-        print('==================== Testing Sparse Linear Operators ====================')
-        for sparse_type in ['sdd', 'dsd', 'dds']:
-            for biased in [False, True]:
-                test_sparse_linear_operator(sparse_type, biased)
-
-
-if __name__ == '__main__':
-    unittest.main()
+    check(linear_forward_backward, [sample_input, sample_grad], target_outputs)

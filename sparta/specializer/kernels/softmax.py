@@ -86,14 +86,15 @@ class SparseSoftmaxForwardKernel(SparseSoftmaxKernel):
 
         return softmax_forward_func
 
-    def reference(self, inputs: List[torch.Tensor]) -> List[torch.Tensor]:
-        x, T = inputs
+    def _convert_data(self, inputs, outputs):
         if self._compressed:
-            x = self.get_converter('x').inverse(x)
+            inputs[0] = self.get_converter('x').convert(inputs[0])
+            outputs[0] = self.get_converter('y').convert(outputs[0])
+
+    def reference(self, *args):
+        x, T = args
         mask = self.get_mask('x')
         y = sparse_softmax_forward_reference(x, mask, 1 / T)
-        if self._compressed:
-            y = self.get_converter('y').convert(y)
         return y
 
 
@@ -132,15 +133,16 @@ class SparseSoftmaxBackwardKernel(SparseSoftmaxKernel):
 
         return softmax_backward_func
 
-    def reference(self, inputs: List[torch.Tensor]) -> List[torch.Tensor]:
-        grad_y, y, T = inputs
+    def _convert_data(self, inputs, outputs):
         if self._compressed:
-            grad_y = self.get_converter('grad_y').inverse(grad_y)
-            y = self.get_converter('y').inverse(y)
+            inputs[0] = self.get_converter('grad_y').convert(inputs[0])
+            inputs[1] = self.get_converter('y').convert(inputs[1])
+            outputs[0] = self.get_converter('grad_x').convert(outputs[0])
+
+    def reference(self, *args):
+        grad_y, y, T = args
         mask = self.get_mask('grad_y')
         grad_x = sparse_softmax_backward_reference(grad_y, y, mask, 1 / T)
-        if self._compressed:
-            grad_x = self.get_converter('grad_x').convert(grad_x)
         return grad_x
 
 

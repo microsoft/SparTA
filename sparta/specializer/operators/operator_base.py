@@ -22,8 +22,10 @@ class OperatorBase(torch.nn.Module):
         self._raw_module = raw_module
         self._sparse_ctx: SparseCtxBase = None
         self._shape: Dict[str, int] = None
-        self._mask: Dict[str, torch.Tensor] = None
         self.ready: bool = False
+
+    def _set_masks(self, masks: Dict[str, torch.Tensor]):
+        self._sparse_ctx.set_masks(masks)
 
     @abc.abstractmethod
     def _read_sample_inputs(self, *args):
@@ -32,37 +34,37 @@ class OperatorBase(torch.nn.Module):
     def build(self, params: Dict[str, Any], sample_inputs: List[Any]):
         self._read_sample_inputs(*sample_inputs)
         self._sparse_ctx.set_shape(**self._shape)
-        self._sparse_ctx.build(params, self._mask)
+        self._sparse_ctx.build(params)
         self.ready = True
 
-    @abc.abstractmethod
     def _sparse_forward(self, *args):
-        '''Call sparse forward function with inputs and parameters.'''
+        return self.__sparse_func__.apply(self._sparse_ctx, *args)
+
+    def _dense_forward(self, *args):
+        if self._raw_module is None:
+            return self._sparse_ctx.dense_forward(*args)
+        else:
+            return self._raw_module.forward(*args)
 
     def forward(self, *args) -> torch.Tensor:
         '''Forward function. Calls the corresponding dense operator if not built.'''
         if self.ready:
             return self._sparse_forward(*args)
-        elif self._raw_module is None:
-            raise ValueError('the sparse module is not compiled') 
         else:
             warnings.warn('the sparse module is not compiled, using the dense module to forward')
-            return self._raw_module.forward(*args)
+            return self._dense_forward(*args)
 
-    def get_search_space(self, backward: bool):
+    def set_sample_inputs(
+        self, sample_inputs: List[torch.Tensor],
+        sample_grads: Optional[List[torch.Tensor]] = None
+    ):
+        self._sparse_ctx.set_sample_inputs(sample_inputs, sample_grads)
+
+    def get_search_space(self, backward: bool = False):
         return self._sparse_ctx.get_search_space(backward)
 
-    def get_kernels(self):
-        return self._sparse_ctx.get_kernels()
+    def get_connections(self, backward: bool = False):
+        return self._sparse_ctx.get_connections(backward)
 
-    @abc.abstractmethod
-    def _construct_inputs(self, raw_inputs: List[torch.Tensor]) -> Dict[str, torch.Tensor]:
-        '''Construct inputs of the sparse function.'''
-
-    def test(
-        self, kernels: List[str], sample_inputs: List[torch.Tensor],
-        sample_grad: Optional[torch.Tensor] = None,
-        num_warmups: int = 10, num_iters: int = 10
-    ):
-        sample_inputs = self._construct_inputs(sample_inputs)
-        return self._sparse_ctx.test(kernels, sample_inputs, sample_grad, num_warmups, num_iters)
+    def get_kernel_placeholders(self):
+        return self._sparse_ctx.get_kernel_placeholders()

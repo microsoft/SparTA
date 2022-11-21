@@ -1,12 +1,11 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-import unittest
-
 import torch
+import pytest
 
 from sparta.specializer.funtional import SparseBatchMatMulCtx, SparseBatchMatMul
-from sparta.testing import block_mask
+from sparta.testing import block_mask, check
 
 
 BATCH_SIZE, M, K, N = 4, 1024, 256, 512
@@ -15,73 +14,64 @@ BLOCK = (8, 8)
 SPARSITY = 0.95
 
 
+@pytest.mark.parametrize("sparse_type", ['sdd', 'dsd', 'dds'])
+@pytest.mark.parametrize("biased", [False, True])
+@pytest.mark.parametrize("trans_A", [False, True])
+@pytest.mark.parametrize("trans_B", [False, True])
+@pytest.mark.parametrize("compressed", [False, True])
 def test_sparse_matmul_function(
     sparse_type: str, biased: bool, compressed: bool, trans_A: bool, trans_B: bool
 ):
-    b_str = '_b' if biased else ''
-    c_str = '_c' if compressed else ''
-    t_A_str = 't' if trans_A else 'n'
-    t_B_str = 't' if trans_B else 'n'
-    func_name = f'sparse_matmul_{sparse_type}{b_str}_{t_A_str}{t_B_str}{c_str}'
+    A_shape = (K, M) if trans_A else (M, K)
+    B_shape = (N, K) if trans_B else (K, N)
 
     torch.manual_seed(2022)
-    A_shape = (K, M) if trans_A else (M, K)
-    A = torch.rand(size=(BATCH_SIZE, *A_shape)).cuda()
-    B_shape = (N, K) if trans_B else (K, N)
-    B = torch.rand(size=(BATCH_SIZE, *B_shape)).cuda()
-    bias = torch.rand(size=(BATCH_SIZE, N)).cuda()
+    A = torch.rand(size=(BATCH_SIZE, *A_shape), device='cuda')
+    B = torch.rand(size=(BATCH_SIZE, *B_shape), device='cuda')
+    bias = torch.rand(size=(BATCH_SIZE, N), device='cuda')
+
     if sparse_type == 'sdd':
-        sparse_tensor = 'A'
-        mask = block_mask(A_shape, block=BLOCK, sparsity=SPARSITY).cuda()
-        A *= mask
+        A_mask = block_mask(A_shape, block=BLOCK, sparsity=SPARSITY, device='cuda')
+        mask = {'A': A_mask}
+        A *= A_mask
     elif sparse_type == 'dsd':
-        sparse_tensor = 'B'
-        mask = block_mask(B_shape, block=BLOCK, sparsity=SPARSITY).cuda()
-        B *= mask
+        B_mask = block_mask(B_shape, block=BLOCK, sparsity=SPARSITY, device='cuda')
+        mask = {'B': B_mask}
+        B *= B_mask
     else:
-        sparse_tensor = 'C'
-        mask = block_mask((M, N), block=BLOCK, sparsity=SPARSITY).cuda()
+        C_mask = block_mask((M, N), block=BLOCK, sparsity=SPARSITY, device='cuda')
+        mask = {'C': C_mask}
 
     A.requires_grad = True
     B.requires_grad = True
     bias.requires_grad = True
 
-    order_A = 'bki' if trans_A else 'bik'
-    order_B = 'bjk' if trans_B else 'bkj'
-    target_C = torch.einsum(f'{order_A},{order_B}->bij', A, B)
-    if biased:
-        target_C += bias.reshape((BATCH_SIZE, 1, N))
-
-    grad_C = torch.rand(size=target_C.shape).cuda()
+    grad_C = torch.rand(size=(BATCH_SIZE, M, N)).cuda()
 
     kernel_names = ['forward:C', 'backward:A', 'backward:B']
     sparse_ctx = SparseBatchMatMulCtx(sparse_type, trans_A, trans_B, biased, compressed)
     sparse_ctx.set_shape(BATCH_SIZE, M, K, N)
-    kernel_config = {
-        'BLOCK_SIZE_M_VALUE': BM,
-        'BLOCK_SIZE_K_VALUE': BK,
-        'BLOCK_SIZE_N_VALUE': BN,
-        'THREAD_SIZE_M_VALUE': TM,
-        'THREAD_SIZE_K_VALUE': TK,
-        'THREAD_SIZE_N_VALUE': TN,
-    }
-    sparse_ctx.build(
-        config=dict(
-            _impl=';'.join([f'{kernel_name}=sparta' for kernel_name in kernel_names]),
-            **{
-                f'{kernel_name};{param_name}': param_value
-                for param_name, param_value in kernel_config.items()
-                for kernel_name in kernel_names
-            }
-        ),
-        mask={sparse_tensor: mask},
-    )
+    sparse_ctx.set_masks(mask)
+    sparse_ctx.build({
+        kernel_name: {
+            '_impl': 'sparta',
+            'BLOCK_SIZE_M_VALUE': BM,
+            'BLOCK_SIZE_K_VALUE': BK,
+            'BLOCK_SIZE_N_VALUE': BN,
+            'THREAD_SIZE_M_VALUE': TM,
+            'THREAD_SIZE_K_VALUE': TK,
+            'THREAD_SIZE_N_VALUE': TN,
+        }
+        for kernel_name in kernel_names
+    })
 
     if sparse_type == 'dds':
-        c_mask = sparse_ctx.get_converter('forward:C', 'C').get_mask()
-        target_C *= c_mask  # not C * mask because the dds known issue
-        grad_C *= c_mask
+        grad_C *= sparse_ctx.get_converter('forward:C', 'C').get_mask()
 
+    if biased:
+        target_C = sparse_ctx.dense_forward(A, B, bias)
+    else:
+        target_C = sparse_ctx.dense_forward(A, B)
     target_C.backward(grad_C)
     target_grad_A = A.grad
     A.grad = None
@@ -92,11 +82,9 @@ def test_sparse_matmul_function(
         bias.grad = None
 
     if sparse_type == 'sdd':
-        a_mask = sparse_ctx.get_converter('backward:A', 'A').get_mask()
-        target_grad_A *= a_mask
+        target_grad_A *= sparse_ctx.get_converter('backward:A', 'A').get_mask()
     if sparse_type == 'dsd':
-        b_mask = sparse_ctx.get_converter('backward:B', 'B').get_mask()
-        target_grad_B *= b_mask
+        target_grad_B *= sparse_ctx.get_converter('backward:B', 'B').get_mask()
 
     if compressed:
         if sparse_type == 'sdd':
@@ -111,36 +99,19 @@ def test_sparse_matmul_function(
             target_C = sparse_ctx.get_converter('forward:C', 'C')(target_C)
             grad_C = sparse_ctx.get_converter('forward:C', 'C')(grad_C)
 
-    print(func_name, end=': ')
     if biased:
-        C = SparseBatchMatMul.apply(sparse_ctx, A, B, bias)
+        def matmul_forward_backward(A, B, bias, grad_C):
+            C = SparseBatchMatMul.apply(sparse_ctx, A, B, bias)
+            C.backward(grad_C)
+            return C, A.grad, B.grad, bias.grad
+        inputs = [A, B, bias, grad_C]
+        target_outputs = [target_C, target_grad_A, target_grad_B, target_grad_bias]
     else:
-        C = SparseBatchMatMul.apply(sparse_ctx, A, B)
-    torch.testing.assert_close(C, target_C)
-    print('forward pass;', end=' ')
+        def matmul_forward_backward(A, B, grad_C):
+            C = SparseBatchMatMul.apply(sparse_ctx, A, B)
+            C.backward(grad_C)
+            return C, A.grad, B.grad
+        inputs = [A, B, grad_C]
+        target_outputs = [target_C, target_grad_A, target_grad_B]
 
-    C.backward(grad_C)
-    torch.testing.assert_close(A.grad, target_grad_A)
-    torch.testing.assert_close(B.grad, target_grad_B)
-    if biased:
-        torch.testing.assert_close(bias.grad, target_grad_bias)
-    print('backward pass.')
-
-
-
-class TestSparseMatMulKernels(unittest.TestCase):
-
-    def test_sparse_matmul_functions(self):
-        print('==================== Testing Sparse MatMul Functions ====================')
-        for sparse_type in ['sdd', 'dsd', 'dds']:
-            for biased in [False, True]:
-                for trans_A in [False, True]:
-                    for trans_B in [False, True]:
-                        for compressed in [False, True]:
-                            test_sparse_matmul_function(
-                                sparse_type, biased, compressed, trans_A, trans_B
-                            )
-
-
-if __name__ == '__main__':
-    unittest.main()
+    check(matmul_forward_backward, inputs, target_outputs)

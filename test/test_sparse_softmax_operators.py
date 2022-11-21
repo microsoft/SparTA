@@ -1,70 +1,71 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-import unittest
+from typing import Optional
+import warnings
 
 import torch
+import pytest
 import numpy as np
 
 from sparta.nn import SparseSoftmax
-from sparta.testing import block_mask, sparse_softmax_forward_reference
+from sparta.testing import block_mask, check
 
 
-BATCH_SIZE, DIMS = 1024, 512
+HEAD_NUM, DIMS = 1024, 512
 BH, BW, RT = 32, 32, 4
 BLOCK = (8, 8)
 SPARSITY = 0.95
 T = np.sqrt(DIMS)
 
 
-def test_sparse_softmax_operator():
-    print(f'sparse_softmax:', end=' ')
-
+@pytest.mark.parametrize("batch_size", [None, 4])
+@pytest.mark.parametrize("compressed", [False, True])
+def test_sparse_softmax_operator(compressed: bool, batch_size: Optional[int]):
     torch.manual_seed(2022)
-    mask = block_mask((BATCH_SIZE, DIMS), block=BLOCK, sparsity=SPARSITY).cuda()
-    sample_input = torch.rand((BATCH_SIZE, DIMS), dtype=torch.float32).cuda()
-    sample_grad = torch.rand((BATCH_SIZE, DIMS), dtype=torch.float32).cuda()
-
-    sparse_softmax = SparseSoftmax(mask=mask, temperature=T)
-    kernel_names = ['forward:y', 'backward:x']
-    kernel_config = {
-        'BLOCK_SIZE_H_VALUE': BH,
-        'BLOCK_SIZE_W_VALUE': BW,
-        'ROW_TILE_VALUE': RT,
-    }
-    sparse_softmax.build(
-        params=dict(
-            _impl=';'.join([f'{kernel_name}=sparta' for kernel_name in kernel_names]),
-            **{
-                f'{kernel_name};{param_name}': param_value
-                for param_name, param_value in kernel_config.items()
-                for kernel_name in kernel_names
-            }
-        ),
-        sample_inputs=[sample_input]
-    )
+    mask = block_mask((HEAD_NUM, DIMS), block=BLOCK, sparsity=SPARSITY).cuda()
+    shape = (HEAD_NUM, DIMS) if batch_size is None else (batch_size, HEAD_NUM, DIMS)
+    sample_input = torch.rand(shape, dtype=torch.float32).cuda()
+    sample_grad = torch.rand(shape, dtype=torch.float32).cuda()
 
     sample_input.requires_grad = True
-    target_output = sparse_softmax_forward_reference(sample_input, mask, temperature=T)
-    output = sparse_softmax.forward(sample_input)
-    torch.testing.assert_close(output, target_output)
-    print('forward pass;', end=' ')
-
+    sparse_softmax = SparseSoftmax(mask, T, compressed, batch_size)
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        target_output = sparse_softmax.forward(sample_input)
     target_output.backward(sample_grad)
-    target_grad_input = torch.clone(sample_input.grad)
-    sample_input.grad *= 0
-    output.backward(sample_grad)
-    grad_input = sample_input.grad
-    torch.testing.assert_close(grad_input, target_grad_input)
-    print('backward pass.')
+    target_grad_input = sample_input.grad
+    sample_input.grad = None
 
+    kernel_names = ['forward:y', 'backward:x']
+    sparse_softmax.build(
+        params={
+            kernel_name: {
+                '_impl': 'sparta',
+                'BLOCK_SIZE_H_VALUE': BH,
+                'BLOCK_SIZE_W_VALUE': BW,
+                'ROW_TILE_VALUE': RT,
+            }
+            for kernel_name in kernel_names
+        },
+        sample_inputs=[sample_input],
+    )
 
-class TestSparseSoftmaxOperators(unittest.TestCase):
+    if compressed:
+        converter = sparse_softmax._sparse_ctx.get_converter('forward:y', 'x')
+        sample_input = converter.convert(sample_input.detach())
+        target_output = converter.convert(target_output)
+        sample_grad = converter.convert(sample_grad)
+        target_grad_input = converter.convert(target_grad_input)
+        sample_input.requires_grad = True
 
-    def test_sparse_softmax_operators(self):
-        print('==================== Testing Sparse Softmax Operators ====================')
-        test_sparse_softmax_operator()
+    def matmul_forward_backward(x: torch.Tensor, grad: torch.Tensor):
+        y = sparse_softmax.forward(x)
+        y.backward(grad)
+        return y, x.grad
 
-
-if __name__ == '__main__':
-    unittest.main()
+    check(
+        func=matmul_forward_backward,
+        inputs=[sample_input, sample_grad],
+        target_outputs=[target_output, target_grad_input]
+    )
