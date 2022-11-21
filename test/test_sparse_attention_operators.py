@@ -1,12 +1,14 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-import unittest
+import warnings
+import copy
 
 import torch
+import pytest
 
 from sparta.nn import SparseAttention
-from sparta.testing import block_mask, sparse_multi_head_attention_reference
+from sparta.testing import block_mask, check
 
 
 BATCH_SIZE, Ns, Nt, E = 4, 512, 1024, 256
@@ -25,76 +27,66 @@ def test_sparse_attention_operator():
     value = torch.rand(size=(BATCH_SIZE, Ns, E)).cuda()
     grad_out = torch.rand(size=(BATCH_SIZE, Nt, E)).cuda()
 
-    sparse_attention = SparseAttention(mask=mask)
-
-    matmul_kernel_names = [
-        'forward:qk', 'forward:out', 'backward:v',
-        'backward:sm', 'backward:q', 'backward:k'
-    ]
-    matmul_kernel_config = {
-        'BLOCK_SIZE_M_VALUE': BM,
-        'BLOCK_SIZE_K_VALUE': BK,
-        'BLOCK_SIZE_N_VALUE': BN,
-        'THREAD_SIZE_M_VALUE': TM,
-        'THREAD_SIZE_K_VALUE': TK,
-        'THREAD_SIZE_N_VALUE': TN,
-    }
-    softmax_kernel_names = ['forward:sm', 'backward:qk']
-    softmax_kernel_config = {
-        'BLOCK_SIZE_H_VALUE': BM,
-        'BLOCK_SIZE_W_VALUE': BN,
-        'ROW_TILE_VALUE': RT,
-    }
-    sparse_attention.build(
-        params=dict(
-            _impl=';'.join([
-                f'{kernel_name}=sparta'
-                for kernel_name in matmul_kernel_names + softmax_kernel_names
-            ]),
-            **{
-                f'{kernel_name};{param_name}': param_value
-                for param_name, param_value in matmul_kernel_config.items()
-                for kernel_name in matmul_kernel_names
-            },
-            **{
-                f'{kernel_name};{param_name}': param_value
-                for param_name, param_value in softmax_kernel_config.items()
-                for kernel_name in softmax_kernel_names
-            },
-        ),
-        sample_inputs=[query, key, value]
-    )
-
     query.requires_grad = True
     key.requires_grad = True
     value.requires_grad = True
 
-    target_out = sparse_multi_head_attention_reference(query, key, value, mask)
-    out = sparse_attention.forward(query, key, value)
-    torch.testing.assert_close(out, target_out)
-    print('forward pass;', end=' ')
+    sparse_attention = SparseAttention(mask=mask)
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        target_out = sparse_attention.forward(query, key, value)
+        target_out.backward(grad_out)
 
-    target_out.backward(grad_out)
-    target_grad_q = query.grad
+    target_grad_query = query.grad
     query.grad = None
-    target_grad_k = key.grad
+    target_grad_key = key.grad
     key.grad = None
-    target_grad_v = value.grad
+    target_grad_value = value.grad
     value.grad = None
-    # sample_input.grad *= 0
-    out.backward(grad_out)
-    torch.testing.assert_close(query.grad, target_grad_q)
-    torch.testing.assert_close(key.grad, target_grad_k)
-    torch.testing.assert_close(value.grad, target_grad_v)
-    print('backward pass.')
 
+    matmul_kernel_names = [
+        'forward:C', 'backward:A', 'backward:B'
+    ]
+    matmul_config = {
+        kernel_name: {
+            '_impl': 'sparta',
+            'BLOCK_SIZE_M_VALUE': BM,
+            'BLOCK_SIZE_K_VALUE': BK,
+            'BLOCK_SIZE_N_VALUE': BN,
+            'THREAD_SIZE_M_VALUE': TM,
+            'THREAD_SIZE_K_VALUE': TK,
+            'THREAD_SIZE_N_VALUE': TN,
+        }
+        for kernel_name in matmul_kernel_names
+    }
+    softmax_kernel_names = ['forward:y', 'backward:x']
+    softmax_config = {
+        kernel_name: {
+            '_impl': 'sparta',
+            'BLOCK_SIZE_H_VALUE': BM,
+            'BLOCK_SIZE_W_VALUE': BN,
+            'ROW_TILE_VALUE': RT,
+        }
+        for kernel_name in softmax_kernel_names
+    }
+    sparse_attention.build(
+        params=dict(
+            **{f'qk/{k}': v for k, v in matmul_config.items()},
+            **{f'sm/{k}': v for k, v in softmax_config.items()},
+            **{f'out/{k}': v for k, v in matmul_config.items()},
+        ),
+        sample_inputs=[query, key, value],
+    )
 
-class TestSparseAttentionOperators(unittest.TestCase):
+    def attention_forward_backward(
+        q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, grad: torch.Tensor
+    ):
+        out = sparse_attention.forward(q, k, v)
+        out.backward(grad)
+        return out, q.grad, k.grad, v.grad
 
-    def test_sparse_attention_operators(self):
-        print('==================== Testing Sparse Attention Operators ====================')
-        test_sparse_attention_operator()
-
-
-if __name__ == '__main__':
-    unittest.main()
+    check(
+        func=attention_forward_backward,
+        inputs=[query, key, value, grad_out],
+        target_outputs=[target_out, target_grad_query, target_grad_key, target_grad_value]
+    )

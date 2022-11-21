@@ -29,7 +29,7 @@ def test_sparse_softmax_operator(compressed: bool, batch_size: Optional[int]):
     sample_grad = torch.rand(shape, dtype=torch.float32).cuda()
 
     sample_input.requires_grad = True
-    sparse_softmax = SparseSoftmax(mask, T, compressed, batch_size)
+    sparse_softmax = SparseSoftmax(mask, T, compressed)
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
         target_output = sparse_softmax.forward(sample_input)

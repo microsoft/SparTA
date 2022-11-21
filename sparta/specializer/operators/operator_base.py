@@ -66,5 +66,5 @@ class OperatorBase(torch.nn.Module):
     def get_connections(self, backward: bool = False):
         return self._sparse_ctx.get_connections(backward)
 
-    def get_kernel_placeholders(self):
-        return self._sparse_ctx.get_kernel_placeholders()
+    def get_kernel_placeholders(self, backward: bool = False):
+        return self._sparse_ctx.get_kernel_placeholders(backward)

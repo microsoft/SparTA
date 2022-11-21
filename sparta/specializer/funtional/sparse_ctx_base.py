@@ -89,14 +89,18 @@ class SparseCtxBase(object):
 
     def build(self, config: Dict[str, Dict[str, Any]]):
         for kernel_name, kernel_config in config.items():
-            impl = kernel_config.pop('_impl')
+            impl = kernel_config['_impl']
             self._kernels[kernel_name].build(impl, kernel_config)
 
     def get_converter(self, kernel_name: str, tensor_name: str):
         return self._kernels[kernel_name].get_converter(tensor_name)
 
-    def get_kernel_placeholders(self):
-        return self._kernels
+    def get_kernel_placeholders(self, backward: bool = False):
+        return {
+            kernel_name: kernel
+            for kernel_name, kernel in self._kernels.items()
+            if backward or not kernel_name.startswith('backward')
+        }
 
     @abc.abstractmethod
     def set_sample_inputs(

@@ -12,11 +12,11 @@ from sparta.specializer.funtional import SparseCtxBase, KernelPlaceholder
 
 class SparseBatchSoftmaxCtx(SparseCtxBase):
 
-    def __init__(self, compressed: bool, temperature: Optional[float] = None):
+    def __init__(self, compressed: bool, temperature: float = 1):
         super().__init__()
 
         self._compressed = compressed
-        self._T = np.float32(1. if temperature is None else 1 / temperature)
+        self._T = np.float32(1 / temperature)
         self._batch_size: int = None
 
         for kernel_name, kernel_class, first_tensor in zip(
@@ -31,6 +31,9 @@ class SparseBatchSoftmaxCtx(SparseCtxBase):
                 mask_map={'x': first_tensor},
             )
 
+    def set_temperature(self, temperature: float):
+        self._T = np.float32(1 / temperature)
+
     def set_shape(self, batch_size: int, H: int, W: int):
         self._kernels['forward:y'].set_shape(batch_size, H, W)
         self._kernels['backward:x'].set_shape(batch_size, H, W)
@@ -44,21 +47,6 @@ class SparseBatchSoftmaxCtx(SparseCtxBase):
             ]
         else:
             return []
-
-    def _split_graph(
-        self, kernels: List[str], sample_inputs: Dict[str, torch.Tensor],
-        sample_grad: Optional[torch.Tensor] = None
-    ):
-        funcs, inputs = [], []
-        for kernel_name in kernels:
-            if kernel_name == 'forward:y':
-                funcs.append(self.forward)
-                inputs.append([sample_inputs['x'], self._T])
-            elif kernel_name == 'backward:x':
-                funcs.append(self.backward)
-                output = self.forward(sample_inputs['x'], self._T)
-                inputs.append([sample_grad, output, self._T])
-        return funcs, inputs
 
     def build(self, config: Dict[str, Dict[str, Any]]):
         super().build(config)

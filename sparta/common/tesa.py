@@ -2,10 +2,10 @@
 # Licensed under the MIT license.
 
 import abc
+import math
 from typing import Dict, List, Tuple, Callable
 
 import torch
-import numpy as np
 
 class TeSAConverter(Callable):
 
@@ -83,7 +83,7 @@ class BCSR(TeSAConverter):
         dense_shape = dense.shape
         assert dense_shape[-2] == self._H
         assert dense_shape[-1] == self._W
-        batch_size = int(np.prod(dense_shape[:-2]))
+        batch_size = math.prod(dense_shape[:-2])
         dense = dense.reshape((batch_size, self._H, self._W))
         sparse_val = []
         for batch in range(batch_size):
@@ -116,21 +116,21 @@ class BCSR(TeSAConverter):
 
     def reorder_H_to_V(self, sparse_val: torch.Tensor):
         # TODO: use CUDA kernel
-        batch_size = int(np.prod(sparse_val.shape[:-1]))
+        batch_size = math.prod(sparse_val.shape[:-1])
         val = sparse_val.reshape((batch_size, -1, self._block_size))
         val = val[:, self._V_order, :].contiguous()
         return val.reshape(sparse_val.shape)
 
     def reorder_V_to_H(self, sparse_val: torch.Tensor):
         # TODO: use CUDA kernel
-        batch_size = int(np.prod(sparse_val.shape[:-1]))
+        batch_size = math.prod(sparse_val.shape[:-1])
         val = sparse_val.reshape((batch_size, -1, self._block_size))
         val = val[:, self._H_order, :].contiguous()
         return val.reshape(sparse_val.shape)
 
     def sum(self, sparse_val: torch.Tensor, axis: int):
         sparse_shape = sparse_val.shape
-        batch_size = int(np.prod(sparse_shape[:-1]))
+        batch_size = math.prod(sparse_shape[:-1])
         sparse_val = sparse_val.detach().reshape((batch_size, -1, self._BH, self._BW))
         if axis > 0:
             axis -= len(sparse_shape) + 1
