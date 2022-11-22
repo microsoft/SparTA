@@ -39,7 +39,6 @@ def test_sparse_softmax_forward_kernel(compressed: bool):
     backward_kernel.compile(config)
 
     target_y = forward_kernel.reference(x, T)
-    target_grad_x = backward_kernel.reference(grad_y, target_y, T)
 
-    forward_kernel.test([x, T], [target_y], 0, 1, False)
-    backward_kernel.test([grad_y, target_y, T], [target_grad_x], 0, 1, False)
+    forward_kernel.test([x, T], num_warmups=0, num_iters=1, cuda=False)
+    backward_kernel.test([grad_y, target_y, T], num_warmups=0, num_iters=1, cuda=False)

@@ -65,7 +65,7 @@ class SparseBatchSoftmaxCtx(SparseCtxBase):
         self._kernels['forward:y'].set_sample_inputs([x, self._T])
         if sample_grads is not None:
             grad_y = sample_grads[0]
-            y = self._kernels['forward:y'].target_outputs[0]
+            y = self._kernels['forward:y'].dense_func(x, self._T)
             self._kernels['backward:x'].set_sample_inputs([grad_y, y, self._T])
 
     def get_connections(self, backward: bool = False):

@@ -18,8 +18,6 @@ SPARSITY = 0.95
 
 
 def test_sparse_attention_operator():
-    print(f'sparse_attention:', end=' ')
-
     torch.manual_seed(2022)
     mask = block_mask((Nt, Ns), block=BLOCK, sparsity=SPARSITY).cuda()
     query = torch.rand(size=(BATCH_SIZE, Nt, E)).cuda()

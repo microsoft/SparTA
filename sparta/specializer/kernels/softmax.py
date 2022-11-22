@@ -87,6 +87,8 @@ class SparseSoftmaxForwardKernel(SparseSoftmaxKernel):
         return softmax_forward_func
 
     def _convert_data(self, inputs, outputs):
+        inputs[0] = inputs[0].reshape(self.get_shape())
+        outputs[0] = outputs[0].reshape(self.get_shape())
         if self._compressed:
             inputs[0] = self.get_converter('x').convert(inputs[0])
             outputs[0] = self.get_converter('y').convert(outputs[0])
@@ -134,6 +136,9 @@ class SparseSoftmaxBackwardKernel(SparseSoftmaxKernel):
         return softmax_backward_func
 
     def _convert_data(self, inputs, outputs):
+        inputs[0] = inputs[0].reshape(self.get_shape())
+        inputs[1] = inputs[1].reshape(self.get_shape())
+        outputs[0] = outputs[0].reshape(self.get_shape())
         if self._compressed:
             inputs[0] = self.get_converter('grad_y').convert(inputs[0])
             inputs[1] = self.get_converter('y').convert(inputs[1])

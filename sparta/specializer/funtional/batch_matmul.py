@@ -113,11 +113,21 @@ class SparseBatchMatMulCtx(SparseCtxBase):
         self, sample_inputs: List[torch.Tensor],
         sample_grads: Optional[List[torch.Tensor]] = None
     ):
-        self._kernels['forward:C'].set_sample_inputs(sample_inputs)
+        A = sample_inputs[0]
+        B = sample_inputs[1]
+        if 'A' in self._masks:
+            A = A.detach() * self._masks['A']
+        elif 'B' in self._masks:
+            B = B.detach() * self._masks['B']
+        if self._biased:
+            bias = sample_inputs[2].detach()
+            self._kernels['forward:C'].set_sample_inputs([A, B, bias])
+        else:
+            self._kernels['forward:C'].set_sample_inputs([A, B])
         if sample_grads is not None:
-            A = sample_inputs[0]
-            B = sample_inputs[1]
             grad_C = sample_grads[0]
+            if 'C' in self._masks:
+                grad_C = grad_C.detach() * self._masks['C']
             if self._transpose_A:
                 self._kernels['backward:A'].set_sample_inputs([B, grad_C])
             else:

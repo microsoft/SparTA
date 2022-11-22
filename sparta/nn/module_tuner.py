@@ -216,7 +216,7 @@ def tune_sparse_module(
                         latency = kernel.test()
                     except AssertionError:
                         latency = math.inf
-                    print(f'{impl}; {list(params.values())} => {latency}')
+                    print(f'{impl}; {list(params.values())} => {latency} ms')
                     return latency
                 kernel_tuner = tuner_type(kernel_space, try_params, kernel_max_trials)
                 kernel_tuner.tune()
@@ -265,6 +265,8 @@ def tune_combined_module(
             for output, sample_grad in zip(outputs, sample_grads):
                 if type(output) is torch.Tensor:
                     output.backward(sample_grad)
+            for x in sample_inputs:
+                x.requires_grad = False
 
     def tune(op: OperatorBase, name: str):
         tune_sparse_module(

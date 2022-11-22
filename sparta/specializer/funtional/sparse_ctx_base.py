@@ -20,7 +20,6 @@ class KernelPlaceholder(object):
         self._active_impl: str = None
         self._mask_map = mask_map
         self.sample_inputs: List[torch.Tensor] = []
-        self.target_outputs: List[torch.Tensor] = []
         self.dense_func = list(self._possible_kernels.values())[0].reference
         self.ready = False
 
@@ -60,15 +59,14 @@ class KernelPlaceholder(object):
         return search_space
 
     def set_sample_inputs(self, sample_inputs: List[torch.Tensor]):
-        self.sample_inputs = [x.detach() for x in sample_inputs]
-        self.target_outputs = self.dense_func(*sample_inputs)
-        if type(self.target_outputs) is not tuple:
-            self.target_outputs = (self.target_outputs, )
+        self.sample_inputs = [
+            x.detach() if type(x) is torch.Tensor else x
+            for x in sample_inputs
+        ]
 
     def test(self, num_warmups: int = 10, num_iters: int = 10, cuda: bool = True):
         return self.active_kernel().test(
             inputs=self.sample_inputs,
-            target_outputs=self.target_outputs,
             num_warmups=num_warmups,
             num_iters=num_iters,
             cuda=cuda,
@@ -79,6 +77,7 @@ class SparseCtxBase(object):
 
     def __init__(self):
         self._kernels: Dict[str, KernelPlaceholder] = {}
+        self._masks: Dict[str, torch.Tensor] = {}
 
     @abc.abstractmethod
     def set_shape(self, *args, **kwargs):
@@ -87,6 +86,7 @@ class SparseCtxBase(object):
     def set_masks(self, masks: Dict[str, torch.Tensor]):
         for kernel in self._kernels.values():
             kernel.set_masks(masks)
+        self._masks = masks
 
     def build(self, config: Dict[str, Dict[str, Any]]):
         for kernel_name, kernel_config in config.items():

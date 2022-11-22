@@ -84,29 +84,37 @@ class SparseAttention(OperatorBase):
     ):
         query, key, value = sample_inputs
 
+        if sample_grads is not None:
+            query.requires_grad = True
+            key.requires_grad = True
+            value.requires_grad = True
+
         with warnings.catch_warnings():
-            if sample_grads is not None:
-                query.requires_grad = True
-                key.requires_grad = True
-                value.requires_grad = True
             warnings.simplefilter('ignore')
             qk = self._matmul_qk.forward(query, key)
             sample_grad_qk = None
+            qk.retain_grad()
             sm = self._softmax.forward(qk)
             sample_grad_sm = None
-            if sample_grads is not None:
-                grad_out, = sample_grads
+            sm.retain_grad()
+
+        if sample_grads is not None:
+            grad_out, = sample_grads
+
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore')
                 out = self._matmul_out.forward(sm, value)
                 out.backward(grad_out)
-                sample_grad_sm = sm.grad
-                sample_grad_qk = qk.grad
-                query = query.detach()
-                key = key.detach()
-                value = value.detach()
 
-        self._matmul_qk.set_sample_inputs([query, key], [sample_grad_qk])
-        self._softmax.set_sample_inputs([qk], [sample_grad_sm])
-        self._matmul_qk.set_sample_inputs([sm, value], sample_grads)
+            sample_grad_sm = [sm.grad]
+            sample_grad_qk = [qk.grad]
+            query = query.detach()
+            key = key.detach()
+            value = value.detach()
+
+        self._matmul_qk.set_sample_inputs([query, key], sample_grad_qk)
+        self._softmax.set_sample_inputs([qk], sample_grad_sm)
+        self._matmul_out.set_sample_inputs([sm, value], sample_grads)
 
     def get_search_space(self, backward: bool = False):
         return dict(
@@ -129,9 +137,9 @@ class SparseAttention(OperatorBase):
             )
         ]
 
-    def get_kernel_placeholders(self):
+    def get_kernel_placeholders(self, backward: bool = False):
         return dict(
-            **{f'qk/{k}': v for k, v in self._matmul_qk.get_kernel_placeholders().items()},
-            **{f'sm/{k}': v for k, v in self._softmax.get_kernel_placeholders().items()},
-            **{f'out/{k}': v for k, v in self._matmul_out.get_kernel_placeholders().items()},
+            **{f'qk/{k}': v for k, v in self._matmul_qk.get_kernel_placeholders(backward).items()},
+            **{f'sm/{k}': v for k, v in self._softmax.get_kernel_placeholders(backward).items()},
+            **{f'out/{k}': v for k, v in self._matmul_out.get_kernel_placeholders(backward).items()},
         )

@@ -240,12 +240,15 @@ class KernelBase(Callable):
         '''Convert sample inputs and target outputs to sparse tenors in place if necessary.'''
 
     def test(
-        self, inputs: List[torch.Tensor], target_outputs: List[torch.Tensor],
+        self, inputs: List[torch.Tensor],
         num_warmups: int = 10, num_iters: int = 10, cuda: bool = True
     ):
         '''Note that all inputs and outputs are dense tensors here.'''
         sparse_inputs = [x for x in inputs]
-        sparse_outputs = [y for y in target_outputs]
+        sparse_outputs = self.reference(*sparse_inputs)
+        if type(sparse_outputs) is not tuple:
+            sparse_outputs = (sparse_outputs, )
+        sparse_outputs = [y for y in sparse_outputs]
         self._convert_data(sparse_inputs, sparse_outputs)
         return profile(self, sparse_inputs, sparse_outputs, num_warmups, num_iters, cuda)
 

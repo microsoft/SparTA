@@ -205,7 +205,7 @@ class SparseMatMulKernel(KernelBase):
         if self._biased:
             C = self.reference_bias(C, args[2])
         if self._mode == 'dds' and self.ready:
-            C *= self.get_converter('C').get_mask()  # DDS known issue
+            C = C * self.get_converter('C').get_mask()  # DDS known issue
         return C
 
 

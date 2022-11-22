@@ -73,5 +73,4 @@ def test_sparse_matmul_kernel(
     kernel.compile(config)
 
     inputs = [A, B, bias] if biased else [A, B]
-    target_outputs = [kernel.reference(*inputs)]
-    kernel.test(inputs, target_outputs, num_warmups=0, num_iters=1, cuda=False)
+    kernel.test(inputs, num_warmups=0, num_iters=1, cuda=False)
