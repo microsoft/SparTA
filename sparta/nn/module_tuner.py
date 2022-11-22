@@ -109,7 +109,8 @@ class Tuner(object):
     ):
         self._search_space = search_space
         self._eval_func = eval_func
-        self._max_trials = max_trials
+        space_size = math.prod([len(param_space._value) for param_space in search_space.values()])
+        self._max_trials = min(max_trials, space_size)
         self.best_result = math.inf
         self.best_config = None
 
@@ -138,32 +139,27 @@ class RandomSearchTuner(Tuner):
 class GridSearchTuner(Tuner):
 
     def next_config(self):
-        walkers = {}
-        counters = {}
-        last_param = None
-        for param_name, param_space in self._search_space.items():
-            counters[param_name] = 0
-            num_values = len(param_space._value)
-            if last_param is None:
-                def walker():
-                    counters[param_name] += 1
-                    if counters[param_name] >= num_values:
-                        counters[param_name] = None
-                first_param = param_name
-            else:
-                def walker():
-                    counters[param_name] += 1
-                    if counters[param_name] >= num_values:
-                        counters[param_name] = 0
-                        walkers[last_param]()
-            walkers[param_name] = walker
-            last_param = param_name
-        while counters[first_param] is not None:
-            yield {
-                param_name: param_space._value[counters[param_name]]
-                for param_name, param_space in self._search_space.items()
-            }
-            walker()
+        if len(self._search_space) == 0:
+            yield {}
+        else:
+            param_names = []
+            param_idxs = []
+            param_space_sizes = []
+            for param_name, param_space in self._search_space.items():
+                param_names.append(param_name)
+                param_space_sizes.append(len(param_space._value))
+                param_idxs.append(0)
+            while param_idxs[0] < param_space_sizes[0]:
+                yield {
+                    param_name: self._search_space[param_name]._value[param_idx]
+                    for param_idx, param_name in zip(param_idxs, param_names)
+                }
+                k = len(param_idxs) - 1
+                param_idxs[k] += 1
+                while param_idxs[k] == param_space_sizes[k] and k > 0:
+                    param_idxs[k - 1] += 1
+                    param_idxs[k] = 0
+                    k -= 1
 
 
 def tune_sparse_module(
@@ -203,11 +199,12 @@ def tune_sparse_module(
         print(f'==================== {list(upper_params.values())} ====================')
         lower_params = {}
         lower_best_latency = 0
-        for kernel_name, kernel in module.get_kernel_placeholders().items():
+        for kernel_name, kernel in module.get_kernel_placeholders(backward_weight > 0).items():
             print(f'-------------------- {kernel_name} --------------------')
             kernel_max_trials = math.ceil(max_trials / upper_space_size)
             kernel_best_params = None
             kernel_best_latency = math.inf
+            kernel_weight = backward_weight if kernel_name.startswith('backward') else 1
             fixed_params = {
                 connections[i][kernel_name]: val
                 for i, val in upper_params.items()
@@ -216,9 +213,9 @@ def tune_sparse_module(
                 def try_params(params: Dict[Any, Any]):
                     try:
                         kernel.build(impl, params)
+                        latency = kernel.test()
                     except AssertionError:
                         latency = math.inf
-                    latency = kernel.test()
                     print(f'{impl}; {list(params.values())} => {latency}')
                     return latency
                 kernel_tuner = tuner_type(kernel_space, try_params, kernel_max_trials)
@@ -227,7 +224,7 @@ def tune_sparse_module(
                     kernel_best_params = dict(_impl=impl, **kernel_tuner.best_config)
                     kernel_best_latency = kernel_tuner.best_result
             lower_params[kernel_name] = kernel_best_params
-            lower_best_latency += kernel_best_latency
+            lower_best_latency += kernel_best_latency * kernel_weight
         lower_params_cache[str(upper_params)] = lower_params
         return lower_best_latency
 

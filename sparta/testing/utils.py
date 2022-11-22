@@ -23,8 +23,7 @@ def profile(
     Returns:
         float: latency in milliseconds.
     '''
-    if target_outputs is not None:
-        check(func, inputs, target_outputs)
+    check(func, inputs, target_outputs)
     try:
         if target_outputs is not None:
             check(func, inputs, target_outputs)

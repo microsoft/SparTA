@@ -27,6 +27,7 @@ class KernelPlaceholder(object):
     def set_shape(self, *args, **kwargs):
         for kernel in self._possible_kernels.values():
             kernel.set_shape(*args, **kwargs)
+            kernel.set_port_params()
 
     def set_masks(self, masks: Dict[str, torch.Tensor]):
         mapped_masks = {y: masks[x] for x, y in self._mask_map.items()}

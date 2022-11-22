@@ -67,6 +67,8 @@ class PortConfig(object):
     def set_params(self, params: Dict[str, Any]):
         if self._tesa_params is not None:
             tesa_config = [params[p] for p in self._tesa_params]
+            if any([val is None for val in tesa_config]):
+                return
             if self._tesa_config is not None:
                 if all([a != b for a, b in zip(tesa_config, self._tesa_config)]):
                     return

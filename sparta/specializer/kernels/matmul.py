@@ -181,12 +181,16 @@ class SparseMatMulKernel(KernelBase):
 
     def _convert_data(self, inputs, outputs):
         if self._compressed:
-            if self._mode == 'sdd':
-                inputs[0] = self.get_converter('A').convert(inputs[0])
-            elif self._mode == 'dsd':
-                inputs[1] = self.get_converter('B').convert(inputs[1])
-            elif self._mode == 'dds':
-                outputs[0] = self.get_converter('C').convert(outputs[0])
+            sparse_tensor = {'sdd': 'A', 'dsd': 'B', 'dds': 'C'}[self._mode]
+            data = {'A': inputs[0], 'B': inputs[1], 'C': outputs[0]}
+            converter = self.get_converter(sparse_tensor)
+            sparse_port = self.ports[sparse_tensor]
+            data[sparse_tensor] = converter.convert(data[sparse_tensor])
+            if sparse_port.real_tesa_type is BCSRH and sparse_port.tesa_type is BCSRV:
+                data[sparse_tensor] = converter.reorder_H_to_V(data[sparse_tensor])
+            elif sparse_port.real_tesa_type is BCSRV and sparse_port.tesa_type is BCSRH:
+                data[sparse_tensor] = converter.reorder_V_to_H(data[sparse_tensor])
+            inputs[0], inputs[1], outputs[0] = data['A'], data['B'], data['C']
 
     def reference_matmul(self, A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
         A_str = 'bkm' if self._transpose_A else 'bmk'
@@ -286,4 +290,9 @@ class OpenAISparseMatMulKernel(SparseMatMulKernel):
         return (256, 1, 1)
 
     def _check_parameters(self, params: Dict[str, Any]):
-        assert len(params.keys()) == 0, 'The OpenAI sparse matmul kernel has no tubable parameters.'
+        if 'BLOCK_SIZE_M_VALUE' in params:
+            assert params['BLOCK_SIZE_M_VALUE'] == 32
+        if 'BLOCK_SIZE_K_VALUE' in params:
+            assert params['BLOCK_SIZE_K_VALUE'] == 64
+        if 'BLOCK_SIZE_N_VALUE' in params:
+            assert params['BLOCK_SIZE_N_VALUE'] == 32

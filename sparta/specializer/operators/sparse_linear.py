@@ -23,6 +23,7 @@ class SparseLinear(OperatorBase):
         M = None
         N, K = raw_module.weight.shape
         biased = raw_module.bias is not None
+        self._raw_weight = torch.clone(raw_module.weight)
 
         if sum(map(lambda x: x is not None, [input_mask, weight_mask, output_mask])) > 1:
             raise ValueError(f'linear operators with multiple sparse masks are not supported')
@@ -35,6 +36,7 @@ class SparseLinear(OperatorBase):
         elif weight_mask is not None:
             self._sparse_ctx = SparseBatchMatMulCtx('dsd', False, True, biased, True)
             assert weight_mask.shape == (N, K), f'expected weight mask shape ({N}, {K}), got {weight_mask.shape}'
+            self._raw_weight *= weight_mask
             self._set_masks({'B': weight_mask})
         elif output_mask is not None:
             self._sparse_ctx = SparseBatchMatMulCtx('dds', False, True, biased, False)
@@ -45,7 +47,6 @@ class SparseLinear(OperatorBase):
             raise ValueError(f'expected a sparse mask on input / weight / output')
 
         self._shape = {'batch_size': 1, 'M': M, 'K': K, 'N': N}
-        self._raw_weight = torch.clone(raw_module.weight)
         self.weight = None
         self.bias = raw_module.bias
 
