@@ -7,7 +7,7 @@ from setuptools import setup, find_packages
 
 rootdir = os.path.dirname(os.path.realpath(__file__))
 
-version = '0.0.1alpha'
+version = '0.0.1beta'
 
 setup(
     name='SparTA',

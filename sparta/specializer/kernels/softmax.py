@@ -25,10 +25,7 @@ class SparseSoftmaxKernel(KernelBase):
 
     def _set_ports(self):
         for port in self.ports.values():
-            port.set_tesa(BCSRH, [
-                'GLOBAL_H_VALUE', 'GLOBAL_W_VALUE',
-                'BLOCK_SIZE_H_VALUE', 'BLOCK_SIZE_W_VALUE'
-            ])
+            port.set_tesa(BCSRH, ['BLOCK_SIZE_H_VALUE', 'BLOCK_SIZE_W_VALUE'])
 
     def _add_parameters(self):
         self._add_parameter('BATCH_SIZE')

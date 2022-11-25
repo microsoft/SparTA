@@ -79,10 +79,9 @@ class PortConfig(object):
         if self._tesa_config is not None and self.mask is not None:
             if self.real_tesa_type is not None:
                 if issubclass(self.real_tesa_type, BCSR):
-                    H, W, BH, BW = self._tesa_config
+                    BH, BW = self._tesa_config
                     converter = self.real_tesa_type(
                         mask=self.mask,
-                        size=(H, W),
                         block_size=(BH, BW)
                     )
                 else:

@@ -3,9 +3,10 @@
 
 import abc
 import math
-from typing import Dict, List, Tuple, Callable
+from typing import Any, Dict, List, Tuple, Callable
 
 import torch
+
 
 class TeSAConverter(Callable):
 
@@ -39,32 +40,37 @@ class TeSAConverter(Callable):
     def __call__(self, dense: torch.Tensor) -> torch.Tensor:
         return self.convert(dense)
 
+    def to(self, device: Any):
+        for attr_name, attr_value in self._attrs.items():
+            self._attrs[attr_name] = attr_value.to(device)
+        return self
+
 
 class BCSR(TeSAConverter):
 
-    def __init__(self, mask: torch.Tensor, size: Tuple[int, int], block_size: Tuple[int, int]):
+    def __init__(self, mask: torch.Tensor, block_size: Tuple[int, int], device: Any = 'cuda'):
         super().__init__()
-        self._H, self._W = size
+        self._H, self._W = mask.shape
         self._BH, self._BW = block_size
         self._block_size = self._BH * self._BW
         row_num = self._H // self._BH
         col_num = self._W // self._BW
         self._block_mask = mask.reshape((row_num, self._BH, col_num, self._BW))
-        self._block_mask = self._block_mask.swapaxes(1, 2).any(dim=-1).any(dim=-1)
+        self._block_mask = self._block_mask.swapaxes(1, 2).any(-1).any(-1).contiguous()
         attr_names = ('row_idx', 'col_idx', 'row_ptr', 'col_ptr', 'nnz')
         for name, value in zip(attr_names, self.read_block_mask(self._block_mask)):
-            self._set_attr(name, torch.tensor(value, dtype=torch.int32, device='cuda'))
+            self._set_attr(name, torch.tensor(value, dtype=torch.int32, device=device))
         nnz = self.get_attr('nnz').item()
         row_idx = self.get_attr('row_idx')
         col_idx = self.get_attr('col_idx')
         self._H_order = torch.argsort(row_idx * col_num + col_idx)
         self._V_order = torch.argsort(col_idx * row_num + row_idx)
         if torch.all(torch.diff(self._H_order) >= 0):
-            self._H_order = torch.zeros(nnz, dtype=torch.int64, device='cuda')
+            self._H_order = torch.zeros(nnz, dtype=torch.int64, device=device)
             for i, x in enumerate(self._V_order):
                 self._H_order[x] = i
         else:
-            self._V_order = torch.zeros(nnz, dtype=torch.int64, device='cuda')
+            self._V_order = torch.zeros(nnz, dtype=torch.int64, device=device)
             for i, x in enumerate(self._H_order):
                 self._V_order[x] = i
 

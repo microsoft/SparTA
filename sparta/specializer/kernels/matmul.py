@@ -76,10 +76,7 @@ class SparseMatMulKernel(KernelBase):
         self.ports['C'] = PortConfig(name='C', is_input=False)
 
         def shape_to_params(H: str, W: str):
-            return [
-                f'GLOBAL_{H}_VALUE', f'GLOBAL_{W}_VALUE',
-                f'BLOCK_SIZE_{H}_VALUE', f'BLOCK_SIZE_{W}_VALUE'
-            ]
+            return [f'BLOCK_SIZE_{H}_VALUE', f'BLOCK_SIZE_{W}_VALUE']
 
         if self._mode == 'sdd':
             sparse_port_name = 'A'

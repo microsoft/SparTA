@@ -7,3 +7,5 @@ __pycache__
 _build
 generated
 tmp_mk_pycodes.py
+bench/*/latency
+bench/*/img
