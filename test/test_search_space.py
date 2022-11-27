@@ -6,7 +6,7 @@ import json
 import torch
 import pytest
 
-from sparta.nn import SparseMatMul
+from sparta.nn import SparseBatchMatMul
 
 
 @pytest.mark.parametrize("mode", ['sdd', 'dsd', 'dds'])
@@ -19,7 +19,7 @@ def test_sparse_matmul_search_space(
 ):
     mask = torch.zeros((64, 64), device='cuda')
     sparse_tensor = {'sdd': 'A', 'dsd': 'B', 'dds': 'C'}[mode]
-    sparse_op = SparseMatMul(
+    sparse_op = SparseBatchMatMul(
         **{f'{sparse_tensor}_mask': mask},
         transpose_A=trans_A,
         transpose_B=trans_B,

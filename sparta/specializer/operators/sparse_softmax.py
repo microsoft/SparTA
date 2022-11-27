@@ -7,12 +7,12 @@ import math
 import torch
 
 from sparta.specializer.operators import OperatorBase
-from sparta.specializer.funtional import SparseBatchSoftmaxCtx, SparseBatchSoftmax
+from sparta.specializer.funtional import SparseBatchSoftmaxCtx, SparseBatchSoftmaxFunc
 
 
 class SparseSoftmax(OperatorBase):
 
-    __sparse_func__ = SparseBatchSoftmax
+    __sparse_func__ = SparseBatchSoftmaxFunc
 
     def __init__(self, mask: torch.Tensor, temperature: float = 1, compressed: bool = False):
         super().__init__()

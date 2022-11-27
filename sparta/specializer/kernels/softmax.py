@@ -160,12 +160,12 @@ class SparTASoftmaxKernel(SparseSoftmaxKernel):
         self._add_parameter(
             'BLOCK_SIZE_W_VALUE',
             is_tunable=True,
-            search_space=TunableItemCfg('choice', [32, 64, 128])
+            search_space=TunableItemCfg('choice', [16, 32, 64, 128])
         )
         self._add_parameter(
             'ROW_TILE_VALUE',
             is_tunable=True,
-            search_space=TunableItemCfg('choice', [2, 4, 8, 16])
+            search_space=TunableItemCfg('choice', [1, 2, 4, 8, 16])
         )
 
     def blocks_per_grid(self):

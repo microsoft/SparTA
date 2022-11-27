@@ -7,7 +7,7 @@ import math
 
 import torch
 
-from sparta.specializer.operators import OperatorBase, SparseMatMul, SparseSoftmax
+from sparta.specializer.operators import OperatorBase, SparseBatchMatMul, SparseSoftmax
 
 
 class SparseAttention(OperatorBase):
@@ -16,9 +16,9 @@ class SparseAttention(OperatorBase):
         super().__init__()
         self.mask = mask
         self._Nt, self._Ns = mask.shape
-        self._matmul_qk = SparseMatMul(C_mask=mask, transpose_A=False, transpose_B=True, compressed=True)
+        self._matmul_qk = SparseBatchMatMul(C_mask=mask, transpose_A=False, transpose_B=True, compressed=True)
         self._softmax = SparseSoftmax(mask=mask, compressed=True)
-        self._matmul_out = SparseMatMul(A_mask=mask, transpose_A=False, transpose_B=False, compressed=True)
+        self._matmul_out = SparseBatchMatMul(A_mask=mask, transpose_A=False, transpose_B=False, compressed=True)
         self.ready: bool = False
 
     def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor):
@@ -93,12 +93,12 @@ class SparseAttention(OperatorBase):
             warnings.simplefilter('ignore')
             qk = self._matmul_qk.forward(query, key)
             sample_grad_qk = None
-            qk.retain_grad()
             sm = self._softmax.forward(qk)
             sample_grad_sm = None
-            sm.retain_grad()
 
         if sample_grads is not None:
+            qk.retain_grad()
+            sm.retain_grad()
             grad_out, = sample_grads
 
             with warnings.catch_warnings():
@@ -116,30 +116,46 @@ class SparseAttention(OperatorBase):
         self._softmax.set_sample_inputs([qk], sample_grad_sm)
         self._matmul_out.set_sample_inputs([sm, value], sample_grads)
 
-    def get_search_space(self, backward: bool = False):
+    def _combine_dict(
+        self,
+        qk_dict: Dict[str, Any],
+        sm_dict: Dict[str, Any],
+        out_dict: Dict[str, Any],
+        backward: bool = False,
+    ):
         return dict(
-            **{f'qk/{k}': v for k, v in self._matmul_qk.get_search_space(backward).items()},
-            **{f'sm/{k}': v for k, v in self._softmax.get_search_space(backward).items()},
-            **{f'out/{k}': v for k, v in self._matmul_out.get_search_space(backward).items()},
+            **{f'qk/{k}': v for k, v in qk_dict.items() if k.startswith('forward') or backward},
+            **{f'sm/{k}': v for k, v in sm_dict.items() if k.startswith('forward') or backward},
+            **{f'out/{k}': v for k, v in out_dict.items() if k.startswith('forward') or backward},
+        )
+
+    def get_search_space(self, backward: bool = False):
+        return self._combine_dict(
+            qk_dict=self._matmul_qk.get_search_space(backward=True),
+            sm_dict=self._softmax.get_search_space(backward=True),
+            out_dict=self._matmul_out.get_search_space(backward=True),
+            backward=backward,
         )
 
     def get_connections(self, backward: bool = False):
         return [
-            dict(
-                **{f'qk/{k}': v for k, v in qk_params.items()},
-                **{f'sm/{k}': v for k, v in sm_params.items()},
-                **{f'out/{k}': v for k, v in out_params.items()},
+            self._combine_dict(
+                qk_dict=qk_params,
+                sm_dict=sm_params,
+                out_dict=out_params,
+                backward=backward,
             )
             for qk_params, sm_params, out_params in zip(
-                self._matmul_qk.get_connections(backward),
-                self._softmax.get_connections(backward),
-                self._matmul_out.get_connections(backward),
+                self._matmul_qk.get_connections(backward=True),
+                self._softmax.get_connections(backward=True),
+                self._matmul_out.get_connections(backward=True),
             )
         ]
 
     def get_kernel_placeholders(self, backward: bool = False):
-        return dict(
-            **{f'qk/{k}': v for k, v in self._matmul_qk.get_kernel_placeholders(backward).items()},
-            **{f'sm/{k}': v for k, v in self._softmax.get_kernel_placeholders(backward).items()},
-            **{f'out/{k}': v for k, v in self._matmul_out.get_kernel_placeholders(backward).items()},
+        return self._combine_dict(
+            qk_dict=self._matmul_qk.get_kernel_placeholders(backward=True),
+            sm_dict=self._softmax.get_kernel_placeholders(backward=True),
+            out_dict=self._matmul_out.get_kernel_placeholders(backward=True),
+            backward=backward,
         )

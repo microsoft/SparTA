@@ -6,7 +6,7 @@ import warnings
 import torch
 import pytest
 
-from sparta.nn import SparseMatMul
+from sparta.nn import SparseBatchMatMul
 from sparta.testing import block_mask, check
 
 
@@ -45,7 +45,7 @@ def test_sparse_matmul_function(mode: str, trans_A: bool, trans_B: bool, compres
 
     grad_C = torch.rand(size=(BATCH_SIZE, M, N)).cuda()
 
-    sparse_matmul = SparseMatMul(**mask_dict, transpose_A=trans_A, transpose_B=trans_B, compressed=compressed)
+    sparse_matmul = SparseBatchMatMul(**mask_dict, transpose_A=trans_A, transpose_B=trans_B, compressed=compressed)
     with warnings.catch_warnings():
         warnings.simplefilter('ignore')
         target_C = sparse_matmul.forward(A, B)

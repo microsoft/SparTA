@@ -81,7 +81,7 @@ class SparseBatchSoftmaxCtx(SparseCtxBase):
         return self._kernels['forward:y'].dense_func(*args, self._T)
 
 
-class SparseBatchSoftmax(torch.autograd.Function):
+class SparseBatchSoftmaxFunc(torch.autograd.Function):
 
     @staticmethod
     def forward(

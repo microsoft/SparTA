@@ -17,6 +17,8 @@ from sparta.specializer import OperatorBase
 
 
 _logger = logging.Logger(__name__)
+_handler = logging.StreamHandler()
+_logger.addHandler(_handler)
 
 
 # def tune_combined_module(
@@ -104,7 +106,7 @@ class Tuner(object):
 
     def __init__(
         self, search_space: Dict[Any, TunableItemCfg],
-        eval_func: Callable[[Dict[Any, Any]], float],
+        eval_func: Callable[[int, Dict[Any, Any]], float],
         max_trials: int = sys.maxsize
     ):
         self._search_space = search_space
@@ -119,8 +121,8 @@ class Tuner(object):
         '''Yields the next config.'''
 
     def tune(self):
-        for _, config in zip(range(self._max_trials), self.next_config()):
-            result = self._eval_func(config)
+        for i, config in zip(range(self._max_trials), self.next_config()):
+            result = self._eval_func(i, config)
             if result < self.best_result:
                 self.best_result = result
                 self.best_config = config
@@ -163,9 +165,14 @@ class GridSearchTuner(Tuner):
 
 
 def tune_sparse_module(
-    module: OperatorBase, sample_inputs: List[torch.Tensor],
+    module: OperatorBase,
+    name: str,
+    sample_inputs: List[torch.Tensor],
     sample_grads: Optional[List[torch.Tensor]] = None,
-    algo: str = 'grid', max_trials: int = sys.maxsize, backward_weight: float = 0
+    algo: str = 'grid',
+    max_trials: int = sys.maxsize,
+    backward_weight: float = 0,
+    debug_func: Optional[Callable[[int, Dict[Any, Any]], float]] = None,
 ):
     if algo.startswith('grid'):
         tuner_type = GridSearchTuner
@@ -195,12 +202,12 @@ def tune_sparse_module(
 
     lower_params_cache = {}
 
-    def lower_search(upper_params: Dict[Any, Any]):
-        print(f'==================== {list(upper_params.values())} ====================')
+    def lower_search(upper_idx: int, upper_params: Dict[Any, Any]):
+        _logger.info(f'[{name}][Upper Search Space] #{upper_idx}: {list(upper_params.values())}')
         lower_params = {}
         lower_best_latency = 0
         for kernel_name, kernel in module.get_kernel_placeholders(backward_weight > 0).items():
-            print(f'-------------------- {kernel_name} --------------------')
+            _logger.info(f'[{name}][Kernel: {kernel_name}]')
             kernel_max_trials = math.ceil(max_trials / upper_space_size)
             kernel_best_params = None
             kernel_best_latency = math.inf
@@ -210,15 +217,16 @@ def tune_sparse_module(
                 for i, val in upper_params.items()
             }
             for impl, kernel_space in kernel.get_search_space(fixed_params).items():
-                def try_params(params: Dict[Any, Any]):
+                def try_params(lower_idx: int, params: Dict[Any, Any]):
                     try:
                         kernel.build(impl, params)
                         latency = kernel.test()
                     except AssertionError:
                         latency = math.inf
-                    print(f'{impl}; {list(params.values())} => {latency} ms')
+                    _logger.info(f'{impl} #{lower_idx}: {list(params.values())} => {latency} ms')
                     return latency
-                kernel_tuner = tuner_type(kernel_space, try_params, kernel_max_trials)
+                func = try_params if debug_func is None else debug_func
+                kernel_tuner = tuner_type(kernel_space, func, kernel_max_trials)
                 kernel_tuner.tune()
                 if kernel_tuner.best_result < kernel_best_latency:
                     kernel_best_params = dict(_impl=impl, **kernel_tuner.best_config)
@@ -230,19 +238,26 @@ def tune_sparse_module(
 
     tuner = tuner_type(upper_space, lower_search, upper_space_size)
     tuner.tune()
-    print('============================================================')
+    _logger.info(f'[{name}] Tuning completed.')
     if tuner.best_config is None:
-        print('All trials failed.')
+        _logger.warn(f'[{name}] All trials failed.')
+        return None
     else:
         best_config = lower_params_cache[str(tuner.best_config)]
-        print(f'Best config:\n{best_config}')
+        _logger.info(f'[{name}] Best config:\n{best_config}')
         module.build(best_config, sample_inputs)
+        return best_config
 
 
 def tune_combined_module(
-    module: torch.nn.Module, sample_inputs: List[torch.Tensor],
+    module: torch.nn.Module,
+    sample_inputs: List[torch.Tensor],
     sample_grads: Optional[List[torch.Tensor]] = None,
-    algo: str = 'grid', max_trials: int = sys.maxsize, backward_weight: float = 0
+    algo: str = 'grid',
+    max_trials: int = sys.maxsize,
+    backward_weight: float = 0,
+    debug: bool = False,
+    debug_func: Optional[Callable] = None,
 ):
     sample_inputs_dict = {'root': sample_inputs}
     sample_grads_dict = {'root': sample_grads}
@@ -268,22 +283,33 @@ def tune_combined_module(
             for x in sample_inputs:
                 x.requires_grad = False
 
+    best_configs = {}
+
+    if debug:
+        _logger.setLevel(logging.DEBUG)
+    else:
+        _logger.setLevel(logging.WARNING)
+
     def tune(op: OperatorBase, name: str):
-        tune_sparse_module(
+        best_configs[name] = tune_sparse_module(
             module=op,
+            name=name,
             sample_inputs=sample_inputs_dict[name],
             sample_grads=sample_grads_dict[name] if name in sample_grads_dict else None,
             algo=algo,
             max_trials=max_trials,
             backward_weight=backward_weight,
+            debug_func=debug_func,
         )
 
     iter_sparse_modules(module, 'root', tune)
+    return best_configs
 
 
 def iter_sparse_modules(
-    module: torch.nn.Module, module_name: str,
-    func: Callable[[OperatorBase, str], None]
+    module: torch.nn.Module,
+    module_name: str,
+    func: Callable[[OperatorBase, str], None],
 ):
     if isinstance(module, OperatorBase):
         func(module, module_name)

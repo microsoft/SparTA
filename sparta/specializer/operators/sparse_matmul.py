@@ -6,12 +6,12 @@ from typing import List, Optional
 import torch
 
 from sparta.specializer.operators import OperatorBase
-from sparta.specializer.funtional import SparseBatchMatMulCtx, SparseBatchMatMul
+from sparta.specializer.funtional import SparseBatchMatMulCtx, SparseBatchMatMulFunc
 
 
-class SparseMatMul(OperatorBase):
+class SparseBatchMatMul(OperatorBase):
 
-    __sparse_func__ = SparseBatchMatMul
+    __sparse_func__ = SparseBatchMatMulFunc
 
     def __init__(
         self,

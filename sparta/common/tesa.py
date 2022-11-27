@@ -135,6 +135,7 @@ class BCSR(TeSAConverter):
         return val.reshape(sparse_val.shape)
 
     def sum(self, sparse_val: torch.Tensor, axis: int):
+        # TODO: use CUDA kernel
         sparse_shape = sparse_val.shape
         batch_size = math.prod(sparse_shape[:-1])
         sparse_val = sparse_val.detach().reshape((batch_size, -1, self._BH, self._BW))

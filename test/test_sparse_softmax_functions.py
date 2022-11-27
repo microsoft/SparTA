@@ -5,7 +5,7 @@ import torch
 import pytest
 import numpy as np
 
-from sparta.specializer.funtional import SparseBatchSoftmaxCtx, SparseBatchSoftmax
+from sparta.specializer.funtional import SparseBatchSoftmaxCtx, SparseBatchSoftmaxFunc
 from sparta.testing import block_mask, check, sparse_softmax_forward_reference
 
 
@@ -52,7 +52,7 @@ def test_sparse_softmax_function(compressed: bool):
         target_grad_x = sparse_ctx.get_converter('backward:x', 'x').convert(target_grad_x)
 
     def softmax_forward_backward(x, grad_y):
-        y = SparseBatchSoftmax.apply(sparse_ctx, x)
+        y = SparseBatchSoftmaxFunc.apply(sparse_ctx, x)
         y.backward(grad_y)
         return y, x.grad
 

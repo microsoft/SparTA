@@ -100,7 +100,7 @@ class SparseCtxBase(object):
         return {
             kernel_name: kernel
             for kernel_name, kernel in self._kernels.items()
-            if backward or not kernel_name.startswith('backward')
+            if backward or kernel_name.startswith('forward')
         }
 
     @abc.abstractmethod
@@ -118,7 +118,7 @@ class SparseCtxBase(object):
         return {
             kernel_name: kernel.get_search_space()
             for kernel_name, kernel in self._kernels.items()
-            if backward or not kernel_name.startswith('backward')
+            if backward or kernel_name.startswith('forward')
         }
 
     @abc.abstractmethod

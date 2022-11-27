@@ -151,7 +151,7 @@ class SparseBatchMatMulCtx(SparseCtxBase):
         return self._kernels['forward:C'].dense_func(*args)
 
 
-class SparseBatchMatMul(torch.autograd.Function):
+class SparseBatchMatMulFunc(torch.autograd.Function):
 
     @staticmethod
     def forward(

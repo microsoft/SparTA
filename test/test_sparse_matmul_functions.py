@@ -4,7 +4,7 @@
 import torch
 import pytest
 
-from sparta.specializer.funtional import SparseBatchMatMulCtx, SparseBatchMatMul
+from sparta.specializer.funtional import SparseBatchMatMulCtx, SparseBatchMatMulFunc
 from sparta.testing import block_mask, check
 
 
@@ -101,14 +101,14 @@ def test_sparse_matmul_function(
 
     if biased:
         def matmul_forward_backward(A, B, bias, grad_C):
-            C = SparseBatchMatMul.apply(sparse_ctx, A, B, bias)
+            C = SparseBatchMatMulFunc.apply(sparse_ctx, A, B, bias)
             C.backward(grad_C)
             return C, A.grad, B.grad, bias.grad
         inputs = [A, B, bias, grad_C]
         target_outputs = [target_C, target_grad_A, target_grad_B, target_grad_bias]
     else:
         def matmul_forward_backward(A, B, grad_C):
-            C = SparseBatchMatMul.apply(sparse_ctx, A, B)
+            C = SparseBatchMatMulFunc.apply(sparse_ctx, A, B)
             C.backward(grad_C)
             return C, A.grad, B.grad
         inputs = [A, B, grad_C]
