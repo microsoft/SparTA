@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Tuple, Callable, Optional
 import torch
 import jinja2
 
-from sparta.common.tesa import BCSRH, BCSRV
+from sparta.common.tesa import BCSR, BCSC
 from sparta.common.tuning import TunableItemCfg
 from sparta.specializer.kernels import KernelBase, PortConfig
 
@@ -55,7 +55,7 @@ class SparseMatMulKernel(KernelBase):
     def __init__(
         self, mode: str, dtype: str = 'float', biased: bool = True, 
         transpose_A: bool = False, transpose_B: bool = True, 
-        compressed: bool = True, bcsr_main: Optional[str] = None
+        compressed: bool = True, bcs_mode: Optional[str] = None
     ):
         if mode not in ['sdd', 'dsd', 'dds']:
             raise ValueError(f'invalid sparse type: {mode}')
@@ -63,7 +63,7 @@ class SparseMatMulKernel(KernelBase):
         self._transpose_A = transpose_A
         self._transpose_B = transpose_B
         self._compressed = compressed
-        self._bcsr_main = bcsr_main
+        self._bcs_mode = bcs_mode
         self._mode = mode
         self._dtype = dtype
         super().__init__()
@@ -82,23 +82,23 @@ class SparseMatMulKernel(KernelBase):
             sparse_port_name = 'A'
             if self._transpose_A:
                 tesa_params = shape_to_params('K', 'M')
-                real_tesa_type = BCSRV
+                real_tesa_type = BCSC
             else:
                 tesa_params = shape_to_params('M', 'K')
-                real_tesa_type = BCSRH
+                real_tesa_type = BCSR
         elif self._mode == 'dsd':
             sparse_port_name = 'B'
             if self._transpose_B:
                 tesa_params = shape_to_params('N', 'K')
-                real_tesa_type = BCSRH
+                real_tesa_type = BCSR
             else:
                 tesa_params = shape_to_params('K', 'N')
-                real_tesa_type = BCSRV
+                real_tesa_type = BCSC
         elif self._mode == 'dds':
             sparse_port_name = 'C'
             tesa_params = shape_to_params('M', 'N')
-            real_tesa_type = {'H': BCSRH, 'V': BCSRV, None: BCSRH}[self._bcsr_main]
-        tesa_type = {'H': BCSRH, 'V': BCSRV, None: real_tesa_type}[self._bcsr_main]
+            real_tesa_type = {'BCSR': BCSR, 'BCSC': BCSC, None: BCSR}[self._bcs_mode]
+        tesa_type = {'BCSR': BCSR, 'BCSC': BCSC, None: real_tesa_type}[self._bcs_mode]
         self.ports[sparse_port_name].set_tesa(tesa_type, tesa_params, real_tesa_type)
 
     def _add_parameters(self):
@@ -159,11 +159,11 @@ class SparseMatMulKernel(KernelBase):
         tesa_vars = converter.get_attrs(tesa_attrs)
         reorder_func = None
         if self._compressed:
-            H_to_V = converter.reorder_H_to_V
-            V_to_H = converter.reorder_V_to_H
-            if sparse_port.real_tesa_type is BCSRH and sparse_port.tesa_type is BCSRV:
+            H_to_V = converter.reorder_BCSR_to_BCSC
+            V_to_H = converter.reorder_BCSC_to_BCSR
+            if sparse_port.real_tesa_type is BCSR and sparse_port.tesa_type is BCSC:
                 reorder_func = H_to_V if self._mode == 'dds' else V_to_H
-            elif sparse_port.real_tesa_type is BCSRV and sparse_port.tesa_type is BCSRH:
+            elif sparse_port.real_tesa_type is BCSC and sparse_port.tesa_type is BCSR:
                 reorder_func = V_to_H if self._mode == 'dds' else H_to_V
         return get_matmul_func_call(
             func=kernel_func_call,
@@ -183,10 +183,10 @@ class SparseMatMulKernel(KernelBase):
             converter = self.get_converter(sparse_tensor)
             sparse_port = self.ports[sparse_tensor]
             data[sparse_tensor] = converter.convert(data[sparse_tensor])
-            if sparse_port.real_tesa_type is BCSRH and sparse_port.tesa_type is BCSRV:
-                data[sparse_tensor] = converter.reorder_H_to_V(data[sparse_tensor])
-            elif sparse_port.real_tesa_type is BCSRV and sparse_port.tesa_type is BCSRH:
-                data[sparse_tensor] = converter.reorder_V_to_H(data[sparse_tensor])
+            if sparse_port.real_tesa_type is BCSR and sparse_port.tesa_type is BCSC:
+                data[sparse_tensor] = converter.reorder_BCSR_to_BCSC(data[sparse_tensor])
+            elif sparse_port.real_tesa_type is BCSC and sparse_port.tesa_type is BCSR:
+                data[sparse_tensor] = converter.reorder_BCSC_to_BCSR(data[sparse_tensor])
             inputs[0], inputs[1], outputs[0] = data['A'], data['B'], data['C']
 
     def reference_matmul(self, A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:

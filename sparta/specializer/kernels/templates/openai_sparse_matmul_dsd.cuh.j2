@@ -37,10 +37,10 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
     description:
     tiling k dimension
     tile size: 32x64x32
-    smm_sd_d_nn: sparse matmul, dense (MxK, along K) x sparse (NxK, along K, K major bcsr) -> dense (MxN, along N)
-    smm_sd_d_nt: sparse matmul, dense (MxK, along K) x sparse (KxN, along N, K major bcsr, need TRANSPOSE_B) -> dense (MxN, along N)
-    smm_sd_d_tn: sparse matmul, dense (KxM, along M, need TRANSPOSE_A) x sparse (NxK, along K, K major bcsr) -> dense (MxN, along N)
-    smm_sd_d_tt: sparse matmul, dense (KxM, along M, need TRANSPOSE_A) x sparse (KxN, along N, K major bcsr, need TRANSPOSE_B) -> dense (MxN, along N)
+    smm_sd_d_nn: sparse matmul, dense (MxK, along K) x sparse (NxK, along K, K major bcs) -> dense (MxN, along N)
+    smm_sd_d_nt: sparse matmul, dense (MxK, along K) x sparse (KxN, along N, K major bcs, need TRANSPOSE_B) -> dense (MxN, along N)
+    smm_sd_d_tn: sparse matmul, dense (KxM, along M, need TRANSPOSE_A) x sparse (NxK, along K, K major bcs) -> dense (MxN, along N)
+    smm_sd_d_tt: sparse matmul, dense (KxM, along M, need TRANSPOSE_A) x sparse (KxN, along N, K major bcs, need TRANSPOSE_B) -> dense (MxN, along N)
     dense matrix X block sparse matrix (block size: 64x32) -> dense matrix
     */
     const int BLOCK_SIZE_M = 32;  // 64
@@ -135,22 +135,22 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
     // by means in index of this thread block on M dimonsion
     // index_start and index_end is block index on column
     int index_start = B_block_ptr[bx], index_end = B_block_ptr[bx+1];
-    for (int bcsr_row_idx = index_start; bcsr_row_idx < index_end; bcsr_row_idx += 1)
+    for (int bcs_row_idx = index_start; bcs_row_idx < index_end; bcs_row_idx += 1)
     {
         {% if TRANSPOSE_A %}
-        uint offsetA00 = ori_offsetA00 + 64 * B_block_idx[bcsr_row_idx] * M;
-        uint offsetA16 = ori_offsetA16 + 64 * B_block_idx[bcsr_row_idx] * M;
+        uint offsetA00 = ori_offsetA00 + 64 * B_block_idx[bcs_row_idx] * M;
+        uint offsetA16 = ori_offsetA16 + 64 * B_block_idx[bcs_row_idx] * M;
         {% else %}
-        uint offsetA00 = ori_offsetA00 + 64 * B_block_idx[bcsr_row_idx];
-        uint offsetA16 = ori_offsetA16 + 64 * B_block_idx[bcsr_row_idx];
+        uint offsetA00 = ori_offsetA00 + 64 * B_block_idx[bcs_row_idx];
+        uint offsetA16 = ori_offsetA16 + 64 * B_block_idx[bcs_row_idx];
         {% endif %}
         {% if not COMPRESSED %}
             {% if TRANSPOSE_B %}
-        uint offsetB00 = ori_offsetB00 + 64 * B_block_idx[bcsr_row_idx];
-        uint offsetB16 = ori_offsetB16 + 64 * B_block_idx[bcsr_row_idx];
+        uint offsetB00 = ori_offsetB00 + 64 * B_block_idx[bcs_row_idx];
+        uint offsetB16 = ori_offsetB16 + 64 * B_block_idx[bcs_row_idx];
             {% else %}
-        uint offsetB00 = ori_offsetB00 + 64 * B_block_idx[bcsr_row_idx] * N;
-        uint offsetB16 = ori_offsetB16 + 64 * B_block_idx[bcsr_row_idx] * N;
+        uint offsetB00 = ori_offsetB00 + 64 * B_block_idx[bcs_row_idx] * N;
+        uint offsetB16 = ori_offsetB16 + 64 * B_block_idx[bcs_row_idx] * N;
             {% endif %}
         {% endif %}
 

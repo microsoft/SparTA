@@ -46,7 +46,7 @@ class TeSAConverter(Callable):
         return self
 
 
-class BCSR(TeSAConverter):
+class BCS(TeSAConverter):
 
     def __init__(self, mask: torch.Tensor, block_size: Tuple[int, int], device: Any = 'cuda'):
         super().__init__()
@@ -120,14 +120,14 @@ class BCSR(TeSAConverter):
                 dense[batch, block_start_i:block_end_i, block_start_j:block_end_j] = block
         return dense.contiguous()
 
-    def reorder_H_to_V(self, sparse_val: torch.Tensor):
+    def reorder_BCSR_to_BCSC(self, sparse_val: torch.Tensor):
         # TODO: use CUDA kernel
         batch_size = math.prod(sparse_val.shape[:-1])
         val = sparse_val.reshape((batch_size, -1, self._block_size))
         val = val[:, self._V_order, :].contiguous()
         return val.reshape(sparse_val.shape)
 
-    def reorder_V_to_H(self, sparse_val: torch.Tensor):
+    def reorder_BCSC_to_BCSR(self, sparse_val: torch.Tensor):
         # TODO: use CUDA kernel
         batch_size = math.prod(sparse_val.shape[:-1])
         val = sparse_val.reshape((batch_size, -1, self._block_size))
@@ -158,7 +158,7 @@ class BCSR(TeSAConverter):
         return sum_val
 
 
-class BCSRH(BCSR):
+class BCSR(BCS):
 
     def read_block_mask(self, block_mask: torch.Tensor):
         row_idx, col_idx, row_ptr, col_ptr = [], [], [0], []
@@ -172,7 +172,7 @@ class BCSRH(BCSR):
         return row_idx, col_idx, row_ptr, col_ptr, nnz
 
 
-class BCSRV(BCSR):
+class BCSC(BCS):
 
     def read_block_mask(self, block_mask: torch.Tensor):
         row_idx, col_idx, row_ptr, col_ptr = [], [], [], [0]

@@ -14,7 +14,7 @@ if __env_ready__:
     import pycuda.autoprimaryctx
     from pycuda.compiler import SourceModule
 
-from sparta.common.tesa import TeSAConverter, BCSR
+from sparta.common.tesa import TeSAConverter, BCS
 from sparta.common.tuning import TunableItemCfg
 from sparta.testing import profile
 
@@ -70,7 +70,7 @@ class PortConfig(object):
             if any([val is None for val in tesa_config]):
                 return
             if self._tesa_config is not None:
-                if all([a != b for a, b in zip(tesa_config, self._tesa_config)]):
+                if all([a == b for a, b in zip(tesa_config, self._tesa_config)]):
                     return
             self._tesa_config = tesa_config
             self._update_converter()
@@ -78,7 +78,7 @@ class PortConfig(object):
     def _update_converter(self):
         if self._tesa_config is not None and self.mask is not None:
             if self.real_tesa_type is not None:
-                if issubclass(self.real_tesa_type, BCSR):
+                if issubclass(self.real_tesa_type, BCS):
                     BH, BW = self._tesa_config
                     converter = self.real_tesa_type(
                         mask=self.mask,

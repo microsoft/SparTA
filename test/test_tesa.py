@@ -5,9 +5,9 @@ from typing import Tuple
 
 import torch
 import pytest
-from scipy.sparse import bsr_matrix
+from scipy.sparse import bsr_matrix, csr_matrix, csc_matrix
 
-from sparta.common.tesa import BCSRH, BCSRV
+from sparta.common.tesa import BCSR, BCSC
 from sparta.testing import block_mask
 
 
@@ -22,8 +22,8 @@ def test_bcsr(
     torch.manual_seed(random_seed)
     mask = block_mask(shape, data_block_size, data_sparsity, device='cpu')
     data = torch.rand((batch_size, ) + shape, device='cpu') * mask
-    bcsrh = BCSRH(mask, tesa_block_size, device='cpu')
-    bcsrv = BCSRV(mask, tesa_block_size, device='cpu')
+    bcsrh = BCSR(mask, tesa_block_size, device='cpu')
+    bcsrv = BCSC(mask, tesa_block_size, device='cpu')
 
     # Test BCSRH convert function
     row_ptr = bcsrh.get_attr('row_ptr').numpy()
@@ -46,8 +46,8 @@ def test_bcsr(
     torch.testing.assert_close(data, bcsrv.inverse(sparse_val_v))
 
     # Test reorder functions
-    torch.testing.assert_close(sparse_val_v, bcsrh.reorder_H_to_V(sparse_val_h))
-    torch.testing.assert_close(sparse_val_h, bcsrv.reorder_V_to_H(sparse_val_v))
+    torch.testing.assert_close(sparse_val_v, bcsrh.reorder_BCSR_to_BCSC(sparse_val_h))
+    torch.testing.assert_close(sparse_val_h, bcsrv.reorder_BCSC_to_BCSR(sparse_val_v))
 
     # Test sum function
     torch.testing.assert_close(data.sum(-1), bcsrh.sum(sparse_val_h, axis=-1))

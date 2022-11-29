@@ -39,11 +39,11 @@ class SparseBatchMatMulCtx(SparseCtxBase):
 
         sparse_tensor = select('s', mode, 'ABC')
         if sparse_tensor == 'A' and transpose_A:
-            bcsr_main = 'V'
+            bcs_mode = 'BCSC'
         elif sparse_tensor == 'B' and not transpose_B:
-            bcsr_main = 'V'
+            bcs_mode = 'BCSC'
         else:
-            bcsr_main = 'H'
+            bcs_mode = 'BCSR'
 
         self._tesa_shapes: Dict[str, Tuple[str, str]] = {}
         for kernel_name, bias, target_order, trans_A, trans_B in zip(
@@ -62,7 +62,7 @@ class SparseBatchMatMulCtx(SparseCtxBase):
                 },
                 args={
                     'biased': bias,
-                    'bcsr_main': bcsr_main,
+                    'bcs_mode': bcs_mode,
                     'compressed': compressed,
                     'transpose_A': trans_A,
                     'transpose_B': trans_B,

@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Tuple, Callable
 import torch
 import jinja2
 
-from sparta.common.tesa import BCSRH
+from sparta.common.tesa import BCSR
 from sparta.common.tuning import TunableItemCfg
 from sparta.specializer.kernels import KernelBase, PortConfig
 from sparta.testing import sparse_softmax_forward_reference, sparse_softmax_backward_reference
@@ -25,7 +25,7 @@ class SparseSoftmaxKernel(KernelBase):
 
     def _set_ports(self):
         for port in self.ports.values():
-            port.set_tesa(BCSRH, ['BLOCK_SIZE_H_VALUE', 'BLOCK_SIZE_W_VALUE'])
+            port.set_tesa(BCSR, ['BLOCK_SIZE_H_VALUE', 'BLOCK_SIZE_W_VALUE'])
 
     def _add_parameters(self):
         self._add_parameter('BATCH_SIZE')
