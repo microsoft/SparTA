@@ -159,12 +159,12 @@ class SparseMatMulKernel(KernelBase):
         tesa_vars = converter.get_attrs(tesa_attrs)
         reorder_func = None
         if self._compressed:
-            H_to_V = converter.reorder_BCSR_to_BCSC
-            V_to_H = converter.reorder_BCSC_to_BCSR
+            R_to_C = converter.reorder_BCSR_to_BCSC
+            C_to_R = converter.reorder_BCSC_to_BCSR
             if sparse_port.real_tesa_type is BCSR and sparse_port.tesa_type is BCSC:
-                reorder_func = H_to_V if self._mode == 'dds' else V_to_H
+                reorder_func = R_to_C if self._mode == 'dds' else C_to_R
             elif sparse_port.real_tesa_type is BCSC and sparse_port.tesa_type is BCSR:
-                reorder_func = V_to_H if self._mode == 'dds' else H_to_V
+                reorder_func = C_to_R if self._mode == 'dds' else R_to_C
         return get_matmul_func_call(
             func=kernel_func_call,
             biased=self._biased,

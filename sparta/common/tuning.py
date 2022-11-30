@@ -9,7 +9,7 @@ from sparta.common.utils import check_type, get_uname
 
 @dataclass
 class TunableItemCfg:
-    '''TunableItemCfg is used to describe the search space
+    """TunableItemCfg is used to describe the search space
     Examples:
 
         .. code-block:: python
@@ -38,7 +38,7 @@ class TunableItemCfg:
         _type (str): paramter type, allowed one of `('choice')`. 
         _value (Dict | List): options for paramter.
         _is_nested (bool): whether this space is nested (default: False). If True, the `_value` should be `Dict[str, Dict[TunableItemCfg]]`
-    '''
+    """
     _type: str  # currently only support ['choice']
     _value: Union[Dict, List]
     _is_nested: Optional[bool] = False
@@ -55,7 +55,7 @@ class TunableItemCfg:
             check_type(self._value, list)
 
     def to_nni_search_space(self):
-        '''convert to nni search space'''
+        """convert to nni search space"""
         if not self._is_nested:
             return {'_type': self._type, '_value': self._value}
         # self._value Dict[str, Dict[TunableItemCfg]]
@@ -75,8 +75,8 @@ class TunableItemCfg:
 
 
 class Tunable:
-    '''The wrapper of NNI tuners that supports nested choice search space.
-    '''
+    """The wrapper of NNI tuners that supports nested choice search space.
+    """
 
     @staticmethod
     def supported_tuners():
@@ -93,7 +93,7 @@ class Tunable:
 
     @staticmethod        
     def create_tuner(algo: str, search_space_cfg: Dict[str, TunableItemCfg], tuner_kw: Dict = None):
-        '''create NNI Tuner
+        """create NNI Tuner
 
         Args:
             algo (str): tuning algorithm, allowed algo values and their corresponding tuners are:
@@ -109,7 +109,7 @@ class Tunable:
             
             search_space_cfg (TunableItemCfg): search space config
             tuner_kw (Dict): parameters passed to NNI tuner
-        '''
+        """
         supported_tuners = Tunable.supported_tuners()
         assert algo in supported_tuners, f'{algo} is not supported'
         tuner_kw = tuner_kw or {}

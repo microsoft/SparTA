@@ -29,7 +29,7 @@ class OperatorBase(torch.nn.Module):
 
     @abc.abstractmethod
     def _read_sample_inputs(self, *args):
-        '''Read missing shape value from sample inputs.'''
+        """Read missing shape value from sample inputs."""
 
     def build(self, params: Dict[str, Any], sample_inputs: List[Any]):
         self._read_sample_inputs(*sample_inputs)
@@ -48,7 +48,7 @@ class OperatorBase(torch.nn.Module):
             return self._raw_module.forward(*args)
 
     def forward(self, *args) -> torch.Tensor:
-        '''Forward function. Calls the corresponding dense operator if not built.'''
+        """Forward function. Calls the corresponding dense operator if not built."""
         warnings.warn('the sparse module is not compiled, using the dense module to forward')
         return self._dense_forward(*args)
 
@@ -65,6 +65,9 @@ class OperatorBase(torch.nn.Module):
 
     def get_connections(self, backward: bool = False):
         return self._sparse_ctx.get_connections(backward)
+
+    def get_converter(self, kernel_name: str, tensor_name: str):
+        return self._sparse_ctx.get_converter(kernel_name, tensor_name)
 
     def get_kernel_placeholders(self, backward: bool = False):
         return self._sparse_ctx.get_kernel_placeholders(backward)

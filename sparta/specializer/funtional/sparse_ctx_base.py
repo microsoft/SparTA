@@ -81,7 +81,7 @@ class SparseCtxBase(object):
 
     @abc.abstractmethod
     def set_shape(self, *args, **kwargs):
-        '''Set shape parameters.'''
+        """Set shape parameters."""
 
     def set_masks(self, masks: Dict[str, torch.Tensor]):
         for kernel in self._kernels.values():
@@ -108,11 +108,11 @@ class SparseCtxBase(object):
         self, sample_inputs: List[torch.Tensor],
         sample_grads: Optional[List[torch.Tensor]] = None
     ):
-        '''Set sample inputs and gradients for tuning.'''
+        """Set sample inputs and gradients for tuning."""
 
     @abc.abstractmethod
     def get_connections(self, backward: bool = False) -> List[Dict[str, str]]:
-        '''Get connected params among different kernels.'''
+        """Get connected params among different kernels."""
 
     def get_search_space(self, backward: bool = False):
         return {
@@ -123,4 +123,4 @@ class SparseCtxBase(object):
 
     @abc.abstractmethod
     def dense_forward(self, *args) -> Any:
-        '''Use dense method to forward (requires gradient).'''
+        """Use dense method to forward (requires gradient)."""

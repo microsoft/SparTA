@@ -1,8 +1,6 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-import json
-
 import torch
 import pytest
 
@@ -15,7 +13,11 @@ from sparta.nn import SparseBatchMatMul
 @pytest.mark.parametrize("compressed", [False, True])
 @pytest.mark.parametrize("backward", [False, True])
 def test_sparse_matmul_search_space(
-    mode: str, compressed: bool, trans_A: bool, trans_B: bool, backward: bool
+    mode: str,
+    compressed: bool,
+    trans_A: bool,
+    trans_B: bool,
+    backward: bool,
 ):
     mask = torch.zeros((64, 64), device='cuda')
     sparse_tensor = {'sdd': 'A', 'dsd': 'B', 'dds': 'C'}[mode]

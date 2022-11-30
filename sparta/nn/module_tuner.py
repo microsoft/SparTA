@@ -26,7 +26,7 @@ _logger.addHandler(_handler)
 #     algo: str = 'grid', max_trials: int = sys.maxsize, backward_weight: float = 0,
 #     tester_kw: Dict = None, build_kw: Dict = None, tuner_kw: Dict = None, verbose: bool = False
 # ):
-#     '''Find, tune and build all sparse operators in the model.
+#     """Find, tune and build all sparse operators in the model.
 
 #     Args:
 #         module (torch.nn.Module): A PyTorch module that contains one or more sparse sub-modules.
@@ -36,12 +36,12 @@ _logger.addHandler(_handler)
 #         tester_kw: (Dict, optional): The keyword arguments for the tester. Defaults to None.
 #         build_kw: (Dict, optional): The keyword arguments for the builder (after tuning). Defaults to None.
 #         tuner_kw: (Dict, optional): The keyword arguments for the tuner. Defaults to None.
-#     '''
+#     """
 #     from nni import NoMoreTrialError
 
 #     @dataclass
 #     class _TuningContext:
-#         '''Context for tuning.'''
+#         """Context for tuning."""
 #         module_dict: Dict[str, OperatorBase] = field(default_factory=dict)
 #         space_dict: Dict[str, TunableItemCfg] = field(default_factory=dict)
 #         input_dict: Dict[str, list] = field(default_factory=dict)
@@ -49,7 +49,7 @@ _logger.addHandler(_handler)
 #         best_params: Dict = None
 
 #         def add(self, name, module, space, inputs):
-#             '''Add a module to the context.'''
+#             """Add a module to the context."""
 #             _logger.info(f'tunable operator deduced {type(module)} {name} ')
 #             self.module_dict[name] = module
 #             self.space_dict[name] = space
@@ -118,7 +118,7 @@ class Tuner(object):
 
     @abc.abstractmethod
     def next_config(self) -> Iterator[Dict[str, Any]]:
-        '''Yields the next config.'''
+        """Yields the next config."""
 
     def tune(self):
         for i, config in zip(range(self._max_trials), self.next_config()):
@@ -319,7 +319,7 @@ def iter_sparse_modules(
 
 
 def get_input_hook(input_dict: Dict[str, List], module_name: str):
-    '''Create a hook to capture the input tensor(s) and save to a dictionary
+    """Create a hook to capture the input tensor(s) and save to a dictionary
 
     Args:
         input_dict (Dict): The dictionary to save input tensor(s).
@@ -327,7 +327,7 @@ def get_input_hook(input_dict: Dict[str, List], module_name: str):
 
     Returns:
         Callable: The input hook function.
-    '''
+    """
     def input_hook(module, fea_in, fea_out):
         input_dict[module_name] = list(fea_in)
 
@@ -335,7 +335,7 @@ def get_input_hook(input_dict: Dict[str, List], module_name: str):
 
 
 def get_grad_hook(grad_dict: Dict[str, List], module_name: str):
-    '''Create a hook to capture the grad tensor(s) and save to a dictionary
+    """Create a hook to capture the grad tensor(s) and save to a dictionary
 
     Args:
         grad_dict (Dict): The dictionary to save grad tensor(s).
@@ -343,7 +343,7 @@ def get_grad_hook(grad_dict: Dict[str, List], module_name: str):
 
     Returns:
         Callable: The grad hook function.
-    '''
+    """
     def grad_hook(module, grad_input, grad_output):
         grad_dict[module_name] = list(grad_output)
 

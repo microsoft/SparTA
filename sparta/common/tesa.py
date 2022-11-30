@@ -27,15 +27,15 @@ class TeSAConverter(Callable):
 
     @abc.abstractmethod
     def convert(self, dense: torch.Tensor) -> torch.Tensor:
-        '''Convert dense tensor to compressed sparse value.'''
+        """Convert dense tensor to compressed sparse value."""
 
     @abc.abstractmethod
     def inverse(self, sparse_val: torch.Tensor) -> torch.Tensor:
-        '''Inversely convert compressed sparse value to dense tensor.'''
+        """Inversely convert compressed sparse value to dense tensor."""
 
     @abc.abstractmethod
     def get_mask(self) -> torch.Tensor:
-        '''Get the mask actually used.'''
+        """Get the mask actually used."""
 
     def __call__(self, dense: torch.Tensor) -> torch.Tensor:
         return self.convert(dense)
@@ -82,7 +82,7 @@ class BCS(TeSAConverter):
     def read_block_mask(
         self, block_mask: torch.Tensor
     ) -> Tuple[List[int], List[int], List[int], List[int], List[int]]:
-        '''Convert block mask to BCSR parameters.'''
+        """Convert block mask to BCSR parameters."""
 
     def convert(self, dense: torch.Tensor):
         # TODO: use CUDA kernel

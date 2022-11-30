@@ -10,7 +10,7 @@ def profile(
     func: Callable, inputs: List, target_outputs: Optional[List] = None,
     num_warmups: int = 10, num_iters: int = 10, cuda: bool = False
 ) -> float:
-    '''Test latency of a CUDA function.
+    """Test latency of a CUDA function.
 
     Args:
         func (Callable): A function that runs on CUDA GPUs.
@@ -22,7 +22,7 @@ def profile(
 
     Returns:
         float: latency in milliseconds.
-    '''
+    """
     try:
         if target_outputs is not None:
             check(func, inputs, target_outputs)
@@ -54,13 +54,13 @@ def profile(
 
 
 def check(func: Callable, inputs: List, target_outputs: List):
-    '''Test correctness of a CUDA function.
+    """Test correctness of a CUDA function.
 
     Args:
         func (Callable): A function that runs on CUDA GPUs.
         inputs (list): Input variables (tensors).
         target_outputs (list): Target output variables (tensors).
-    '''
+    """
     outputs = func(*inputs)
     if len(target_outputs) == 1:
         outputs = [outputs]

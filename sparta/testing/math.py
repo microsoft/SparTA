@@ -8,7 +8,7 @@ import numpy as np
 def sparse_softmax_forward_reference(
     x: torch.Tensor, mask: torch.Tensor, temperature: float = 1.
 ) -> torch.Tensor:
-    '''Sparse softmax reference function. Masked input values are treated as negative infinity.
+    """Sparse softmax reference function. Masked input values are treated as negative infinity.
 
     Args:
         x (torch.Tensor): The input tensor. We will calculate softmax along the last axis.
@@ -18,7 +18,7 @@ def sparse_softmax_forward_reference(
     Returns:
         torch.Tensor: The output tensor having the same shape with the input tensor. Notice that
             the return value on completely masked rows will be 0.
-    '''
+    """
     C_max = x.max(axis=-1).values.unsqueeze(-1)
     C_exp = torch.exp((x - C_max) / temperature) * mask
     C_exp_sum = C_exp.sum(axis=-1).unsqueeze(-1) + 1e-10
@@ -28,7 +28,7 @@ def sparse_softmax_forward_reference(
 def sparse_softmax_backward_reference(
     grad: torch.Tensor, output: torch.Tensor, mask: torch.Tensor, temperature: float = 1.
 ) -> torch.Tensor:
-    '''Sparse softmax backward reference function.
+    """Sparse softmax backward reference function.
 
     Args:
         grad (torch.Tensor): The gradient of output tensor.
@@ -38,7 +38,7 @@ def sparse_softmax_backward_reference(
 
     Returns:
         torch.Tensor: The gradient of input tensor. The return value on masked positions will be 0.
-    '''
+    """
     masked_output = output * mask
     C_prod = grad * masked_output
     C_sum = C_prod.sum(axis=-1).unsqueeze(-1)

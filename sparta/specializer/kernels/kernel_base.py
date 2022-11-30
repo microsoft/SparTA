@@ -120,11 +120,11 @@ class KernelBase(Callable):
 
     @abc.abstractmethod
     def _set_ports(self):
-        '''Set input and output ports.'''
+        """Set input and output ports."""
 
     @abc.abstractmethod
     def _add_parameters(self):
-        '''Add kernel-specialized parameters.'''
+        """Add kernel-specialized parameters."""
     
     def _add_parameter(
         self, name: str, value: Any = None, is_tunable: bool = False, is_dynamic: bool = False,
@@ -194,27 +194,27 @@ class KernelBase(Callable):
 
     @abc.abstractmethod
     def set_shape(self, *args, **kwargs):
-        '''Set shape parameters.'''
+        """Set shape parameters."""
 
     @abc.abstractmethod
     def get_kernel_code(self) -> str:
-        '''Get CUDA code of the kernel.'''
+        """Get CUDA code of the kernel."""
 
     @abc.abstractmethod
     def blocks_per_grid(self: int) -> Tuple[int]:
-        '''Get launch config: number of blocks per grid.'''
+        """Get launch config: number of blocks per grid."""
 
     @abc.abstractmethod
     def threads_per_block(self) -> Tuple[int]:
-        '''Get launch config: number of threads per block.'''
+        """Get launch config: number of threads per block."""
 
     @abc.abstractmethod
     def _check_parameters(self, params: Dict[str, Any]):
-        '''Raise an error if the input paramater dict is invalid.'''
+        """Raise an error if the input paramater dict is invalid."""
 
     @abc.abstractmethod
     def _set_func_call(self, kernel_func_call: Callable) -> Callable:
-        '''Convert python function call to pycuda kernel function call.'''
+        """Convert python function call to pycuda kernel function call."""
 
     def compile(self, params: Dict[str, Any]):
         self._check_parameters(params)
@@ -232,17 +232,17 @@ class KernelBase(Callable):
 
     @abc.abstractmethod
     def reference(self, *args) -> Any:
-        '''Dense reference. Note that all inputs and outputs are dense tensors here.'''
+        """Dense reference. Note that all inputs and outputs are dense tensors here."""
 
     @abc.abstractmethod
     def _convert_data(self, inputs: List[torch.Tensor], outputs: List[torch.Tensor]):
-        '''Convert sample inputs and target outputs to sparse tenors in place if necessary.'''
+        """Convert sample inputs and target outputs to sparse tenors in place if necessary."""
 
     def test(
         self, inputs: List[torch.Tensor],
         num_warmups: int = 10, num_iters: int = 10, cuda: bool = True
     ):
-        '''Note that all inputs and outputs are dense tensors here.'''
+        """Note that all inputs and outputs are dense tensors here."""
         sparse_inputs = [x for x in inputs]
         sparse_outputs = self.reference(*sparse_inputs)
         if type(sparse_outputs) is not tuple:
