@@ -12,7 +12,7 @@ from sparta.common.tuning import TunableItemCfg
 from sparta.specializer.kernels import KernelBase, PortConfig
 
 
-TEMPLATE_DIR = os.path.join(os.path.split(os.path.realpath(__file__))[0], 'templates')
+TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'templates')
 
 
 def get_matmul_func_call(

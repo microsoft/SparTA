@@ -13,7 +13,7 @@ from sparta.specializer.kernels import KernelBase, PortConfig
 from sparta.testing import sparse_softmax_forward_reference, sparse_softmax_backward_reference
 
 
-TEMPLATE_DIR = os.path.join(os.path.split(os.path.realpath(__file__))[0], 'templates')
+TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'templates')
 
 
 class SparseSoftmaxKernel(KernelBase):
