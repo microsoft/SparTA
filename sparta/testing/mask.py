@@ -7,8 +7,11 @@ import torch
 
 
 def block_mask(
-    shape: Tuple[int], block: Tuple[int] = (1, 1),
-    sparsity: float = 0.99, algo: str = 'rand', device: Any = 'cuda'
+    shape: Tuple[int],
+    block: Tuple[int] = (1, 1),
+    sparsity: float = 0.99,
+    algo: str = 'rand',
+    device: Any = 'cuda',
 ):
     """Generate a 2D bool tensor as block mask.
 
@@ -29,7 +32,10 @@ def block_mask(
 
 
 def random_block_mask(
-    shape: Tuple[int], block: Tuple[int], sparsity: float = 0.99, device: Any = 'cuda'
+    shape: Tuple[int],
+    block: Tuple[int],
+    sparsity: float = 0.99,
+    device: Any = 'cuda',
 ):
     """Randomly generate a 2D bool tensor as block mask.
 

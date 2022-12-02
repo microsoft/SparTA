@@ -15,8 +15,11 @@ class SparseLinear(OperatorBase):
     __sparse_func__ = SparseBatchMatMulFunc
 
     def __init__(
-        self, raw_module: torch.nn.Linear, input_mask: Optional[torch.Tensor] = None,
-        weight_mask: Optional[torch.Tensor] = None, output_mask: Optional[torch.Tensor] = None
+        self,
+        raw_module: torch.nn.Linear,
+        input_mask: Optional[torch.Tensor] = None,
+        weight_mask: Optional[torch.Tensor] = None,
+        output_mask: Optional[torch.Tensor] = None,
     ):
         super().__init__(raw_module)
 
@@ -73,8 +76,9 @@ class SparseLinear(OperatorBase):
         return self.__sparse_func__.apply(*inputs).squeeze(0)
 
     def set_sample_inputs(
-        self, sample_inputs: List[torch.Tensor],
-        sample_grads: Optional[List[torch.Tensor]] = None
+        self,
+        sample_inputs: List[torch.Tensor],
+        sample_grads: Optional[List[torch.Tensor]] = None,
     ):
         self._read_sample_inputs(*sample_inputs)
         self._sparse_ctx.set_shape(**self._shape)

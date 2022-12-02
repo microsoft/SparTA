@@ -58,8 +58,9 @@ class SparseBatchSoftmaxCtx(SparseCtxBase):
             self.backward = lambda grad, output: backward_kernel(grad, output, self._T)
 
     def set_sample_inputs(
-        self, sample_inputs: List[torch.Tensor],
-        sample_grads: Optional[List[torch.Tensor]] = None
+        self,
+        sample_inputs: List[torch.Tensor],
+        sample_grads: Optional[List[torch.Tensor]] = None,
     ):
         x = sample_inputs[0]
         self._kernels['forward:y'].set_sample_inputs([x, self._T])
@@ -86,7 +87,8 @@ class SparseBatchSoftmaxFunc(torch.autograd.Function):
     @staticmethod
     def forward(
         ctx: torch.autograd.function.FunctionCtx,
-        sparta_ctx: SparseBatchSoftmaxCtx, x: torch.Tensor
+        sparta_ctx: SparseBatchSoftmaxCtx,
+        x: torch.Tensor,
     ):
         ctx.sparta_ctx = sparta_ctx
         output = sparta_ctx.forward(x.detach())

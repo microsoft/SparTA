@@ -48,8 +48,9 @@ class PortConfig(object):
         self.converter: Optional[TeSAConverter] = None
 
     def set_tesa(
-        self, tesa_type: Type[TeSAConverter], tesa_params: List[str],
-        real_tesa_type: Type[TeSAConverter] = None
+        self,
+        tesa_type: Type[TeSAConverter], tesa_params: List[str],
+        real_tesa_type: Type[TeSAConverter] = None,
     ):
         self.tesa_type = tesa_type
         self._tesa_params = tesa_params
@@ -127,8 +128,12 @@ class KernelBase(Callable):
         """Add kernel-specialized parameters."""
     
     def _add_parameter(
-        self, name: str, value: Any = None, is_tunable: bool = False, is_dynamic: bool = False,
-        search_space: Optional[List[Any]] = None
+        self,
+        name: str,
+        value: Any = None,
+        is_tunable: bool = False,
+        is_dynamic: bool = False,
+        search_space: Optional[List[Any]] = None,
     ):
         self._parameters[name] = _Parameter(name, value, is_tunable, is_dynamic, search_space)
 
@@ -239,8 +244,11 @@ class KernelBase(Callable):
         """Convert sample inputs and target outputs to sparse tenors in place if necessary."""
 
     def test(
-        self, inputs: List[torch.Tensor],
-        num_warmups: int = 10, num_iters: int = 10, cuda: bool = True
+        self,
+        inputs: List[torch.Tensor],
+        num_warmups: int = 10,
+        num_iters: int = 10,
+        cuda: bool = True,
     ):
         """Note that all inputs and outputs are dense tensors here."""
         sparse_inputs = [x for x in inputs]

@@ -16,8 +16,13 @@ TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'templa
 
 
 def get_matmul_func_call(
-    func: Callable, biased: bool, C_shape: Tuple, tesa_vars: List[torch.Tensor],
-    block: Tuple[int, int, int], grid: Tuple[int, int, int], sparse_port: str,
+    func: Callable,
+    biased: bool,
+    C_shape: Tuple,
+    tesa_vars: List[torch.Tensor],
+    block: Tuple[int, int, int],
+    grid: Tuple[int, int, int],
+    sparse_port: str,
     reorder_func: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
 ):
     ptr, idx, nnz = tesa_vars
@@ -53,9 +58,14 @@ def get_matmul_func_call(
 class SparseMatMulKernel(KernelBase):
 
     def __init__(
-        self, mode: str, dtype: str = 'float', biased: bool = True, 
-        transpose_A: bool = False, transpose_B: bool = True, 
-        compressed: bool = True, bcs_mode: Optional[str] = None
+        self,
+        mode: str,
+        dtype: str = 'float',
+        biased: bool = True, 
+        transpose_A: bool = False,
+        transpose_B: bool = True, 
+        compressed: bool = True,
+        bcs_mode: Optional[str] = None,
     ):
         if mode not in ['sdd', 'dsd', 'dds']:
             raise ValueError(f'invalid sparse type: {mode}')
@@ -192,7 +202,7 @@ class SparseMatMulKernel(KernelBase):
     def reference_matmul(self, A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
         A_str = 'bkm' if self._transpose_A else 'bmk'
         B_str = 'bnk' if self._transpose_B else 'bkn'
-        return torch.einsum(f'{A_str}, {B_str} -> bmn', A, B)
+        return torch.einsum(f'{A_str},{B_str}->bmn', A, B)
 
     def reference_bias(self, C: torch.Tensor, bias: torch.Tensor):
         return C + bias.unsqueeze(1)

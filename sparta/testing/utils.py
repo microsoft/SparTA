@@ -7,8 +7,12 @@ import torch
 
 
 def profile(
-    func: Callable, inputs: List, target_outputs: Optional[List] = None,
-    num_warmups: int = 10, num_iters: int = 10, cuda: bool = False
+    func: Callable,
+    inputs: List,
+    target_outputs: Optional[List] = None,
+    num_warmups: int = 10,
+    num_iters: int = 10,
+    cuda: bool = False,
 ) -> float:
     """Test latency of a CUDA function.
 

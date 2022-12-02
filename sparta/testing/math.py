@@ -6,7 +6,9 @@ import numpy as np
 
 
 def sparse_softmax_forward_reference(
-    x: torch.Tensor, mask: torch.Tensor, temperature: float = 1.
+    x: torch.Tensor,
+    mask: torch.Tensor,
+    temperature: float = 1.,
 ) -> torch.Tensor:
     """Sparse softmax reference function. Masked input values are treated as negative infinity.
 
@@ -26,7 +28,10 @@ def sparse_softmax_forward_reference(
 
 
 def sparse_softmax_backward_reference(
-    grad: torch.Tensor, output: torch.Tensor, mask: torch.Tensor, temperature: float = 1.
+    grad: torch.Tensor,
+    output: torch.Tensor,
+    mask: torch.Tensor,
+    temperature: float = 1.,
 ) -> torch.Tensor:
     """Sparse softmax backward reference function.
 
@@ -46,8 +51,25 @@ def sparse_softmax_backward_reference(
 
 
 def sparse_multi_head_attention_reference(
-    q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: torch.Tensor
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    mask: torch.Tensor,
 ) -> torch.Tensor:
-    qk = torch.einsum('bmk, bnk -> bmn', q, k)
-    sm = sparse_softmax_forward_reference(qk, mask, temperature=np.sqrt(q.shape[-1]))
-    return torch.einsum('bmk, bkn -> bmn', sm, v)
+    """Sparse multi-head attention reference function of shape (B * H, Ns, Nt, E).
+    Where B is the batch size, H is the head number, Ns is the sourse sequence length,
+    Nt is the target sequence length, and E is the embed dimention.
+
+    Args:
+        query (torch.Tensor): The input query tensor of shape (B * H, Nt, E).
+        key (torch.Tensor): The input key tensor of shape (B * H, Ns, E).
+        value (torch.Tensor): The input value tensor of shape (B * H, Ns, E).
+        mask (torch.Tensor): The mask tensor of shape (Nt, Ns).
+
+    Returns:
+        torch.Tensor: Sparse multi-head attention output of shape (B * H, Nt, E).
+    """
+    temperature = np.sqrt(query.shape[-1])
+    qk = torch.einsum('bmk,bnk->bmn', query, key)
+    sm = sparse_softmax_forward_reference(qk, mask, temperature)
+    return torch.einsum('bmk,bkn->bmn', sm, value)

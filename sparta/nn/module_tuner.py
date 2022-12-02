@@ -105,9 +105,10 @@ _logger.addHandler(_handler)
 class Tuner(object):
 
     def __init__(
-        self, search_space: Dict[Any, TunableItemCfg],
+        self,
+        search_space: Dict[Any, TunableItemCfg],
         eval_func: Callable[[int, Dict[Any, Any]], float],
-        max_trials: int = sys.maxsize
+        max_trials: int = sys.maxsize,
     ):
         self._search_space = search_space
         self._eval_func = eval_func

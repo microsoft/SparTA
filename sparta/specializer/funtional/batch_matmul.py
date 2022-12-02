@@ -12,8 +12,12 @@ from sparta.specializer.funtional import SparseCtxBase, KernelPlaceholder
 class SparseBatchMatMulCtx(SparseCtxBase):
 
     def __init__(
-        self, mode: str, transpose_A: bool, transpose_B: bool,
-        biased: bool, compressed: bool
+        self,
+        mode: str,
+        transpose_A: bool,
+        transpose_B: bool,
+        biased: bool,
+        compressed: bool,
     ):
         super().__init__()
 
@@ -110,8 +114,9 @@ class SparseBatchMatMulCtx(SparseCtxBase):
                 self.backward_B = lambda grad_C, A: backward_B_kernel(A, grad_C)
 
     def set_sample_inputs(
-        self, sample_inputs: List[torch.Tensor],
-        sample_grads: Optional[List[torch.Tensor]] = None
+        self,
+        sample_inputs: List[torch.Tensor],
+        sample_grads: Optional[List[torch.Tensor]] = None,
     ):
         A = sample_inputs[0]
         B = sample_inputs[1]
@@ -155,8 +160,11 @@ class SparseBatchMatMulFunc(torch.autograd.Function):
 
     @staticmethod
     def forward(
-        ctx: torch.autograd.function.FunctionCtx, sparta_ctx: SparseBatchMatMulCtx,
-        input: torch.Tensor, weight: torch.Tensor, bias: Optional[torch.Tensor] = None
+        ctx: torch.autograd.function.FunctionCtx,
+        sparta_ctx: SparseBatchMatMulCtx,
+        input: torch.Tensor,
+        weight: torch.Tensor,
+        bias: Optional[torch.Tensor] = None,
     ):
         input = input.detach()
         weight = weight.detach()

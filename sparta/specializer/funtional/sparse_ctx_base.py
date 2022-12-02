@@ -12,8 +12,11 @@ from sparta.specializer.kernels import KernelBase
 class KernelPlaceholder(object):
 
     def __init__(
-        self, name: str, impls: Dict[str, Type[KernelBase]],
-        args: Dict[str, Any], mask_map: Dict[str, str]
+        self,
+        name: str,
+        impls: Dict[str, Type[KernelBase]],
+        args: Dict[str, Any],
+        mask_map: Dict[str, str],
     ):
         self.name = name
         self._possible_kernels = {key: impl(**args) for key, impl in impls.items()}
@@ -105,8 +108,9 @@ class SparseCtxBase(object):
 
     @abc.abstractmethod
     def set_sample_inputs(
-        self, sample_inputs: List[torch.Tensor],
-        sample_grads: Optional[List[torch.Tensor]] = None
+        self,
+        sample_inputs: List[torch.Tensor],
+        sample_grads: Optional[List[torch.Tensor]] = None,
     ):
         """Set sample inputs and gradients for tuning."""
 

@@ -79,8 +79,9 @@ class SparseAttention(OperatorBase):
         self.ready = True
 
     def set_sample_inputs(
-        self, sample_inputs: List[torch.Tensor],
-        sample_grads: Optional[List[torch.Tensor]] = None
+        self,
+        sample_inputs: List[torch.Tensor],
+        sample_grads: Optional[List[torch.Tensor]] = None,
     ):
         query, key, value = sample_inputs
 

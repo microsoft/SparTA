@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-from typing import List, Optional
+from typing import Optional
 
 import torch
 
@@ -20,7 +20,7 @@ class SparseBatchMatMul(OperatorBase):
         C_mask: Optional[torch.Tensor] = None,
         transpose_A: bool = False,
         transpose_B: bool = False,
-        compressed: bool = True
+        compressed: bool = True,
     ):
         super().__init__()
 
