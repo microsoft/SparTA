@@ -295,7 +295,6 @@ def test_sparse_linear_operator(
     if mode == 'dsd':
         compress_data(sparse_linear.get_converter('forward:C', 'B'), 'B', data, masks)
 
-
     data['output_C'] = sparse_linear.forward(data['input_A'])
     data['output_C'].backward(data['input_grad_C'])
     data[f'output_grad_A'] = data[f'input_A'].grad

@@ -3,7 +3,6 @@
 
 import abc
 import sys
-import math
 import random
 import logging
 import warnings
@@ -11,6 +10,7 @@ from typing import Any, List, Dict, Callable, Iterator, Optional
 from dataclasses import dataclass, field
 
 import torch
+import numpy as np
 
 from sparta.common.tuning import Tunable, TunableItemCfg
 from sparta.specializer import OperatorBase
@@ -111,9 +111,10 @@ class Tuner(object):
     ):
         self._search_space = search_space
         self._eval_func = eval_func
-        space_size = math.prod([len(param_space._value) for param_space in search_space.values()])
+        space_shape = [len(param_space._value) for param_space in search_space.values()]
+        space_size = int(np.prod(space_shape))
         self._max_trials = min(max_trials, space_size)
-        self.best_result = math.inf
+        self.best_result = np.inf
         self.best_config = None
 
     @abc.abstractmethod
@@ -194,7 +195,8 @@ def tune_sparse_module(
         ])
         for connection in connections
     ]
-    upper_space_size = math.prod([len(param_space) for param_space in upper_space])
+    upper_space_shape = [len(param_space) for param_space in upper_space]
+    upper_space_size = int(np.prod(upper_space_shape))
     upper_space = {
         i: TunableItemCfg('choice', list(param_space))
         for i, param_space in enumerate(upper_space)
@@ -208,9 +210,9 @@ def tune_sparse_module(
         lower_best_latency = 0
         for kernel_name, kernel in module.get_kernel_placeholders(backward_weight > 0).items():
             _logger.info(f'[{name}][Kernel: {kernel_name}]')
-            kernel_max_trials = math.ceil(max_trials / upper_space_size)
+            kernel_max_trials = int(np.ceil(max_trials / upper_space_size))
             kernel_best_params = None
-            kernel_best_latency = math.inf
+            kernel_best_latency = np.inf
             kernel_weight = backward_weight if kernel_name.startswith('backward') else 1
             fixed_params = {
                 connections[i][kernel_name]: val
@@ -222,7 +224,7 @@ def tune_sparse_module(
                         kernel.build(impl, params)
                         latency = kernel.test()
                     except AssertionError:
-                        latency = math.inf
+                        latency = np.inf
                     _logger.info(f'{impl} #{lower_idx}: {list(params.values())} => {latency} ms')
                     return latency
                 func = try_params if debug_func is None else debug_func

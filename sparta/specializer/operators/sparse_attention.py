@@ -3,9 +3,9 @@
 
 from typing import Any, Dict, List, Optional
 import warnings
-import math
 
 import torch
+import numpy as np
 
 from sparta.specializer.operators import OperatorBase, SparseBatchMatMul, SparseSoftmax
 
@@ -23,7 +23,7 @@ class SparseAttention(OperatorBase):
 
     def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor):
         if not self.ready:
-            self._softmax.set_temperature(math.sqrt(query.shape[-1]))
+            self._softmax.set_temperature(np.sqrt(query.shape[-1]))
         qk = self._matmul_qk.forward(query, key)
         sm = self._softmax.forward(qk)
         out = self._matmul_out.forward(sm, value)
@@ -32,11 +32,11 @@ class SparseAttention(OperatorBase):
     def build(self, params: Dict[str, Any], sample_inputs: List[torch.Tensor]):
         query, key, value = sample_inputs
 
-        qB = math.prod(query.shape[:-2])
+        qB = np.prod(query.shape[:-2])
         qN, qE = query.shape[-2:]
-        kB = math.prod(key.shape[:-2])
+        kB = np.prod(key.shape[:-2])
         kN, kE = key.shape[-2:]
-        vB = math.prod(value.shape[:-2])
+        vB = np.prod(value.shape[:-2])
         vN, vE = value.shape[-2:]
         assert qB == kB == vB, f'query, key and value should have the same batch size'
         assert self._Nt == qN, f'expect query shape (?, {self._Nt}, ?), got {query.shape}'
@@ -44,7 +44,7 @@ class SparseAttention(OperatorBase):
         assert self._Ns == vN, f'expect value shape (?, {self._Ns}, ?), got {value.shape}'
         assert qE == kE == vE, f'query, key and value should have the same embed dim'
 
-        self._softmax.set_temperature(math.sqrt(qE))
+        self._softmax.set_temperature(np.sqrt(qE))
 
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')

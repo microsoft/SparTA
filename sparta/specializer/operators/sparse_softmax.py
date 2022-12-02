@@ -2,9 +2,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-import math
-
 import torch
+import numpy as np
 
 from sparta.specializer.operators import OperatorBase
 from sparta.specializer.funtional import SparseBatchSoftmaxCtx, SparseBatchSoftmaxFunc
@@ -33,7 +32,7 @@ class SparseSoftmax(OperatorBase):
             self._dense_forward = self._dense_forward_squeeze
         else:
             assert (H, W) == x.shape[-2:], f'expect input shape (?, {H}, {W}), got {x.shape}'
-            self._shape['batch_size'] = math.prod(x.shape[:-2])
+            self._shape['batch_size'] = int(np.prod(x.shape[:-2]))
 
     def _sparse_forward_squeeze(self, x: torch.Tensor):
         return self.__sparse_func__.apply(self._sparse_ctx, x).squeeze(0)

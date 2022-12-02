@@ -2,7 +2,6 @@
 # Licensed under the MIT license.
 
 import os
-import math
 from typing import Any, Dict, Tuple, Callable
 
 import torch
@@ -139,7 +138,7 @@ def profile_triton_attention(
         block=block_size,
         device=device
     )
-    scale = 1 / math.sqrt(E)
+    scale = 1 / np.sqrt(E)
 
     def triton_attention(query: torch.Tensor,  key: torch.Tensor, value: torch.Tensor):
         w = sparse_dot_sdd_nt(query, key)

@@ -8,4 +8,4 @@ _build
 generated
 tmp_mk_pycodes.py
 test/bench/*/latency.csv
-test/bench/*/img.png
+test/bench/*/latency.png
