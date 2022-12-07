@@ -36,6 +36,7 @@ class OperatorBase(torch.nn.Module):
         self._sparse_ctx.set_shape(**self._shape)
         self._sparse_ctx.build(params)
         self.forward = self._sparse_forward
+        self._raw_module = None
         self.ready = True
 
     def _sparse_forward(self, *args):

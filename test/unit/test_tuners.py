@@ -31,7 +31,7 @@ def debug_tune(
             algo='grid',
             max_trials=sys.maxsize,
             backward_weight=backward_weight,
-            debug=False,
+            verbose=False,
             debug_func=debug_func,
         )
     except AssertionError:

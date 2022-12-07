@@ -2,14 +2,14 @@
 # Licensed under the MIT license.
 
 import os
-from typing import Any, Dict, List, Tuple, Callable
+from typing import Any, Dict, Tuple, Callable
 
 import torch
 import jinja2
 
 from sparta.common.tesa import BCSR
 from sparta.common.tuning import TunableItemCfg
-from sparta.specializer.kernels import KernelBase, PortConfig
+from sparta.specializer.kernels.kernel_base import KernelBase, PortConfig
 from sparta.testing import sparse_softmax_forward_reference, sparse_softmax_backward_reference
 
 

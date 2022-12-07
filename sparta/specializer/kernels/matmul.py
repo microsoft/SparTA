@@ -9,7 +9,7 @@ import jinja2
 
 from sparta.common.tesa import BCSR, BCSC
 from sparta.common.tuning import TunableItemCfg
-from sparta.specializer.kernels import KernelBase, PortConfig
+from sparta.specializer.kernels.kernel_base import KernelBase, PortConfig
 
 
 TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'templates')

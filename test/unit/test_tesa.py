@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-from typing import Tuple
+from typing import Any, Tuple
 
 import torch
 import pytest
@@ -18,12 +18,13 @@ def test_bcsr(
     data_sparsity: float = 0.99,
     tesa_block_size: Tuple[int, int] = (32, 16),
     random_seed: int = 2022,
+    device: Any = 'cpu',
 ):
     torch.manual_seed(random_seed)
-    mask = block_mask(shape, data_block_size, data_sparsity, device='cpu')
-    data = torch.rand((batch_size, ) + shape, device='cpu') * mask
-    bcsr = BCSR(mask, tesa_block_size, device='cpu')
-    bcsc = BCSC(mask, tesa_block_size, device='cpu')
+    mask = block_mask(shape, data_block_size, data_sparsity, device=device)
+    data = torch.rand((batch_size, ) + shape, device=device) * mask
+    bcsr = BCSR(mask, tesa_block_size, device=device)
+    bcsc = BCSC(mask, tesa_block_size, device=device)
 
     # Test BCSRH convert function
     row_ptr = bcsr.get_attr('row_ptr').numpy()

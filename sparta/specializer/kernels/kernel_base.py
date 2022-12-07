@@ -1,6 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
+from __future__ import annotations
+
 import abc
 import warnings
 import dataclasses
@@ -97,7 +99,7 @@ class PortConfig(object):
             for child in self.children:
                 child.converter = converter
 
-    def connect(self, port: 'PortConfig'):
+    def connect(self, port: PortConfig):
         if self.parent is not None:
             self.parent.connect(port)
         elif port.parent is not None:

@@ -259,15 +259,16 @@ def tune_combined_module(
     algo: str = 'grid',
     max_trials: int = sys.maxsize,
     backward_weight: float = 0,
-    debug: bool = False,
+    verbose: bool = False,
     debug_func: Optional[Callable] = None,
 ):
     sample_inputs_dict = {'root': sample_inputs}
     sample_grads_dict = {'root': sample_grads}
+    hook_handlers = []
 
     def register_hooks(op: OperatorBase, name: str):
-        op.register_forward_hook(get_input_hook(sample_inputs_dict, name))
-        op.register_backward_hook(get_grad_hook(sample_grads_dict, name))
+        hook_handlers.append(op.register_forward_hook(get_input_hook(sample_inputs_dict, name)))
+        hook_handlers.append(op.register_full_backward_hook(get_grad_hook(sample_grads_dict, name)))
 
     iter_sparse_modules(module, 'root', register_hooks)
 
@@ -286,9 +287,12 @@ def tune_combined_module(
             for x in sample_inputs:
                 x.requires_grad = False
 
+    for handler in hook_handlers:
+        handler.remove()
+
     best_configs = {}
 
-    if debug:
+    if verbose:
         _logger.setLevel(logging.DEBUG)
     else:
         _logger.setLevel(logging.WARNING)
