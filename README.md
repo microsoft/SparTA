@@ -1,6 +1,6 @@
 # SparTA Getting Started
 
-> *This repo is current an **alpha** version and under active development. We're trying to make it stable and user-friendly, but it is not surprising to meet problems in current phase. Please open issue or contact the authors when you need help.*
+> *This repo is under active development. We're trying to make it stable and user-friendly, but it is not surprising to meet problems in current phase. Please open issue or contact the authors when you need help.*
 
 `SparTA` is an end-to-end system to harvest the speeding up gain from the model sparsity.
 
@@ -41,24 +41,26 @@ if torch.cuda.is_available():
 import torch
 import sparta
 
-M, N, K = 1024, 1024, 1024
-SPARSITY = 0.8
-BLOCK = (8, 8)
-has_bias = True
+batch_size, in_features, out_features = 1024, 1024, 1024
+sparsity = 0.9
+granularity = (8, 8)
 
-A = torch.rand((M,K), dtype=torch.float32).cuda()
-B = torch.rand((N,K), dtype=torch.float32).cuda()
-bias = torch.rand((N,),dtype=torch.float32).cuda()
-# generate and apply mask
-B_mask = sparta.testing.block_mask(B.shape, block=BLOCK, sparsity=SPARSITY).cuda()
-B = torch.mul(B, B_mask)
+x = torch.rand((batch_size, in_features), device='cuda')
+weight = torch.rand((out_features, in_features), device='cuda')
+bias = torch.rand((out_features, ), device='cuda')
+
+# generate and apply weight mask
+mask = sparta.testing.block_mask(weight.shape, granularity, sparsity, device='cuda')
+weight = torch.mul(weight, mask)
+
 # dense operator
-linear = torch.nn.Linear(K, N, bias=has_bias).cuda()
-linear.load_state_dict(dict(weight=B, bias=bias) if has_bias else dict(weight=B) )
+dense_linear = torch.nn.Linear(in_features, out_features, device='cuda')
+dense_linear.load_state_dict({'weight': weight, 'bias': bias})
+
 # sparse operator
-splinear = sparta.nn.SparseLinear(linear, weight_mask=B_mask)
-best_cfg = sparta.nn.tune(splinear, sample_inputs=[A], max_trials=10, algo='rand')
-torch.testing.assert_close(splinear(A), linear(A))
+sparse_linear = sparta.nn.SparseLinear(dense_linear, weight_mask=mask)
+best_config = sparta.nn.tune(sparse_linear, sample_inputs=[x], max_trials=10, algo='rand')
+torch.testing.assert_close(sparse_linear(x), dense_linear(x))
 ```
 
 ## Citing SparTA
