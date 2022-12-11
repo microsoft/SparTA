@@ -7,6 +7,7 @@ SparTA
 readme_link
 0-overview
 1-code-specializer
+2-tunable-implements
 ```
 
 ```{toctree}

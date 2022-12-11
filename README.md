@@ -45,6 +45,7 @@ batch_size, in_features, out_features = 1024, 1024, 1024
 sparsity = 0.9
 granularity = (8, 8)
 
+# prepare data
 x = torch.rand((batch_size, in_features), device='cuda')
 weight = torch.rand((out_features, in_features), device='cuda')
 bias = torch.rand((out_features, ), device='cuda')
@@ -53,14 +54,27 @@ bias = torch.rand((out_features, ), device='cuda')
 mask = sparta.testing.block_mask(weight.shape, granularity, sparsity, device='cuda')
 weight = torch.mul(weight, mask)
 
-# dense operator
+# create a dense operator
 dense_linear = torch.nn.Linear(in_features, out_features, device='cuda')
 dense_linear.load_state_dict({'weight': weight, 'bias': bias})
 
-# sparse operator
+# create a sparse operator
 sparse_linear = sparta.nn.SparseLinear(dense_linear, weight_mask=mask)
+
+# tune the sparse operator
 best_config = sparta.nn.tune(sparse_linear, sample_inputs=[x], max_trials=10, algo='rand')
+
+# check if the sparse operator runs correctly
 torch.testing.assert_close(sparse_linear(x), dense_linear(x))
+```
+
+### Build a sparse operator with specified config
+```python
+# create a sparse operator
+sparse_linear = sparta.nn.SparseLinear(dense_linear, weight_mask=mask)
+
+# build the sparse operator with the `best_config` we got before.
+sparse_linear.nn.build(best_config['root'], sample_inputs=[x])
 ```
 
 ## Citing SparTA
