@@ -130,7 +130,7 @@ def test_sparse_softmax_operator(
 
     sparse_softmax = SparseSoftmax(mask, np.sqrt(W), compressed)
     sparse_softmax.build(
-        params={
+        config={
             kernel_name: get_params()
             for kernel_name in sparse_softmax.get_kernel_placeholders(backward=True)
         },

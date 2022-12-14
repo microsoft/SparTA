@@ -233,7 +233,7 @@ def test_sparse_matmul_operator(
         compressed=compressed,
     )
     sparse_matmul.build(
-        params={
+        config={
             kernel_name: get_params('sparta')
             for kernel_name in sparse_matmul.get_kernel_placeholders(backward=True)
         },

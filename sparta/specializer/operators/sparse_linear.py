@@ -10,6 +10,27 @@ from sparta.specializer.funtional import SparseBatchMatMulCtx, SparseBatchMatMul
 
 
 class SparseLinear(OperatorBase):
+    """The sparse linear operator.
+
+    Examples:
+        .. code-block:: python
+            batch_size, in_features, out_features = 1024, 1024, 1024
+            # Create a dense linear layer
+            dense_linear = torch.nn.Linear(in_features, out_features)
+            # Create a weight mask
+            mask = sparta.testing.block_mask((out_features, in_features), sparsity=0.99)
+            # Create a sparse linear layer using the dense layer and the weight mask
+            sparse_linear = sparta.nn.SparseLinear(dense_linear, weight_mask=mask)
+            # Tune the sparse linear layer
+            sparta.nn.tune(sparse_linear, sample_inputs=[torch.rand((batch_size, in_features))])
+
+    Args:
+        raw_module (torch.nn.Linear): The corresponding dense linear operator.
+        input_mask (torch.Tensor, optional): The sparse linear operator will be set to SD=>D mode.
+        weight_mask (torch.Tensor, optional): The sparse linear operator will be set to DS=>D mode.
+        output_mask (torch.Tensor, optional): The sparse linear operator will be set to DD=>S mode.
+
+    """
 
     __base_class__ = torch.nn.Linear
     __sparse_func__ = SparseBatchMatMulFunc

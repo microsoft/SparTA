@@ -77,7 +77,7 @@ def test_sparse_attention_operator(
     value.grad = None
 
     sparse_attention.build(
-        params=get_params(),
+        config=get_params(),
         sample_inputs=[query, key, value],
     )
 

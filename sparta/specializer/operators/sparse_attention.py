@@ -29,7 +29,7 @@ class SparseAttention(OperatorBase):
         out = self._matmul_out.forward(sm, value)
         return out
 
-    def build(self, params: Dict[str, Any], sample_inputs: List[torch.Tensor]):
+    def build(self, config: Dict[str, Any], sample_inputs: List[torch.Tensor]):
         query, key, value = sample_inputs
 
         qB = np.prod(query.shape[:-2])
@@ -52,25 +52,25 @@ class SparseAttention(OperatorBase):
             sm = self._softmax.forward(qk)
 
         self._matmul_qk.build(
-            params={
+            config={
                 k.split('/')[1]: v
-                for k, v in params.items()
+                for k, v in config.items()
                 if k.startswith('qk')
             },
             sample_inputs=[query, key],
         )
         self._softmax.build(
-            params={
+            config={
                 k.split('/')[1]: v
-                for k, v in params.items()
+                for k, v in config.items()
                 if k.startswith('sm')
             },
             sample_inputs=[qk],
         )
         self._matmul_out.build(
-            params={
+            config={
                 k.split('/')[1]: v
-                for k, v in params.items()
+                for k, v in config.items()
                 if k.startswith('out')
             },
             sample_inputs=[sm, value],
