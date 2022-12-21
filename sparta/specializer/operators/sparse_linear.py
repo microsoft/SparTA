@@ -10,25 +10,49 @@ from sparta.specializer.funtional import SparseBatchMatMulCtx, SparseBatchMatMul
 
 
 class SparseLinear(OperatorBase):
-    """The sparse linear operator.
-
-    Examples:
-        .. code-block:: python
-            batch_size, in_features, out_features = 1024, 1024, 1024
-            # Create a dense linear layer
-            dense_linear = torch.nn.Linear(in_features, out_features)
-            # Create a weight mask
-            mask = sparta.testing.block_mask((out_features, in_features), sparsity=0.99)
-            # Create a sparse linear layer using the dense layer and the weight mask
-            sparse_linear = sparta.nn.SparseLinear(dense_linear, weight_mask=mask)
-            # Tune the sparse linear layer
-            sparta.nn.tune(sparse_linear, sample_inputs=[torch.rand((batch_size, in_features))])
+    r"""The sparse linear operator: :math:`y = xA^T + b`
 
     Args:
         raw_module (torch.nn.Linear): The corresponding dense linear operator.
-        input_mask (torch.Tensor, optional): The sparse linear operator will be set to SD=>D mode.
-        weight_mask (torch.Tensor, optional): The sparse linear operator will be set to DS=>D mode.
-        output_mask (torch.Tensor, optional): The sparse linear operator will be set to DD=>S mode.
+        input_mask (torch.Tensor, optional): The mask of input tensor.
+            If `input_mask` is set, the other two masks should be `None`
+            and the internal MatMul kernel will choose SD=>D mode.
+        weight_mask (torch.Tensor, optional): The mask of weight tensor.
+            If `weight_mask` is set, the other two masks should be `None`
+            and the internal MatMul kernel will choose DS=>D mode.
+        output_mask (torch.Tensor, optional): The mask of output tensor.
+            If `output_mask` is set, the other two masks should be `None`
+            and the internal MatMul kernel will choose DD=>S mode.
+
+    Shape:
+        - Input: :math:`(B, H_{in})` where :math:`B = \text{batch\_size}`
+            and :math:`H_{in} = \text{in\_features}`.
+        - Output: :math:`(B, H_{out})` where :math:`H_{out} = \text{out\_features}`.
+
+    Attributes:
+        weight: The learnable weights of the module of shape
+            :math:`(\text{out\_features}, \text{in\_features})`.
+            If `weight_mask` is set, the weight will be compressed to BCSR format.
+        bias: The learnable bias of the module of shape :math:`(\text{out\_features})`.
+            It is a copy of the bias tensor in the raw module.
+
+    Examples:
+
+        .. code-block:: python
+    
+            batch_size, in_features, out_features = 1024, 1024, 1024
+
+            # Create a dense linear operator
+            dense_linear = torch.nn.Linear(in_features, out_features)
+
+            # Create a weight mask
+            mask = sparta.testing.block_mask((out_features, in_features), sparsity=0.99)
+
+            # Create a sparse linear operator using the dense operator and the weight mask
+            sparse_linear = sparta.nn.SparseLinear(dense_linear, weight_mask=mask)
+
+            # Tune the sparse linear operator
+            sparta.nn.tune(sparse_linear, sample_inputs=[torch.rand((batch_size, in_features))])
 
     """
 

@@ -1,10 +1,6 @@
 {# Copyright (c) Microsoft Corporation. #}
 {# Licensed under the MIT license. #}
 
-const int M = {{ GLOBAL_M_VALUE }};
-const int K = {{ GLOBAL_K_VALUE }};
-const int N = {{ GLOBAL_N_VALUE }};
-
 __device__ __forceinline__ const float* add_ptr_f(const float* src, int offset) \
 {                                                                               \
     const float* dst;                                                           \
@@ -34,7 +30,10 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
     float* C,
     int* A_block_ptr,
     int* A_block_idx,
-    int* A_block_nnz
+    int* A_block_nnz,
+    int M,
+    int K,
+    int N
 ) {
     /*
     description:

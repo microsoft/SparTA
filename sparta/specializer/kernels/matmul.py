@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Tuple, Callable, Optional
 
 import torch
 import jinja2
+import numpy as np
 
 from sparta.common.tesa import BCSR, BCSC
 from sparta.common.tuning import TunableItemCfg
@@ -20,16 +21,18 @@ def get_matmul_func_call(
     biased: bool,
     C_shape: Tuple,
     tesa_vars: List[torch.Tensor],
+    shape: Tuple[int, int, int, int],
     block: Tuple[int, int, int],
     grid: Tuple[int, int, int],
     sparse_port: str,
     reorder_func: Optional[Callable[[torch.Tensor], torch.Tensor]] = None,
 ):
+    batch, M, K, N = (np.int32(x) for x in shape)
     ptr, idx, nnz = tesa_vars
     if biased:
         def matmul_func(A, B, bias):
             C = torch.zeros(C_shape, device=A.device)
-            func(A, B, bias, C, ptr, idx, nnz, block=block, grid=grid)
+            func(A, B, bias, C, ptr, idx, nnz, M, K, N, block=block, grid=grid)
             return C
         if sparse_port == 'A' and reorder_func is not None:
             combined_func = lambda A, B, bias: matmul_func(reorder_func(A), B, bias)
@@ -42,7 +45,7 @@ def get_matmul_func_call(
     else:
         def matmul_func(A, B):
             C = torch.zeros(C_shape, device=A.device)
-            func(A, B, C, ptr, idx, nnz, block=block, grid=grid)
+            func(A, B, C, ptr, idx, nnz, M, K, N, block=block, grid=grid)
             return C
         if sparse_port == 'A' and reorder_func is not None:
             combined_func = lambda A, B: matmul_func(reorder_func(A), B)
@@ -180,6 +183,7 @@ class SparseMatMulKernel(KernelBase):
             biased=self._biased,
             C_shape=C_shape,
             tesa_vars=tesa_vars,
+            shape=self.get_shape(),
             grid=self.blocks_per_grid(),
             block=self.threads_per_block(),
             sparse_port=sparse_port.name,

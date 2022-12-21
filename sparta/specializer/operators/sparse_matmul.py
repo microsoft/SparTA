@@ -10,6 +10,55 @@ from sparta.specializer.funtional import SparseBatchMatMulCtx, SparseBatchMatMul
 
 
 class SparseBatchMatMul(OperatorBase):
+    r"""The sparse batch matrix multiplication operator: :math:`C = AB`
+
+    Args:
+        A_mask (torch.Tensor, optional): The mask of the first input tensor.
+            If `A_mask` is set, the other two masks should be `None`
+            and the internal MatMul kernel will choose SD=>D mode.
+        B_mask (torch.Tensor, optional): The mask of the second input tensor.
+            If `B_mask` is set, the other two masks should be `None`
+            and the internal MatMul kernel will choose DS=>D mode.
+        C_mask (torch.Tensor, optional): The mask of the output tensor.
+            If `C_mask` is set, the other two masks should be `None` 
+            and the internal MatMul kernel will choose DD=>S mode.
+        transpose_A (bool): Determines whether the first input tensor is transposed.
+        transpose_B (bool): Determines whether the second input tensor is transposed.
+        compressed (bool): Determines whether the sparse tensor is compressed to
+            BCSR / BCSC format.
+
+    Shape:
+        - Input1: :math:`(B, K, M)` (if `transpose_A == True`)
+            or :math:`(B, M, K)` (if `transpose_A == False`).
+            If `A_mask` is set and `compressed == True`, the first input will be
+            compressed to BCSR / BCSC format and the shape will be :math:`(B, *)`.
+        - Input2: :math:`(B, N, K)` (if `transpose_B == True`)
+            or :math:`(B, K, N)` (if `transpose_B == False`).
+            If `B_mask` is set and `compressed == True`, the second input will be
+            compressed to BCSR / BCSC format and the shape will be :math:`(B, *)`.
+        - Output: :math:`(B, M, N)`.
+            If `C_mask` is set and `compressed == True`, the output will be
+            compressed to BCSR format and the shape will be :math:`(B, *)`.
+
+    Examples:
+
+        .. code-block:: python
+    
+            B, M, K, N = 4, 1024, 1024, 1024
+
+            # Create a output mask
+            mask = sparta.testing.block_mask((M, N), sparsity=0.99)
+
+            # Create a sparse batch matmul operator using the mask
+            sparse_matmul = sparta.nn.SparseBatchMatMul(C_mask=mask)
+
+            # Tune the sparse batch matmul operator
+            sparta.nn.tune(sparse_matmul, sample_inputs=[
+                torch.rand((B, M, K)),
+                torch.rand((B, K, N)),
+            ])
+
+    """
 
     __sparse_func__ = SparseBatchMatMulFunc
 

@@ -10,6 +10,36 @@ from sparta.specializer.funtional import SparseBatchSoftmaxCtx, SparseBatchSoftm
 
 
 class SparseSoftmax(OperatorBase):
+    r"""The sparse softmax operator.
+
+    .. math::
+        \text{Softmax}(x_{i}, T) = \frac{\exp(\frac{x_i}{T})}{\sum_j \exp(\frac{x_j}{T})}
+
+    Args:
+        mask (torch.Tensor): The mask tensor marking all positions to be calculated.
+        temperature (float): The hyper parameter :math:`T` to control the smoothness of the results.
+        compressed (bool): Determines whether input / output tensors are compressed to BCSR format.
+
+    Shape:
+        - Input: :math:`(*, H, W)` where `*` means any number of additional dimensions.
+        - Output: :math:`(*, H, W)`, same shape as the input.
+
+    Examples:
+
+        .. code-block:: python
+    
+            B, H, W = 4, 1024, 1024
+
+            # Create a mask
+            mask = sparta.testing.block_mask((H, W), sparsity=0.99)
+
+            # Create a sparse softmax operator using the mask
+            sparse_softmax = sparta.nn.SparseSoftmax(C_mask=mask)
+
+            # Tune the sparse softmax operator
+            sparta.nn.tune(sparse_softmax, sample_inputs=[torch.rand((B, H, W))])
+
+    """
 
     __sparse_func__ = SparseBatchSoftmaxFunc
 

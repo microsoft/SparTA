@@ -11,6 +11,43 @@ from sparta.specializer.operators import OperatorBase, SparseBatchMatMul, Sparse
 
 
 class SparseAttention(OperatorBase):
+    r"""The sparse attention operator.
+
+    .. math::
+        \text{Attention}(Q, K, V) = \text{Softmax}(Q K) V
+
+    Args:
+        mask (torch.Tensor): The mask tensor of shape :math:`(N_{target}, N_{sourse})`,
+            where :math:`N_{target}` is the target sequence length
+            and :math:`N_{sourse}` is the sourse sequence length.
+
+    Shape:
+        - Input1: :math:`(B * H, N_{target}, E)` where :math:`B` is the batch size,
+            :math:`H` is the number of heads and :math:`E` is the embed dimension.
+        - Input2: :math:`(B * H, N_{sourse}, E)`.
+        - Input3: :math:`(B * H, N_{sourse}, E)`, same shape as the second input.
+        - Output: :math:`(B * H, N_{target}, E)`, same shape as the first input.
+
+    Examples:
+
+        .. code-block:: python
+    
+            B, H, Ns, Nt, E = 4, 4, 1024, 1024, 1024
+
+            # Create a mask
+            mask = sparta.testing.block_mask(Nt, Ns), sparsity=0.99)
+
+            # Create a sparse attention operator using the mask
+            sparse_attention = sparta.nn.SparseAttention(mask=mask)
+
+            # Tune the sparse attention operator
+            sparta.nn.tune(sparse_attention, sample_inputs=[
+                torch.rand((B * H, Nt, E)),
+                torch.rand((B * H, Ns, E)),
+                torch.rand((B * H, Ns, E)),
+            ])
+
+    """
 
     def __init__(self, mask: torch.Tensor):
         super().__init__()

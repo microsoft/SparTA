@@ -1,9 +1,6 @@
 {# Copyright (c) Microsoft Corporation. #}
 {# Licensed under the MIT license. #}
 
-const int M = {{ GLOBAL_M_VALUE }};
-const int K = {{ GLOBAL_K_VALUE }};
-const int N = {{ GLOBAL_N_VALUE }};
 const int BM = {{ BLOCK_SIZE_M_VALUE }};
 const int BK = {{ BLOCK_SIZE_K_VALUE }};
 const int BN = {{ BLOCK_SIZE_N_VALUE }};
@@ -18,7 +15,10 @@ __global__ void BLOCK_SPARSE_MATMUL(
     float* output_C,
     int* input_B_block_ptr,
     int* input_B_block_idx,
-    int* input_B_block_nnz
+    int* input_B_block_nnz,
+    int M,
+    int K,
+    int N
 ) {
     float * A = reinterpret_cast<float*>(input_A);
     float * B_val = reinterpret_cast<float*>(input_B_val);
