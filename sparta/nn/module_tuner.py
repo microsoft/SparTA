@@ -31,11 +31,11 @@ _logger.addHandler(_handler)
 #     Args:
 #         module (torch.nn.Module): A PyTorch module that contains one or more sparse sub-modules.
 #         sample_inputs (List[torch.Tensor]): Sample input tensors to determine shape parameters.
-#         algo: (str, optional): The algorithm to search the best parameters. Defaults to 'grid'.
-#         max_trials: (int, optional): The maximum number of trials to run. Defaults to sys.maxsize.
-#         tester_kw: (Dict, optional): The keyword arguments for the tester. Defaults to None.
-#         build_kw: (Dict, optional): The keyword arguments for the builder (after tuning). Defaults to None.
-#         tuner_kw: (Dict, optional): The keyword arguments for the tuner. Defaults to None.
+#         algo: (Optional[str]): The algorithm to search the best parameters. Defaults to 'grid'.
+#         max_trials: (Optional[int]): The maximum number of trials to run. Defaults to sys.maxsize.
+#         tester_kw: (Optional[Dict]): The keyword arguments for the tester. Defaults to None.
+#         build_kw: (Optional[Dict]): The keyword arguments for the builder (after tuning). Defaults to None.
+#         tuner_kw: (Optional[Dict]): The keyword arguments for the tuner. Defaults to None.
 #     """
 #     from nni import NoMoreTrialError
 
@@ -262,6 +262,24 @@ def tune_combined_module(
     verbose: bool = False,
     debug_func: Optional[Callable] = None,
 ):
+    """Tune all sparse child operators in a combined module.
+    The function will search out all sparse operators, get corresponding inputs and gradients using forward and
+    backward hooks, and tune each sparse operator with given parameters.
+
+    Args:
+        module (torch.nn.Module): It can be either a SparTA sparse operator or a combined PyTorch
+            module including one or more sparse operators.
+        sample_inputs (List[torch.Tensor]): Sample inputs of the module.
+        sample_grads (Optional[List[torch.Tensor]]): Sample gradients of the module.
+        algo (str): Tuning algorithm. Only "grid" (grid search) and "rand" (random search) are supported now.
+        max_trials (int): The maximum trial number the tuner will take.
+        backward_weight (float): The weight for backward latency. 0 means backward is not considered.
+        verbose (bool): Whether to log verbose infomation.
+        debug_func (Optional[Callable]): Debug function to call on each trial.
+
+    Returns:
+        Dict[str, Dict[str, Any]]: Best configs of all sparse operators in the combined module.
+    """
     sample_inputs_dict = {'root': sample_inputs}
     sample_grads_dict = {'root': sample_grads}
     hook_handlers = []
@@ -311,6 +329,42 @@ def tune_combined_module(
 
     iter_sparse_modules(module, 'root', tune)
     return best_configs
+
+
+def build_combined_module(
+    module: torch.nn.Module,
+    sample_inputs: List[torch.Tensor],
+    configs: Dict[str, Dict[str, Any]],
+):
+    """Build all sparse child operators in a combined module.
+    The function will search out all sparse operators, get corresponding inputs using forward hooks, and build each
+    sparse operator with given config.
+
+    Args:
+        module (torch.nn.Module): It can be either a SparTA sparse operator or a combined PyTorch
+            module including one or more sparse operators.
+        sample_inputs (List[torch.Tensor]): Sample inputs of the module.
+        configs (Dict[str, Dict[str, Any]]): Best configs of all sparse operators in the combined module.
+    """
+    sample_inputs_dict = {'root': sample_inputs}
+    hook_handlers = []
+
+    def register_hooks(op: OperatorBase, name: str):
+        hook_handlers.append(op.register_forward_hook(get_input_hook(sample_inputs_dict, name)))
+
+    iter_sparse_modules(module, 'root', register_hooks)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        outputs = module.forward(*sample_inputs)
+
+    for handler in hook_handlers:
+        handler.remove()
+
+    def build(op: OperatorBase, name: str):
+        op.build(configs[name], sample_inputs=sample_inputs_dict[name])
+
+    iter_sparse_modules(module, 'root', build)
 
 
 def iter_sparse_modules(

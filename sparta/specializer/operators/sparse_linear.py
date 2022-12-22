@@ -14,26 +14,25 @@ class SparseLinear(OperatorBase):
 
     Args:
         raw_module (torch.nn.Linear): The corresponding dense linear operator.
-        input_mask (torch.Tensor, optional): The mask of input tensor.
+        input_mask (Optional[torch.Tensor]): The mask of input tensor.
             If `input_mask` is set, the other two masks should be `None`
             and the internal MatMul kernel will choose SD=>D mode.
-        weight_mask (torch.Tensor, optional): The mask of weight tensor.
+        weight_mask (Optional[torch.Tensor]): The mask of weight tensor.
             If `weight_mask` is set, the other two masks should be `None`
             and the internal MatMul kernel will choose DS=>D mode.
-        output_mask (torch.Tensor, optional): The mask of output tensor.
+        output_mask (Optional[torch.Tensor]): The mask of output tensor.
             If `output_mask` is set, the other two masks should be `None`
             and the internal MatMul kernel will choose DD=>S mode.
 
     Shape:
-        - Input: :math:`(B, H_{in})` where :math:`B = \text{batch\_size}`
-            and :math:`H_{in} = \text{in\_features}`.
-        - Output: :math:`(B, H_{out})` where :math:`H_{out} = \text{out\_features}`.
+        - Input: :math:`(B, H_{in})` where :math:`B = \text{batch_size}`
+            and :math:`H_{in} = \text{in_features}`.
+        - Output: :math:`(B, H_{out})` where :math:`H_{out} = \text{out_features}`.
 
     Attributes:
-        weight: The learnable weights of the module of shape
-            :math:`(\text{out\_features}, \text{in\_features})`.
+        weight: The learnable weights of the module of shape :math:`(\text{out_features}, \text{in_features})`.
             If `weight_mask` is set, the weight will be compressed to BCSR format.
-        bias: The learnable bias of the module of shape :math:`(\text{out\_features})`.
+        bias: The learnable bias of the module of shape :math:`(\text{out_features})`.
             It is a copy of the bias tensor in the raw module.
 
     Examples:

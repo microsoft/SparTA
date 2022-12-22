@@ -19,5 +19,6 @@ readme_link
 :maxdepth: 2
 :caption: Docs
 reference/nn
-reference/tuning
+reference/common
+reference/testing
 ```

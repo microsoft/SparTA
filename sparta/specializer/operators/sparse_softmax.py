@@ -18,7 +18,7 @@ class SparseSoftmax(OperatorBase):
     Args:
         mask (torch.Tensor): The mask tensor marking all positions to be calculated.
         temperature (float): The hyper parameter :math:`T` to control the smoothness of the results.
-        compressed (bool): Determines whether input / output tensors are compressed to BCSR format.
+        compressed (bool): Determines whether input and output tensors are compressed to BCSR format.
 
     Shape:
         - Input: :math:`(*, H, W)` where `*` means any number of additional dimensions.

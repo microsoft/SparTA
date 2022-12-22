@@ -13,13 +13,13 @@ class SparseBatchMatMul(OperatorBase):
     r"""The sparse batch matrix multiplication operator: :math:`C = AB`
 
     Args:
-        A_mask (torch.Tensor, optional): The mask of the first input tensor.
+        A_mask (Optional[torch.Tensor]): The mask of the first input tensor.
             If `A_mask` is set, the other two masks should be `None`
             and the internal MatMul kernel will choose SD=>D mode.
-        B_mask (torch.Tensor, optional): The mask of the second input tensor.
+        B_mask (Optional[torch.Tensor]): The mask of the second input tensor.
             If `B_mask` is set, the other two masks should be `None`
             and the internal MatMul kernel will choose DS=>D mode.
-        C_mask (torch.Tensor, optional): The mask of the output tensor.
+        C_mask (Optional[torch.Tensor]): The mask of the output tensor.
             If `C_mask` is set, the other two masks should be `None` 
             and the internal MatMul kernel will choose DD=>S mode.
         transpose_A (bool): Determines whether the first input tensor is transposed.

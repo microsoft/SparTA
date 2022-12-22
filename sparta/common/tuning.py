@@ -10,6 +10,7 @@ from sparta.common.utils import check_type, get_uname
 @dataclass
 class TunableItemCfg:
     """TunableItemCfg is used to describe the search space
+
     Examples:
 
         .. code-block:: python

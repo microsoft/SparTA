@@ -20,7 +20,7 @@ class OperatorBase(torch.nn.Module):
     is required to provide parameter(s) for parametric operators.
 
     Args:
-        raw_module (torch.nn.Module, optional): The corresponding dense operator.
+        raw_module (Optional[torch.nn.Module]): The corresponding dense operator.
 
     """
 
