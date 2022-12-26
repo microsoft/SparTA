@@ -38,11 +38,11 @@ class SparseLinear(OperatorBase):
     Examples:
 
         .. code-block:: python
-    
+
             batch_size, in_features, out_features = 1024, 1024, 1024
 
             # Create a dense linear operator
-            dense_linear = torch.nn.Linear(in_features, out_features)
+            dense_linear = torch.nn.Linear(in_features, out_features, device='cuda')
 
             # Create a weight mask
             mask = sparta.testing.block_mask((out_features, in_features), sparsity=0.99)
@@ -51,7 +51,9 @@ class SparseLinear(OperatorBase):
             sparse_linear = sparta.nn.SparseLinear(dense_linear, weight_mask=mask)
 
             # Tune the sparse linear operator
-            sparta.nn.tune(sparse_linear, sample_inputs=[torch.rand((batch_size, in_features))])
+            sparta.nn.tune(sparse_linear, sample_inputs=[
+                torch.rand((batch_size, in_features), device='cuda'),
+            ])
 
     """
 

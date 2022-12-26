@@ -35,16 +35,16 @@ class SparseAttention(OperatorBase):
             B, H, Ns, Nt, E = 4, 4, 1024, 1024, 1024
 
             # Create a mask
-            mask = sparta.testing.block_mask(Nt, Ns), sparsity=0.99)
+            mask = sparta.testing.block_mask((Nt, Ns), sparsity=0.99)
 
             # Create a sparse attention operator using the mask
             sparse_attention = sparta.nn.SparseAttention(mask=mask)
 
             # Tune the sparse attention operator
             sparta.nn.tune(sparse_attention, sample_inputs=[
-                torch.rand((B * H, Nt, E)),
-                torch.rand((B * H, Ns, E)),
-                torch.rand((B * H, Ns, E)),
+                torch.rand((B * H, Nt, E), device='cuda'),
+                torch.rand((B * H, Ns, E), device='cuda'),
+                torch.rand((B * H, Ns, E), device='cuda'),
             ])
 
     """

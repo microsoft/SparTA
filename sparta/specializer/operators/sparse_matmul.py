@@ -54,8 +54,8 @@ class SparseBatchMatMul(OperatorBase):
 
             # Tune the sparse batch matmul operator
             sparta.nn.tune(sparse_matmul, sample_inputs=[
-                torch.rand((B, M, K)),
-                torch.rand((B, K, N)),
+                torch.rand((B, M, K), device='cuda'),
+                torch.rand((B, K, N), device='cuda'),
             ])
 
     """

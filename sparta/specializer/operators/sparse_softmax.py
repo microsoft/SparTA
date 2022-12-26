@@ -34,10 +34,12 @@ class SparseSoftmax(OperatorBase):
             mask = sparta.testing.block_mask((H, W), sparsity=0.99)
 
             # Create a sparse softmax operator using the mask
-            sparse_softmax = sparta.nn.SparseSoftmax(C_mask=mask)
+            sparse_softmax = sparta.nn.SparseSoftmax(mask=mask)
 
             # Tune the sparse softmax operator
-            sparta.nn.tune(sparse_softmax, sample_inputs=[torch.rand((B, H, W))])
+            sparta.nn.tune(sparse_softmax, sample_inputs=[
+                torch.rand((B, H, W), device='cuda'),
+            ])
 
     """
 
