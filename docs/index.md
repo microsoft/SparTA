@@ -3,10 +3,11 @@ SparTA
 
 ```{toctree}
 :maxdepth: 2
-:caption: Get STarted
+:caption: Get Started
 readme_link
 0-overview
 1-code-specializer
+2-tunable-implements
 ```
 
 ```{toctree}
@@ -18,5 +19,6 @@ readme_link
 :maxdepth: 2
 :caption: Docs
 reference/nn
-reference/tuning
+reference/common
+reference/testing
 ```

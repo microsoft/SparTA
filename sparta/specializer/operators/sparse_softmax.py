@@ -1,80 +1,73 @@
+
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-from typing import Optional
-
 import torch
+import numpy as np
 
-from sparta.specializer import kernels
-from sparta.specializer.operators.operator_base import OperatorBase
+from sparta.specializer.operators import OperatorBase
+from sparta.specializer.funtional import SparseBatchSoftmaxCtx, SparseBatchSoftmaxFunc
 
 
 class SparseSoftmax(OperatorBase):
-    '''Sparse softmax operator.
+    r"""The sparse softmax operator.
+
+    .. math::
+        \text{Softmax}(x_{i}, T) = \frac{\exp(\frac{x_i}{T})}{\sum_j \exp(\frac{x_j}{T})}
+
+    Args:
+        mask (torch.Tensor): The mask tensor marking all positions to be calculated.
+        temperature (float): The hyper parameter :math:`T` to control the smoothness of the results.
+        compressed (bool): Determines whether input and output tensors are compressed to BCSR format.
+
+    Shape:
+        - Input: :math:`(*, H, W)` where `*` means any number of additional dimensions.
+        - Output: :math:`(*, H, W)`, same shape as the input.
 
     Examples:
 
         .. code-block:: python
-
-            # Create a dense softmax layer
-            dense_softmax = torch.nn.Softmax
+    
+            B, H, W = 4, 1024, 1024
 
             # Create a mask
-            mask = torch.rand((2048, 1024)) > 0.99
+            mask = sparta.testing.block_mask((H, W), sparsity=0.99)
 
-            # Create a sparse softmax layer using the dense layer and the mask
-            sparse_softmax = sparta.nn.SparseSoftmax(dense_softmax, mask=mask)
+            # Create a sparse softmax operator using the mask
+            sparse_softmax = sparta.nn.SparseSoftmax(mask=mask)
 
-            # Tune the sparse softmax layer
-            sparta.tune(sparse_softmax, sample_inputs=[torch.rand((2048, 1024))])
+            # Tune the sparse softmax operator
+            sparta.nn.tune(sparse_softmax, sample_inputs=[
+                torch.rand((B, H, W), device='cuda'),
+            ])
 
-    Args:
-        raw_module (torch.nn.Softmax): The corresponding dense softmax operator.
-        mask (torch.Tensor): The mask with the same shape as the input tensor.
-    '''
+    """
 
-    def __init__(self, raw_module: torch.nn.Softmax, mask: Optional[torch.Tensor] = None):
-        super().__init__(raw_module, torch.nn.Softmax)
-        self._raw_module = raw_module
-        numpy_mask = mask.cpu().detach().numpy()
-        self._mask = {'C_in': numpy_mask, 'C_mask': numpy_mask, 'C_out': numpy_mask}
-        self._compressed = False
-        self._dtype = 'float'
-        self._shape = None
-        self._possible_implementations = {
-            'sparta': kernels.SparTATemplateSparseSoftmaxKernel(self._dtype, self._compressed),
-        }
+    __sparse_func__ = SparseBatchSoftmaxFunc
 
-    def _load_compile_kernel(self, forward_kernel: kernels.KernelBase):
-        '''No parameters need to be set here.'''
-        mask = torch.from_numpy(self._mask['C_mask'].astype('int32'))
-        self.C_mask = torch.nn.Parameter(mask, requires_grad=False).cuda()
+    def __init__(self, mask: torch.Tensor, temperature: float = 1, compressed: bool = False):
+        super().__init__()
+        H, W = mask.shape
+        self._sparse_ctx = SparseBatchSoftmaxCtx(compressed, temperature)
+        self._set_masks({'x': mask})
+        self._shape = {'H': H, 'W': W}
 
-    def _sparse_forward(self, C_in: torch.Tensor):
-        '''Calls the sparse forward kernel.
+    def set_temperature(self, temperature):
+        self._sparse_ctx.set_temperature(temperature)
 
-        Args:
-            C_in (torch.Tensor): The input tensor.
-        '''
-        return self._forward_function(C_in, self.C_mask)
+    def _read_sample_inputs(self, x: torch.Tensor):
+        H, W = self._shape['H'], self._shape['W']
+        if len(x.shape) == 2:
+            assert (H, W) == x.shape, f'expect input shape ({H}, {W}), got {x.shape}'
+            self._shape['batch_size'] = 1
+            self._sparse_forward = self._sparse_forward_squeeze
+            self._dense_forward = self._dense_forward_squeeze
+        else:
+            assert (H, W) == x.shape[-2:], f'expect input shape (?, {H}, {W}), got {x.shape}'
+            self._shape['batch_size'] = int(np.prod(x.shape[:-2]))
 
-    def _read_sample_inputs(self, C_in: torch.Tensor):
-        '''Read shape config and convert sample inputs to test inputs.
+    def _sparse_forward_squeeze(self, x: torch.Tensor):
+        return self.__sparse_func__.apply(self._sparse_ctx, x).squeeze(0)
 
-        Args:
-            C_in (torch.Tensor): The sample input tensor.
-
-        Returns:
-            Tuple: The first value is the shape dict, the second value is the test input dict.
-        '''
-        H, W = C_in.shape
-        self._shape = {
-            'GLOBAL_H_VALUE': H,
-            'GLOBAL_W_VALUE': W
-        }
-        for kern in self._possible_implementations.values():
-            kern.set_parameters(self._shape)
-        inputs = {
-            'C_in': C_in.cpu().detach().numpy().astype('float32')
-        }
-        return self._shape, inputs
+    def _dense_forward_squeeze(self, *args):
+        return self._sparse_ctx.dense_forward(*args).squeeze(0)

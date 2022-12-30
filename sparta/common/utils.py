@@ -95,5 +95,5 @@ def get_uname(num: int = 8):
 
 
 def check_type(obj, cls):
-    '''assert obj is instance of cls'''
+    """assert obj is instance of cls"""
     assert isinstance(obj, cls), f'{obj} is not instance of {cls}'

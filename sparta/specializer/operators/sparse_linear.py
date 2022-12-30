@@ -1,140 +1,138 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-from typing import Optional, Type
+from typing import Any, Dict, List, Optional
 
 import torch
 
-from sparta.specializer import kernels
-from sparta.specializer.operators.operator_base import OperatorBase
+from sparta.specializer.operators import OperatorBase
+from sparta.specializer.funtional import SparseBatchMatMulCtx, SparseBatchMatMulFunc
 
 
 class SparseLinear(OperatorBase):
-    '''Sparse linear operator.
+    r"""The sparse linear operator: :math:`y = xA^T + b`
+
+    Args:
+        raw_module (torch.nn.Linear): The corresponding dense linear operator.
+        input_mask (Optional[torch.Tensor]): The mask of input tensor.
+            If `input_mask` is set, the other two masks should be `None`
+            and the internal MatMul kernel will choose SD=>D mode.
+        weight_mask (Optional[torch.Tensor]): The mask of weight tensor.
+            If `weight_mask` is set, the other two masks should be `None`
+            and the internal MatMul kernel will choose DS=>D mode.
+        output_mask (Optional[torch.Tensor]): The mask of output tensor.
+            If `output_mask` is set, the other two masks should be `None`
+            and the internal MatMul kernel will choose DD=>S mode.
+
+    Shape:
+        - Input: :math:`(B, H_{in})` where :math:`B = \text{batch_size}`
+            and :math:`H_{in} = \text{in_features}`.
+        - Output: :math:`(B, H_{out})` where :math:`H_{out} = \text{out_features}`.
+
+    Attributes:
+        weight: The learnable weights of the module of shape :math:`(\text{out_features}, \text{in_features})`.
+            If `weight_mask` is set, the weight will be compressed to BCSR format.
+        bias: The learnable bias of the module of shape :math:`(\text{out_features})`.
+            It is a copy of the bias tensor in the raw module.
 
     Examples:
 
         .. code-block:: python
 
-            # Create a dense linear layer
-            dense_linear = torch.nn.Linear(1024, 2048)
+            batch_size, in_features, out_features = 1024, 1024, 1024
 
-            # Create a mask
-            weight_mask = torch.rand((2048, 1024)) > 0.99
+            # Create a dense linear operator
+            dense_linear = torch.nn.Linear(in_features, out_features, device='cuda')
 
-            # Create a sparse linear layer using the dense layer and the mask
-            sparse_linear = sparta.nn.SparseLinear(dense_linear, weight_mask=weight_mask)
+            # Create a weight mask
+            mask = sparta.testing.block_mask((out_features, in_features), sparsity=0.99)
 
-            # Tune the sparse linear layer
-            sparta.tune(sparse_linear, sample_inputs=[torch.rand((512, 1024))])
+            # Create a sparse linear operator using the dense operator and the weight mask
+            sparse_linear = sparta.nn.SparseLinear(dense_linear, weight_mask=mask)
 
-    Args:
-        raw_module (torch.nn.Linear): The corresponding dense linear operator.
-        input_mask (torch.Tensor): The input mask tensor with shape (\*, in_features).
-            The kernel mode will be "sparse x dense => dense" if the input mask is set.
-        weight_mask (torch.Tensor): The weight mask tensor with shape (out_features, in_features).
-            The kernel mode will be "dense x sparse => dense" if the input mask is set.
-        output_mask (torch.Tensor): The output mask tensor with shape (\*, out_features).
-            The kernel mode will be "dense x dense => sparse" if the input mask is set.
-    '''
-    __base_class__: Type[torch.nn.Module] = torch.nn.Linear
+            # Tune the sparse linear operator
+            sparta.nn.tune(sparse_linear, sample_inputs=[
+                torch.rand((batch_size, in_features), device='cuda'),
+            ])
+
+    """
+
+    __base_class__ = torch.nn.Linear
+    __sparse_func__ = SparseBatchMatMulFunc
 
     def __init__(
-        self, raw_module: torch.nn.Linear,
-        input_mask: Optional[torch.Tensor] = None, weight_mask: Optional[torch.Tensor] = None,
-        output_mask: Optional[torch.Tensor] = None
+        self,
+        raw_module: torch.nn.Linear,
+        input_mask: Optional[torch.Tensor] = None,
+        weight_mask: Optional[torch.Tensor] = None,
+        output_mask: Optional[torch.Tensor] = None,
     ):
         super().__init__(raw_module)
-        N, K = raw_module.weight.shape
+
         M = None
+        N, K = raw_module.weight.shape
+        biased = raw_module.bias is not None
+        self._raw_weight = torch.clone(raw_module.weight)
+
         if sum(map(lambda x: x is not None, [input_mask, weight_mask, output_mask])) > 1:
             raise ValueError(f'linear operators with multiple sparse masks are not supported')
+
         if input_mask is not None:
-            self._stype = 'sdd'
-            self._compressed = False
-            input_mask = input_mask.cpu().detach().numpy()
-            if input_mask.shape[1] == K:
-                M = input_mask.shape[0]
-                self._mask = {'A': input_mask}
-            else:
-                raise ValueError(f'expected input mask shape (?, {K}), got {input_mask.shape}')
+            self._sparse_ctx = SparseBatchMatMulCtx('sdd', False, True, biased, False)
+            assert input_mask.shape[1] == K, f'expected input mask shape (?, {K}), got {input_mask.shape}'
+            self._set_masks({'A': input_mask})
+            M = input_mask.shape[0]
         elif weight_mask is not None:
-            self._stype = 'dsd'
-            self._compressed = True
-            weight_mask = weight_mask.cpu().detach().numpy()
-            if weight_mask.shape == (N, K):
-                self._mask = {'B': weight_mask}
-            else:
-                raise ValueError(f'expected weight mask shape ({N}, {K}), got {weight_mask.shape}')
+            self._sparse_ctx = SparseBatchMatMulCtx('dsd', False, True, biased, True)
+            assert weight_mask.shape == (N, K), f'expected weight mask shape ({N}, {K}), got {weight_mask.shape}'
+            self._raw_weight *= weight_mask
+            self._set_masks({'B': weight_mask})
         elif output_mask is not None:
-            self._stype = 'dds'
-            self._compressed = False
-            output_mask = output_mask.cpu().detach().numpy()
-            if output_mask.shape[1] == N:
-                M = output_mask.shape[0]
-                self._mask = {'C': output_mask}
-            else:
-                raise ValueError(f'expected output mask shape (?, {N}), got {output_mask.shape}')
+            self._sparse_ctx = SparseBatchMatMulCtx('dds', False, True, biased, False)
+            assert output_mask.shape[1] == N, f'expected output mask shape (?, {N}), got {output_mask.shape}'
+            self._set_masks({'C': output_mask})
+            M = output_mask.shape[0]
         else:
             raise ValueError(f'expected a sparse mask on input / weight / output')
-        self._shape = {'GLOBAL_M_VALUE': M, 'GLOBAL_N_VALUE': N, 'GLOBAL_K_VALUE': K}
-        self._biased = raw_module.bias is not None
-        self._transpose = True
-        self._dtype = 'int' if 'int' in str(raw_module.weight.dtype) else 'float'
-        self._possible_implementations = {
-            'sparta': kernels.SparTATemplateSparseMatMulKernel(self._stype, self._dtype, self._biased, self._transpose, self._compressed),
-            'openai': kernels.OpenAITemplateSparseMatMulKernel(self._stype, self._dtype, self._biased, self._transpose, self._compressed),
-        }
 
-    def _load_compile_kernel(self, forward_kernel: kernels.MatMulKernelBase):
-        '''Set PyTorch module parameters: weight and bias (if exists).
-
-        Args:
-            forward_kernel (kernels.MatMulKernelBase): A matmul kernel object which provides the
-                function to sparsify the weight tensor in "dense x sparse => dense" mode.
-        '''
-        device = self._raw_module.weight.device
-        if self._biased:
-            self.bias = torch.nn.Parameter(self._raw_module.bias.detach(), requires_grad=False)
-        else:
-            self.bias = None
-        weight = self._raw_module.weight.cpu().detach().numpy().astype(f'{self._dtype}32')
-        if self._stype == 'dsd':
-            B_tensor = forward_kernel.get_input('B')
-            B_tensor.set_data(weight)
-            weight = B_tensor.sparse()['val']
-        self.weight = torch.nn.Parameter(torch.from_numpy(weight), requires_grad=False).to(device)
-
-    def _sparse_forward(self, A: torch.Tensor):
-        '''Calls the sparse forward kernel.
-
-        Args:
-            A (torch.Tensor): The input tensor.
-        '''
-        if self._biased:
-            return self._forward_function(A, self.weight, self.bias)
-        else:
-            return self._forward_function(A, self.weight)
+        self._shape = {'batch_size': 1, 'M': M, 'K': K, 'N': N}
+        self.weight = None
+        self.bias = raw_module.bias
 
     def _read_sample_inputs(self, A: torch.Tensor):
-        '''Read shape config and convert sample inputs to test inputs.
-        The captured shape config will be passed to implements (kernels).
+        M, K = self._shape['M'], self._shape['K']
+        if M is None:
+            assert K == A.shape[1], f'expect input shape (?, {K}), got {A.shape}'
+            self._shape['M'] = A.shape[0]
+        else:
+            assert (M, K) == A.shape, f'expect input shape ({M}, {K}), got {A.shape}'
 
-        Args:
-            A (torch.Tensor): The sample input tensor.
+    def build(self, params: Dict[str, Any], sample_inputs: List[Any]):
+        super().build(params, sample_inputs)
+        weight = self._raw_weight
+        weight_converter = self._sparse_ctx.get_converter('forward:C', 'B')
+        if weight_converter is not None:
+            weight = weight_converter.convert(weight.detach())
+        self.weight = torch.nn.Parameter(weight, requires_grad=True)
 
-        Returns:
-            Tuple: The first value is the shape dict, the second value is the test input dict.
-        '''
-        M, K = A.shape
-        assert self._shape['GLOBAL_K_VALUE'] == K
-        self._shape['GLOBAL_M_VALUE'] = M
-        for kern in self._possible_implementations.values():
-            kern.set_parameters(self._shape)
-        inputs = {
-            'A': A.cpu().detach().numpy().astype(f'{self._dtype}32'),
-            'B': self._raw_module.weight.cpu().detach().numpy().astype(f'{self._dtype}32'),
-        }
-        if self._biased:
-            inputs['bias'] = self._raw_module.bias.cpu().detach().numpy().astype(f'{self._dtype}32')
-        return self._shape, inputs
+    def _sparse_forward(self, input_tensor: torch.Tensor):
+        inputs = [self._sparse_ctx, input_tensor, self.weight]
+        if self.bias is not None:
+            inputs.append(self.bias)
+        return self.__sparse_func__.apply(*inputs).squeeze(0)
+
+    def set_sample_inputs(
+        self,
+        sample_inputs: List[torch.Tensor],
+        sample_grads: Optional[List[torch.Tensor]] = None,
+    ):
+        self._read_sample_inputs(*sample_inputs)
+        self._sparse_ctx.set_shape(**self._shape)
+        if self.bias is None:
+            sample_inputs = [sample_inputs[0], self._raw_weight]
+        else:
+            sample_inputs = [sample_inputs[0], self._raw_weight, self.bias]
+        sample_inputs = [x.unsqueeze(0) for x in sample_inputs]
+        if sample_grads is not None:
+            sample_grads = [x.unsqueeze(0) for x in sample_grads]
+        self._sparse_ctx.set_sample_inputs(sample_inputs, sample_grads)

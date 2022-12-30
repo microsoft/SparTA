@@ -11,4 +11,9 @@ sparta.nn
 .. autoclass:: sparta.nn.SparseSoftmax
     :members:
 
+.. autoclass:: sparta.nn.SparseAttention
+    :members:
+
 .. autofunction:: sparta.nn.tune
+
+.. autofunction:: sparta.nn.build
