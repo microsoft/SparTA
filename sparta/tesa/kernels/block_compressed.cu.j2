@@ -1,0 +1,260 @@
+{# Copyright (c) Microsoft Corporation. #}
+{# Licensed under the MIT license. #}
+
+#define MAX_BLOCK_THREAD_COUNT 1024
+{% set BLOCK_SIZE = BH * BW %}
+{% set MASK_BATCH = [BW, 16]|min %}
+{% set BLOCK_DIM = BLOCK_SIZE // MASK_BATCH %}
+{% set SUM_GROUP_SIZE = [BLOCK_SIZE, 256]|min %}
+{% set SUM_GROUP_H = SUM_GROUP_SIZE // BW %}
+{% set SUM_GROUP_W = SUM_GROUP_SIZE // BH %}
+
+__device__ __forceinline__ const unsigned char* add_ptr_b(const unsigned char* src, int offset) \
+{                                                                                               \
+    const unsigned char* dst;                                                                   \
+    asm("{                       \n\t"                                                          \
+        ".reg .u32  lo, hi, of;  \n\t"                                                          \
+        "mul.lo.u32 of, %2, %3;  \n\t"                                                          \
+        "mov.b64    {lo,hi},%1;  \n\t"                                                          \
+        "add.cc.u32 lo, lo, of;  \n\t"                                                          \
+        "addc.u32   hi, hi, 0;   \n\t"                                                          \
+        "mov.b64    %0,{lo,hi};  \n\t"                                                          \
+        "}" : "=l"(dst) : "l"(src), "r"(offset), "r"((int)sizeof(*src)));                       \
+    return dst;                                                                                 \
+}
+
+__device__ __forceinline__ const float* add_ptr_f(const float* src, int offset) \
+{                                                                               \
+    const float* dst;                                                           \
+    asm("{                       \n\t"                                          \
+        ".reg .u32 lo,hi,of;     \n\t"                                          \
+        "mul.lo.u32 of, %2, %3;  \n\t"                                          \
+        "mov.b64    {lo,hi}, %1; \n\t"                                          \
+        "add.cc.u32  lo,lo,  of; \n\t"                                          \
+        "addc.u32    hi,hi,  0;  \n\t"                                          \
+        "mov.b64 %0, {lo,hi};    \n\t"                                          \
+        "}" : "=l"(dst) : "l"(src), "r"(offset), "r"((int)sizeof(*src)));       \
+    return dst;                                                                 \
+}
+
+__device__ void warpReduceMask(volatile unsigned char* sdata, int tid) {
+    {% if BLOCK_DIM > 32 %}sdata[tid] += sdata[tid + 32];{% endif %}
+    {% if BLOCK_DIM > 16 %}sdata[tid] += sdata[tid + 16];{% endif %}
+    {% if BLOCK_DIM > 8 %}sdata[tid] += sdata[tid + 8];{% endif %}
+    {% if BLOCK_DIM > 4 %}sdata[tid] += sdata[tid + 4];{% endif %}
+    {% if BLOCK_DIM > 2 %}sdata[tid] += sdata[tid + 2];{% endif %}
+    {% if BLOCK_DIM > 1 %}sdata[tid] += sdata[tid + 1];{% endif %}
+}
+
+__device__ void warpReduceValH(volatile float* sdata, int tid) {
+    {% if BH > 32 %}sdata[tid] += sdata[tid + 32];{% endif %}
+    {% if BH > 16 %}sdata[tid] += sdata[tid + 16];{% endif %}
+    {% if BH > 8 %}sdata[tid] += sdata[tid + 8];{% endif %}
+    {% if BH > 4 %}sdata[tid] += sdata[tid + 4];{% endif %}
+    {% if BH > 2 %}sdata[tid] += sdata[tid + 2];{% endif %}
+    {% if BH > 1 %}sdata[tid] += sdata[tid + 1];{% endif %}
+}
+
+__device__ void warpReduceValW(volatile float* sdata, int tid) {
+    {% if BW > 32 %}sdata[tid] += sdata[tid + 32];{% endif %}
+    {% if BW > 16 %}sdata[tid] += sdata[tid + 16];{% endif %}
+    {% if BW > 8 %}sdata[tid] += sdata[tid + 8];{% endif %}
+    {% if BW > 4 %}sdata[tid] += sdata[tid + 4];{% endif %}
+    {% if BW > 2 %}sdata[tid] += sdata[tid + 2];{% endif %}
+    {% if BW > 1 %}sdata[tid] += sdata[tid + 1];{% endif %}
+}
+
+__global__ void bcsr_index_1(
+    const unsigned char * __restrict__ mask,
+    int * row_ptr,
+    int * col_ptr,
+    int * extra_buffer,
+    int H,
+    int W
+) {
+    assert(blockDim.x <= MAX_BLOCK_THREAD_COUNT);
+    // Initialize the shared flag
+    __shared__ unsigned char reduce[MAX_BLOCK_THREAD_COUNT];
+
+    uint bx = blockIdx.x;
+    uint by = blockIdx.y;
+    uint tid = threadIdx.x;
+
+    uint global_offset = (by * {{ BH }}) * W + bx * {{ BW }};
+    assert(({{ BLOCK_SIZE }} / {{ MASK_BATCH }}) % blockDim.x == 0);
+
+    uint flag = 0;
+    for (uint _pos = tid; _pos < {{ BLOCK_SIZE }} / {{ MASK_BATCH }}; _pos += blockDim.x) {
+        uint block_offset = _pos / ({{ BW }} / {{ MASK_BATCH }}) * W + _pos % ({{ BW }} / {{ MASK_BATCH }}) * {{ MASK_BATCH }};
+        {% if BW == 4 %}
+        uint data = __ldg((const uint*)(add_ptr_b(mask, global_offset + block_offset)));
+        flag += data;
+        {% elif BW == 8 %}
+        uint2 data = __ldg((const uint2*)(add_ptr_b(mask, global_offset + block_offset)));
+        flag += data.x + data.y;
+        {% else %}
+        uint4 data = __ldg((const uint4*)(add_ptr_b(mask, global_offset + block_offset)));
+        flag += data.x + data.y + data.z + data.w;
+        {% endif %}
+    }
+    reduce[tid] = flag > 0 ? 1 : 0;
+
+    // Fast tree reduce accross the block
+    __syncthreads();
+    for (uint s = blockDim.x >> 1; s > 32; s >>= 1) {
+        if (tid < s) reduce[tid] += reduce[tid + s];
+        __syncthreads();
+    }
+    if (tid < {{ [BLOCK_DIM / 2, 32]|min }}) warpReduceMask(reduce, tid);
+    __syncthreads();
+
+    if (tid == 0 && reduce[0] > 0) {
+        // Record column index, +1 because 0 means empty
+        int col_pos_id = atomicAdd(&extra_buffer[by], 1);
+        uint buffer_offset = gridDim.y;
+        extra_buffer[buffer_offset + gridDim.x * by + col_pos_id] = bx + 1;
+        buffer_offset += gridDim.x * gridDim.y;
+        // Record BCSC order
+        int row_pos_id = atomicAdd(&extra_buffer[buffer_offset + bx], 1);
+        buffer_offset += gridDim.x;
+        extra_buffer[buffer_offset + gridDim.y * bx + row_pos_id] = by + 1;
+        buffer_offset += gridDim.x * gridDim.y;
+        extra_buffer[buffer_offset + gridDim.y * bx + row_pos_id] = col_pos_id;
+        // Record pointers
+        atomicAdd(&row_ptr[by + 1], 1);
+        atomicAdd(&col_ptr[bx + 1], 1);
+    }
+}
+
+__global__ void bcsr_index_2(
+    int * row_ptr,
+    int * col_ptr,
+    int * extra_buffer,
+    int * row_idx,
+    int * col_idx,
+    int * BCSC_order
+) {
+    uint bx = blockIdx.x;
+    uint by = blockIdx.y;
+    uint buffer_offset = gridDim.y;
+    int cidx = extra_buffer[buffer_offset + gridDim.x * by + bx];
+    if (cidx > 0) {
+        int block_id = row_ptr[by] + bx;
+        row_idx[block_id] = by;
+        col_idx[block_id] = cidx - 1;
+    }
+    buffer_offset += gridDim.x * gridDim.y + gridDim.x;
+    int ridx = extra_buffer[buffer_offset + gridDim.y * bx + by];
+    if (ridx > 0) {
+        buffer_offset += gridDim.x * gridDim.y;
+        int order = extra_buffer[buffer_offset + gridDim.y * bx + by];
+        BCSC_order[col_ptr[bx] + by] = row_ptr[ridx - 1] + order;
+    }
+}
+
+__global__ void dense_to_bcsr_val(
+    float * dense,
+    float * sparse,
+    int * row_idx,
+    int * col_idx,
+    int block_nnz,
+    int H,
+    int W
+) {
+    int bx = col_idx[blockIdx.x];
+    int by = row_idx[blockIdx.x];
+    int block_offset = blockIdx.x * {{ BLOCK_SIZE }};
+    dense += H * W * blockIdx.y;
+    sparse += block_nnz * {{ BLOCK_SIZE }} * blockIdx.y;
+    for (int _pos = threadIdx.x * 4; _pos < {{ BLOCK_SIZE }}; _pos += blockDim.x * 4) {
+        int dense_offset = ({{ BH }} * by + _pos / {{ BW }}) * W + {{ BW }} * bx + _pos % {{ BW }};
+        *(float4*)&sparse[block_offset + _pos] = __ldg((const float4*)(add_ptr_f(dense, dense_offset)));
+    }
+}
+
+__global__ void bcsr_val_to_dense(
+    float * sparse,
+    float * dense,
+    int * row_idx,
+    int * col_idx,
+    int block_nnz,
+    int H,
+    int W
+) {
+    int bx = col_idx[blockIdx.x];
+    int by = row_idx[blockIdx.x];
+    int block_offset = blockIdx.x * {{ BLOCK_SIZE }};
+    dense += H * W * blockIdx.y;
+    sparse += block_nnz * {{ BLOCK_SIZE }} * blockIdx.y;
+    for (int _pos = threadIdx.x * 4; _pos < {{ BLOCK_SIZE }}; _pos += blockDim.x * 4) {
+        int dense_offset = ({{ BH }} * by + _pos / {{ BW }}) * W + {{ BW }} * bx + _pos % {{ BW }};
+        *(float4*)&dense[dense_offset] = __ldg((const float4*)(add_ptr_f(sparse, block_offset + _pos)));
+    }
+}
+
+__global__ void bcsr_val_sum_row(
+    float * sparse_val,
+    float * result,
+    int * row_ptr,
+    int block_nnz,
+    int H
+) {
+    int by = blockIdx.x;
+    int tid = threadIdx.x;
+    int row_pos = tid / {{ BW }};
+    int col_pos = tid % {{ BW }};
+    sparse_val += block_nnz * {{ BLOCK_SIZE }} * blockIdx.y;
+    result += H * blockIdx.y;
+    __shared__ float block_row_sum[{{ SUM_GROUP_SIZE }}];
+    int index_start = row_ptr[by], index_end = row_ptr[by+1];
+    for (int _pos = tid; _pos < {{ BLOCK_SIZE }}; _pos += {{ SUM_GROUP_SIZE }}, row_pos += {{ SUM_GROUP_H }}) {
+        block_row_sum[tid] = 0;
+        for (int block_idx = index_start; block_idx < index_end; block_idx++) {
+            block_row_sum[tid] += sparse_val[block_idx * {{ BLOCK_SIZE }} + _pos];
+        }
+        __syncthreads();
+        for (uint s = {{ BW }} >> 1; s > 32; s >>= 1) {
+            if (col_pos < s) block_row_sum[tid] += block_row_sum[tid + s];
+            __syncthreads();
+        }
+        if (col_pos < {{ [BW / 2, 32]|min }}) warpReduceValW(block_row_sum, tid);
+        if (col_pos == 0) result[by * {{ BH }} + row_pos] = block_row_sum[tid];
+        __syncthreads();
+    }
+}
+
+__global__ void bcsr_val_sum_col(
+    float * sparse_val,
+    float * result,
+    int * col_ptr,
+    int * order,
+    int block_nnz,
+    int W
+) {
+    int bx = blockIdx.x;
+    int tid = threadIdx.x;
+    int col_pos = tid / {{ BH }};
+    int row_pos = tid % {{ BH }};
+    int read_row_pos = tid / {{ SUM_GROUP_W }};
+    int read_col_pos = tid % {{ SUM_GROUP_W }};
+    int read_tid = read_col_pos * {{ BH }} + read_row_pos;
+    sparse_val += block_nnz * {{ BLOCK_SIZE }} * blockIdx.y;
+    result += W * blockIdx.y;
+    __shared__ float block_col_sum[{{ SUM_GROUP_SIZE }}];
+    int index_start = col_ptr[bx], index_end = col_ptr[bx+1];
+    for (int _pos = read_col_pos; _pos < {{ BW }}; _pos += {{ SUM_GROUP_W }}, col_pos += {{ SUM_GROUP_W }}) {
+        int val_pos = read_row_pos * {{ BW }} + _pos;
+        block_col_sum[read_tid] = 0;
+        for (int block_idx = index_start; block_idx < index_end; block_idx++) {
+            block_col_sum[read_tid] += sparse_val[order[block_idx] * {{ BLOCK_SIZE }} + val_pos];
+        }
+        __syncthreads();
+        for (uint s = {{ BH }} >> 1; s > 32; s >>= 1) {
+            if (row_pos < s) block_col_sum[tid] += block_col_sum[tid + s];
+            __syncthreads();
+        }
+        if (row_pos < {{ [BH / 2, 32]|min }}) warpReduceValH(block_col_sum, tid);
+        if (row_pos == 0) result[bx * {{ BW }} + col_pos] = block_col_sum[tid];
+        __syncthreads();
+    }
+}

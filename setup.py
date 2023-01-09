@@ -24,5 +24,6 @@ setup(
     include_package_data=True,
     package_data={
         'sparta.specializer.kernels': ['templates/*.j2'],
+        'sparta.tesa': ['kernels/*.j2'],
     },
 )

@@ -16,7 +16,7 @@ if __env_ready__:
     import pycuda.autoprimaryctx
     from pycuda.compiler import SourceModule
 
-from sparta.common.tesa import TeSAConverter, BCS
+from sparta.tesa import get_bcsr_function
 from sparta.common.tuning import TunableItemCfg
 from sparta.testing import profile
 
