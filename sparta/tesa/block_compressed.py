@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import abc
 from typing import Any, Dict
 
 import torch
@@ -22,28 +23,17 @@ from sparta.tesa import TeSAIndexes, TeSAFunctionContext
 KERNEL_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'kernels')
 
 
-class BCSRIndexes(TeSAIndexes):
+class BCSIndexes(TeSAIndexes):
 
     def __init__(
         self,
-        function_context: BCSRFunctionContext,
+        function_context: BCSFunctionContext,
         raw_mask: torch.Tensor,
-        row_ptr: torch.Tensor,
-        col_ptr: torch.Tensor,
-        row_idx: torch.Tensor,
-        col_idx: torch.Tensor,
-        BCSC_order: torch.Tensor,
         block_nnz: int,
         block_H: int,
         block_W: int,
     ):
         super().__init__(function_context, raw_mask)
-        # BCSR/BCSC index tensors & int32 parameters for op kernels
-        self.row_ptr = row_ptr
-        self.col_ptr = col_ptr
-        self.row_idx = row_idx
-        self.col_idx = col_idx
-        self.BCSC_order = BCSC_order
         self.nnz = np.int32(block_nnz)
         # Shape variables
         self.block_H = block_H
@@ -53,53 +43,166 @@ class BCSRIndexes(TeSAIndexes):
         self.col_num = self.W // self.block_W
         self.block_nnz = block_nnz
 
-    def get_block_mask(self):
-        block_mask_val = torch.ones(
-            size=(self.block_nnz, ),
-            dtype=torch.uint8,
-            device=self.col_idx.device
-        )
-        return torch.sparse_csr_tensor(self.row_ptr, self.col_idx, block_mask_val)
+    @abc.abstractmethod
+    def get_block_mask(self) -> torch.Tensor:
+        """Rebuild block mask using BCSR/BCSC indexes"""
 
     def get_mask(self) -> torch.Tensor:
         mask = self.get_block_mask().unsqueeze(0).unsqueeze(0)
         mask = mask.tile((self.block_H, self.block_W, 1, 1)).swapaxes(1, 2)
-        return mask.reshape(self.raw_mask.shape)
+        return mask.reshape(self.raw_mask.shape).contiguous()
+
+    @abc.abstractmethod
+    def convert(self, dense: torch.Tensor):
+        """Convert dense tensor to compressed sparse value."""
+
+    @abc.abstractmethod
+    def inverse(self, sparse_val: torch.Tensor):
+        """Inversely convert compressed sparse value to dense tensor."""
+
+    @abc.abstractmethod
+    def _row_sum(self, sparse_val: torch.Tensor):
+        """Calculate sum value along rows."""
+
+    @abc.abstractmethod
+    def _col_sum(self, sparse_val: torch.Tensor):
+        """Calculate sum value along columns."""
+
+    def sum(self, sparse_val: torch.Tensor, axis: int = -1) -> torch.Tensor:
+        inverse_axis = -axis if axis < 0 else len(sparse_val.shape) - axis
+        if inverse_axis == 1:
+            return self._row_sum(sparse_val)
+        elif inverse_axis == 2:
+            return self._col_sum(sparse_val)
+        else:
+            raise ValueError(f'axis #{axis} is not sparsed, please use torch.sum() instead.')
+
+
+class BCSRIndexes(BCSIndexes):
+
+    def __init__(
+        self,
+        function_context: BCSFunctionContext,
+        raw_mask: torch.Tensor,
+        row_ptr: torch.Tensor,
+        BCSR_idx: torch.Tensor,
+        block_nnz: int,
+        block_H: int,
+        block_W: int,
+    ):
+        super().__init__(function_context, raw_mask, block_nnz, block_H, block_W)
+        self.row_ptr = row_ptr
+        self.BCSR_idx = BCSR_idx
+
+    def get_block_mask(self):
+        block_mask_val = torch.ones(
+            size=(self.block_nnz, ),
+            dtype=torch.uint8,
+            device=self.row_ptr.device
+        )
+        col_idx = self.BCSR_idx.bitwise_and(0xffff)
+        return torch.sparse_csr_tensor(self.row_ptr, col_idx, block_mask_val).to_dense()
 
     def convert(self, dense: torch.Tensor):
         return self.function_context.convert(
-            dense, self.row_idx, self.col_idx,
+            dense, self.BCSR_idx,
             self.block_nnz, self.H, self.W
         )
 
     def inverse(self, sparse_val: torch.Tensor):
         return self.function_context.inverse(
-            sparse_val, self.row_idx, self.col_idx,
+            sparse_val, self.BCSR_idx,
             self.block_nnz, self.H, self.W
         )
 
-    def sum(self, sparse_val: torch.Tensor, axis: int = -1) -> torch.Tensor:
-        inverse_axis = -axis if axis < 0 else len(sparse_val.shape) - axis
-        if inverse_axis == 1:
-            return self.function_context.row_sum(
-                sparse_val, self.row_ptr, self.nnz,
-                self.row_num, self.H,
-            )
-        elif inverse_axis == 2:
-            return self.function_context.col_sum(
-                sparse_val, self.col_ptr, self.BCSC_order, self.nnz,
-                self.col_num, self.W,
-            )
-        else:
-            raise ValueError(f'axis #{axis} is not sparsed, please use torch.sum() instead.')
+    def _row_sum(self, sparse_val: torch.Tensor):
+        return self.function_context.row_sum(
+            sparse_val, self.row_ptr, self.nnz,
+            self.row_num, self.H,
+        )
+
+    def _col_sum(self, sparse_val: torch.Tensor):
+        return self.inverse(sparse_val).sum(-2)
+
+
+class BCSCIndexes(BCSIndexes):
+
+    def __init__(
+        self,
+        function_context: BCSFunctionContext,
+        raw_mask: torch.Tensor,
+        col_ptr: torch.Tensor,
+        BCSC_idx: torch.Tensor,
+        block_nnz: int,
+        block_H: int,
+        block_W: int,
+    ):
+        super().__init__(function_context, raw_mask, block_nnz, block_H, block_W)
+        self.col_ptr = col_ptr
+        self.BCSC_idx = BCSC_idx
+
+    def get_block_mask(self):
+        block_mask_val = torch.ones(
+            size=(self.block_nnz, ),
+            dtype=torch.uint8,
+            device=self.col_ptr.device
+        )
+        row_idx = self.BCSC_idx.bitwise_and(0xffff)
+        return torch.sparse_csr_tensor(self.col_ptr, row_idx, block_mask_val).to_dense().T
+
+    def convert(self, dense: torch.Tensor):
+        return self.function_context.convert(
+            dense, self.BCSC_idx,
+            self.block_nnz, self.H, self.W
+        )
+
+    def inverse(self, sparse_val: torch.Tensor):
+        return self.function_context.inverse(
+            sparse_val, self.BCSC_idx,
+            self.block_nnz, self.H, self.W
+        )
+
+    def _row_sum(self, sparse_val: torch.Tensor):
+        return self.inverse(sparse_val).sum(-1)
+
+    def _col_sum(self, sparse_val: torch.Tensor):
+        return self.inverse(sparse_val).sum(-2)
+
+
+class BCSRCIndexes(BCSRIndexes):
+
+    def __init__(
+        self,
+        function_context: BCSFunctionContext,
+        raw_mask: torch.Tensor,
+        row_ptr: torch.Tensor,
+        col_ptr: torch.Tensor,
+        BCSR_idx: torch.Tensor,
+        BCSC_idx: torch.Tensor,
+        block_nnz: int,
+        block_H: int,
+        block_W: int,
+    ):
+        super().__init__(
+            function_context, raw_mask, row_ptr, BCSR_idx,
+            block_nnz, block_H, block_W,
+        )
+        self.col_ptr = col_ptr
+        self.BCSC_idx = BCSC_idx
+
+    def _col_sum(self, sparse_val: torch.Tensor):
+        return self.function_context.col_sum(
+            sparse_val, self.col_ptr, self.BCSC_idx, self.nnz,
+            self.col_num, self.W,
+        )
 
 
 _extra_buffer_cache: Dict[str, torch.Tensor] = {}
 
 
-class BCSRFunctionContext(TeSAFunctionContext):
+class BCSFunctionContext(TeSAFunctionContext):
 
-    def __init__(self, block_H: int, block_W: int):
+    def __init__(self, block_H: int, block_W: int, BCSR: bool, BCSC: bool):
         assert block_H in [4, 8, 16, 32, 64, 128, 256]
         assert block_W in [4, 8, 16, 32, 64, 128, 256]
         self._block_H = block_H
@@ -110,16 +213,22 @@ class BCSRFunctionContext(TeSAFunctionContext):
         self._sum_block_dim = (min(self._block_size, 256), 1, 1)
         with open(os.path.join(KERNEL_DIR, 'block_compressed.cu.j2')) as f:
             kernel_code = jinja2.Template(f.read()).render({
-                'BH': block_H, 'BW': block_W,
+                'BH': block_H, 'BW': block_W, 'BCSR': BCSR, 'BCSC': BCSC,
             })
         source_module = SourceModule(kernel_code, options=['-O3'])
-        self.index_1_kernel = source_module.get_function('bcsr_index_1')
-        self.index_2_kernel = source_module.get_function('bcsr_index_2')
-        self.convert_kernel = source_module.get_function('dense_to_bcsr_val')
-        self.inverse_kernel = source_module.get_function('bcsr_val_to_dense')
-        self.row_sum_kernel = source_module.get_function('bcsr_val_sum_row')
-        self.col_sum_kernel = source_module.get_function('bcsr_val_sum_col')
-    
+        self.index_1_kernel = source_module.get_function('bcs_index_1')
+        self.index_2_kernel = source_module.get_function('bcs_index_2')
+        self.convert_kernel = source_module.get_function('dense_to_bcs_val')
+        self.inverse_kernel = source_module.get_function('bcs_val_to_dense')
+        if BCSR:
+            self.row_sum_kernel = source_module.get_function('bcsr_val_sum_row')
+            if BCSC:
+                self.col_sum_kernel = source_module.get_function('bcsr_val_sum_col')
+            else:
+                self.build_indexes = self._build_BCSR_indexes
+        else:
+            self.build_indexes = self._build_BCSC_indexes
+
     def _get_index_extra_buffer(self, row_num: int, col_num: int, device: Any):
         extra_buffer_id = f'{row_num},{col_num}'
         if extra_buffer_id in _extra_buffer_cache:
@@ -131,7 +240,7 @@ class BCSRFunctionContext(TeSAFunctionContext):
             _extra_buffer_cache[extra_buffer_id] = extra_buffer
         return extra_buffer
 
-    def build_indexes(self, mask: torch.Tensor) -> BCSRIndexes:
+    def build_indexes(self, mask: torch.Tensor) -> BCSRCIndexes:
         H, W = mask.shape
         row_num = H // self._block_H
         col_num = W // self._block_W
@@ -145,24 +254,65 @@ class BCSRFunctionContext(TeSAFunctionContext):
         row_ptr = torch.cumsum(row_ptr, dim=0, dtype=torch.int32)
         col_ptr = torch.cumsum(col_ptr, dim=0, dtype=torch.int32)
         block_nnz = row_ptr[-1].item()
-        row_idx = torch.empty((block_nnz, ), dtype=torch.int32, device='cuda')
-        col_idx = torch.empty((block_nnz, ), dtype=torch.int32, device='cuda')
-        BCSC_order = torch.empty((block_nnz, ), dtype=torch.int32, device='cuda')
+        BCSR_idx = torch.empty((block_nnz, ), dtype=torch.int32, device='cuda')
+        BCSC_idx = torch.empty((block_nnz, ), dtype=torch.int64, device='cuda')
         self.index_2_kernel(
-            row_ptr, col_ptr, extra_buffer, row_idx, col_idx, BCSC_order,
+            row_ptr, col_ptr, BCSR_idx, BCSC_idx, extra_buffer,
+            block=(1, 1, 1), grid=(col_num, row_num, 1)
+        )
+        return BCSRCIndexes(
+            self, mask, row_ptr, col_ptr, BCSR_idx, BCSC_idx,
+            block_nnz, self._block_H, self._block_W,
+        )
+
+    def _build_BCSR_indexes(self, mask: torch.Tensor) -> BCSRIndexes:
+        H, W = mask.shape
+        row_num = H // self._block_H
+        col_num = W // self._block_W
+        extra_buffer = self._get_index_extra_buffer(row_num, col_num, mask.device)
+        row_ptr = torch.zeros((row_num + 1, ), dtype=torch.int32, device='cuda')
+        self.index_1_kernel(
+            mask, row_ptr, extra_buffer, np.int32(H), np.int32(W),
+            block=self._index_block_dim, grid=(col_num, row_num, 1)
+        )
+        row_ptr = torch.cumsum(row_ptr, dim=0, dtype=torch.int32)
+        block_nnz = row_ptr[-1].item()
+        BCSR_idx = torch.empty((block_nnz, ), dtype=torch.int32, device='cuda')
+        self.index_2_kernel(
+            row_ptr, BCSR_idx, extra_buffer,
             block=(1, 1, 1), grid=(col_num, row_num, 1)
         )
         return BCSRIndexes(
-            self, mask,
-            row_ptr, col_ptr, row_idx, col_idx, BCSC_order,
+            self, mask, row_ptr, BCSR_idx,
+            block_nnz, self._block_H, self._block_W,
+        )
+
+    def _build_BCSC_indexes(self, mask: torch.Tensor) -> BCSCIndexes:
+        H, W = mask.shape
+        row_num = H // self._block_H
+        col_num = W // self._block_W
+        extra_buffer = self._get_index_extra_buffer(row_num, col_num, mask.device)
+        col_ptr = torch.zeros((col_num + 1, ), dtype=torch.int32, device='cuda')
+        self.index_1_kernel(
+            mask, col_ptr, extra_buffer, np.int32(H), np.int32(W),
+            block=self._index_block_dim, grid=(col_num, row_num, 1)
+        )
+        col_ptr = torch.cumsum(col_ptr, dim=0, dtype=torch.int32)
+        block_nnz = col_ptr[-1].item()
+        BCSC_idx = torch.empty((block_nnz, ), dtype=torch.int32, device='cuda')
+        self.index_2_kernel(
+            col_ptr, BCSC_idx, extra_buffer,
+            block=(1, 1, 1), grid=(col_num, row_num, 1)
+        )
+        return BCSCIndexes(
+            self, mask, col_ptr, BCSC_idx,
             block_nnz, self._block_H, self._block_W,
         )
 
     def convert(
         self,
         dense: torch.Tensor,
-        row_idx: torch.Tensor,
-        col_idx: torch.Tensor,
+        index: torch.Tensor,
         block_nnz: int,
         H: int,
         W: int,
@@ -178,7 +328,7 @@ class BCSRFunctionContext(TeSAFunctionContext):
             device=dense.device,
         )
         self.convert_kernel(
-            dense, sparse_val, row_idx, col_idx,
+            dense, sparse_val, index,
             np.int32(block_nnz), np.int32(H), np.int32(W),
             block=self._convert_block_dim, grid=(block_nnz, batch_size, 1),
         )
@@ -187,8 +337,7 @@ class BCSRFunctionContext(TeSAFunctionContext):
     def inverse(
         self,
         sparse_val: torch.Tensor,
-        row_idx: torch.Tensor,
-        col_idx: torch.Tensor,
+        index: torch.Tensor,
         block_nnz: int,
         H: int,
         W: int,
@@ -203,7 +352,7 @@ class BCSRFunctionContext(TeSAFunctionContext):
             device=sparse_val.device,
         )
         self.inverse_kernel(
-            sparse_val, dense, row_idx, col_idx,
+            sparse_val, dense, index,
             np.int32(block_nnz), np.int32(H), np.int32(W),
             block=self._convert_block_dim, grid=(block_nnz, batch_size, 1),
         )
@@ -235,7 +384,7 @@ class BCSRFunctionContext(TeSAFunctionContext):
         self,
         sparse_val: torch.Tensor,
         col_ptr: torch.Tensor,
-        BCSC_order: torch.Tensor,
+        BCSC_index: torch.Tensor,
         nnz: np.int32,
         col_num: int,
         W: int,
@@ -249,17 +398,17 @@ class BCSRFunctionContext(TeSAFunctionContext):
             device=sparse_val.device,
         )
         self.col_sum_kernel(
-            sparse_val, result, col_ptr, BCSC_order, nnz, np.int32(W),
+            sparse_val, result, col_ptr, BCSC_index, nnz, np.int32(W),
             block=self._sum_block_dim, grid=(col_num, batch_size, 1),
         )
         return result.reshape(sparse_shape[:-1] + (W, ))
 
 
-_bcsr_function_cache: Dict[str, BCSRFunctionContext] = {}
+_bcsr_function_cache: Dict[str, BCSFunctionContext] = {}
 
 
-def get_bcsr_function(block_H: int, block_W: int):
-    bcsr_function_id = f'{block_H},{block_W}'
+def get_bcs_function(block_H: int, block_W: int, BCSR: bool, BCSC: bool):
+    bcsr_function_id = f'{block_H},{block_W},{BCSR},{BCSC}'
     if bcsr_function_id not in _bcsr_function_cache:
-        _bcsr_function_cache[bcsr_function_id] = BCSRFunctionContext(block_H, block_W)
+        _bcsr_function_cache[bcsr_function_id] = BCSFunctionContext(block_H, block_W, BCSR, BCSC)
     return _bcsr_function_cache[bcsr_function_id]

@@ -64,10 +64,10 @@ __device__ void warpReduceValW(volatile float* sdata, int tid) {
     {% if BW > 1 %}sdata[tid] += sdata[tid + 1];{% endif %}
 }
 
-__global__ void bcsr_index_1(
+__global__ void bcs_index_1(
     const unsigned char * __restrict__ mask,
-    int * row_ptr,
-    int * col_ptr,
+    {% if BCSR %}int * row_ptr,{% endif %}
+    {% if BCSC %}int * col_ptr,{% endif %}
     int * extra_buffer,
     int H,
     int W
@@ -108,61 +108,83 @@ __global__ void bcsr_index_1(
     if (tid < {{ [BLOCK_DIM / 2, 32]|min }}) warpReduceMask(reduce, tid);
     __syncthreads();
 
-    if (tid == 0 && reduce[0] > 0) {
-        // Record column index, +1 because 0 means empty
+    if (tid == 0 & reduce[0] > 0) {
+        {% if BCSR %}
+        // Record BCSR column index, +1 because 0 means empty
         int col_pos_id = atomicAdd(&extra_buffer[by], 1);
-        uint buffer_offset = gridDim.y;
-        extra_buffer[buffer_offset + gridDim.x * by + col_pos_id] = bx + 1;
-        buffer_offset += gridDim.x * gridDim.y;
-        // Record BCSC order
-        int row_pos_id = atomicAdd(&extra_buffer[buffer_offset + bx], 1);
-        buffer_offset += gridDim.x;
-        extra_buffer[buffer_offset + gridDim.y * bx + row_pos_id] = by + 1;
-        buffer_offset += gridDim.x * gridDim.y;
-        extra_buffer[buffer_offset + gridDim.y * bx + row_pos_id] = col_pos_id;
+        extra_buffer += gridDim.y;
+        extra_buffer[gridDim.x * by + col_pos_id] = bx + 1;
+            {% if BCSC %}
+        extra_buffer += gridDim.x * gridDim.y;
+            {% endif %}
+        {% endif %}
+        {% if BCSC %}
+        // Record BCSC row index, +1 because 0 means empty
+        int row_pos_id = atomicAdd(&extra_buffer[bx], 1);
+        extra_buffer += gridDim.x;
+        extra_buffer[gridDim.y * bx + row_pos_id] = by + 1;
+            {% if BCSR %}
+        // Record BCSC block index
+        extra_buffer += gridDim.x * gridDim.y;
+        extra_buffer[gridDim.y * bx + row_pos_id] = col_pos_id;
+            {% endif %}
+        {% endif %}
         // Record pointers
-        atomicAdd(&row_ptr[by + 1], 1);
-        atomicAdd(&col_ptr[bx + 1], 1);
+        {% if BCSR %}atomicAdd(&row_ptr[by + 1], 1);{% endif %}
+        {% if BCSC %}atomicAdd(&col_ptr[bx + 1], 1);{% endif %}
     }
 }
 
-__global__ void bcsr_index_2(
-    int * row_ptr,
-    int * col_ptr,
-    int * extra_buffer,
-    int * row_idx,
-    int * col_idx,
-    int * BCSC_order
+__global__ void bcs_index_2(
+    {% if BCSR %}int * row_ptr,{% endif %}
+    {% if BCSC %}int * col_ptr,{% endif %}
+    {% if BCSR %}int * BCSR_idx,{% endif %}
+    {% if BCSC %}{% if BCSR %}long long{% else %}int{% endif %} * BCSC_idx,{% endif %}
+    int * extra_buffer
 ) {
     uint bx = blockIdx.x;
     uint by = blockIdx.y;
-    uint buffer_offset = gridDim.y;
-    int cidx = extra_buffer[buffer_offset + gridDim.x * by + bx];
+    {% if BCSR %}
+    extra_buffer += gridDim.y;
+    int cidx = extra_buffer[gridDim.x * by + bx];
     if (cidx > 0) {
-        int block_id = row_ptr[by] + bx;
-        row_idx[block_id] = by;
-        col_idx[block_id] = cidx - 1;
+        BCSR_idx[row_ptr[by] + bx] = (by << 16) + cidx - 1;
     }
-    buffer_offset += gridDim.x * gridDim.y + gridDim.x;
-    int ridx = extra_buffer[buffer_offset + gridDim.y * bx + by];
+        {% if BCSC %}
+    extra_buffer += gridDim.x * gridDim.y;
+        {% endif %}
+    {% endif %}
+    {% if BCSC %}
+    extra_buffer += gridDim.x;
+    int ridx = extra_buffer[gridDim.y * bx + by];
     if (ridx > 0) {
-        buffer_offset += gridDim.x * gridDim.y;
-        int order = extra_buffer[buffer_offset + gridDim.y * bx + by];
-        BCSC_order[col_ptr[bx] + by] = row_ptr[ridx - 1] + order;
+        {% if BCSR %}
+        extra_buffer += gridDim.x * gridDim.y;
+        int block_idx = row_ptr[ridx - 1] + extra_buffer[gridDim.y * bx + by];
+        BCSC_idx[col_ptr[bx] + by] = ((long long)block_idx << 32) + (bx << 16) + ridx - 1;
+        {% else %}
+        BCSC_idx[col_ptr[bx] + by] = (bx << 16) + ridx - 1;
+        {% endif %}
     }
+    {% endif %}
 }
 
-__global__ void dense_to_bcsr_val(
+__global__ void dense_to_bcs_val(
     float * dense,
     float * sparse,
-    int * row_idx,
-    int * col_idx,
+    int * index,
     int block_nnz,
     int H,
     int W
 ) {
-    int bx = col_idx[blockIdx.x];
-    int by = row_idx[blockIdx.x];
+    int idx = index[blockIdx.x];
+    {% if BCSR %}
+    int bx = idx & 0xffff;
+    int by = idx >> 16;
+    {% else %}
+    int bx = idx >> 16;
+    int by = idx & 0xffff;
+    {% endif %}
     int block_offset = blockIdx.x * {{ BLOCK_SIZE }};
     dense += H * W * blockIdx.y;
     sparse += block_nnz * {{ BLOCK_SIZE }} * blockIdx.y;
@@ -172,17 +194,22 @@ __global__ void dense_to_bcsr_val(
     }
 }
 
-__global__ void bcsr_val_to_dense(
+__global__ void bcs_val_to_dense(
     float * sparse,
     float * dense,
-    int * row_idx,
-    int * col_idx,
+    int * index,
     int block_nnz,
     int H,
     int W
 ) {
-    int bx = col_idx[blockIdx.x];
-    int by = row_idx[blockIdx.x];
+    int idx = index[blockIdx.x];
+    {% if BCSR %}
+    int bx = idx & 0xffff;
+    int by = idx >> 16;
+    {% else %}
+    int bx = idx >> 16;
+    int by = idx & 0xffff;
+    {% endif %}
     int block_offset = blockIdx.x * {{ BLOCK_SIZE }};
     dense += H * W * blockIdx.y;
     sparse += block_nnz * {{ BLOCK_SIZE }} * blockIdx.y;
@@ -227,7 +254,7 @@ __global__ void bcsr_val_sum_col(
     float * sparse_val,
     float * result,
     int * col_ptr,
-    int * order,
+    long long * BCSC_idx,
     int block_nnz,
     int W
 ) {
@@ -246,7 +273,8 @@ __global__ void bcsr_val_sum_col(
         int val_pos = read_row_pos * {{ BW }} + _pos;
         block_col_sum[read_tid] = 0;
         for (int block_idx = index_start; block_idx < index_end; block_idx++) {
-            block_col_sum[read_tid] += sparse_val[order[block_idx] * {{ BLOCK_SIZE }} + val_pos];
+            int BCSC_block_idx = BCSC_idx[block_idx] >> 32;
+            block_col_sum[read_tid] += sparse_val[BCSC_block_idx * {{ BLOCK_SIZE }} + val_pos];
         }
         __syncthreads();
         for (uint s = {{ BH }} >> 1; s > 32; s >>= 1) {
