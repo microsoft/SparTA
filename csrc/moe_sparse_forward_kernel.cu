@@ -3,12 +3,18 @@
 #include <pybind11/stl.h>
 #include <pybind11/numpy.h>
 #include <torch/extension.h>
-using namespace std;
 // Macro definition for the cuda and cusparse
 
 #include <assert.h>
 // CUDA runtime
 #include <cuda.h>
+#include <cuda_fp16.h>
+#include <mma.h>
+#include <cuda_runtime.h>
+
+using namespace std;
+using namespace nvcuda;
+
 #define OFFSET(row, col, ld) ((row) * ld + col)
 #define FETCH_FLOAT4(pointer) (reinterpret_cast<float4*>(&pointer))[0]
 #define FETCH_UINT32(pointer) (reinterpret_cast<unsigned int*>(&(pointer))[0])
@@ -291,6 +297,115 @@ __global__ void BATCH_BLOCK_SPARSE_MATMUL(float* tokens, int* sparse_index, int*
     
 }
 
+__global__ void BATCH_BLOCK_SPARSE_MATMUL_FP16(half* tokens, int* sparse_index, int* expert_count, half*B, half*C, int GLOBAL_M, int GLOBAL_K, int GLOBAL_N, const int TMAX)
+{
+    /*
+    description:
+    tiling k dimension
+    tile size: 32x64x32
+    smm_sd_d_nt: sparse matmul, sparse (MxK, along K, K major bcsr) x dense (KxN, along N, need transpose) -> dense (MxN, along N)
+    block sparse matrix (block size: 32x64) X dense matrix -> dense matrix
+
+    */
+    const int BLOCK_SIZE_M = 32;  // 64
+    const int BLOCK_SIZE_K = 64;  //8
+    const int BLOCK_SIZE_N = 32;  //128
+    const int THREAD_SIZE_K = 64;
+    const int M = GLOBAL_M;
+    const int K = GLOBAL_K;
+    const int N = GLOBAL_N;
+    const int APAD = 8;
+    const int BPAD = 8;
+    assert(blockDim.x % 32 == 0);
+    const int n_warp = blockDim.x / 32;
+    int exp_id = blockIdx.z;
+    B += K * N * blockIdx.z;
+
+    const int w_per_row = BLOCK_SIZE_N / 16;
+
+    int bx = blockIdx.x;
+    int by = blockIdx.y;
+    int tid = threadIdx.x;
+    int wid = tid >> 5; // warp id
+
+    int wy = wid / w_per_row;
+    int wx = wid % w_per_row;
+
+    __shared__ half As[BLOCK_SIZE_M][BLOCK_SIZE_K + APAD];
+    __shared__ half Bs[BLOCK_SIZE_K][BLOCK_SIZE_N + BPAD];
+    __shared__ int m_index[BLOCK_SIZE_M];
+    __shared__ half Cs[BLOCK_SIZE_M][BLOCK_SIZE_N];
+    int n_token = expert_count[exp_id];
+    int index_start = exp_id * TMAX + by * BLOCK_SIZE_M;
+    int index_end = min(index_start + BLOCK_SIZE_M, exp_id * TMAX + n_token);
+    if(index_start<index_end){        
+        uint ori_offsetB00 = tid / (BLOCK_SIZE_N/4) * N + bx * BLOCK_SIZE_N + (tid % (BLOCK_SIZE_N/4)) * 4;
+        uint ori_offsetB16 = ori_offsetB00 + N * 32;
+
+        wmma::fragment<wmma::matrix_a, 16, 16, 16, half, wmma::row_major> frag_a;
+        wmma::fragment<wmma::matrix_b, 16, 16, 16, half, wmma::row_major> frag_b;
+        wmma::fragment<wmma::accumulator, 16, 16, 16, half> frag_c;
+        wmma::fill_fragment(frag_c, 0.0);
+
+        // load to the shared memory
+        
+        const int A_THREAD_PER_ROW = BLOCK_SIZE_K / 8; // 1 float4 = 8 half
+        const int B_THREAD_PER_ROW = BLOCK_SIZE_N / 8;
+        const int C_THREAD_PER_ROW = BLOCK_SIZE_N / 8;
+
+        const int A_TILE_ROW_STRIDE = blockDim.x / A_THREAD_PER_ROW;
+        const int B_TILE_ROW_STRIDE = blockDim.x / B_THREAD_PER_ROW;
+        const int C_TILE_ROW_STRIDE = blockDim.x / C_THREAD_PER_ROW;
+    
+        const int A_BLOCK_ROW_START = tid / A_THREAD_PER_ROW;
+        const int B_BLOCK_ROW_START = tid / B_THREAD_PER_ROW;
+        const int C_BLOCK_ROW_START = tid / C_THREAD_PER_ROW;
+
+        const int A_BLOCK_COL_START = tid % A_THREAD_PER_ROW * 8;
+        const int B_BLOCK_COL_START = tid % B_THREAD_PER_ROW * 8;
+        const int C_BLOCK_COL_START = tid % C_THREAD_PER_ROW * 8;
+        // uint ori_offsetB00 = B_BLOCK_ROW_START * N + bx * BLOCK_SIZE_N + B_BLOCK_COL_START;
+
+        if(tid<index_end-index_start)
+            m_index[tid] = sparse_index[index_start+tid];
+        __syncthreads();
+        // uint ori_offsetA00 = m_index[ty] * K + k;
+        for(int k_seq=0; k_seq<K/BLOCK_SIZE_K; k_seq++){
+            for(int k=A_BLOCK_ROW_START; k<index_end-index_start; k+=A_TILE_ROW_STRIDE){
+                FETCH_FLOAT4(As[k][A_BLOCK_COL_START]) = FETCH_FLOAT4(tokens[m_index[k]*K + k_seq * BLOCK_SIZE_K + A_BLOCK_COL_START]);
+            }
+            for(int k=B_BLOCK_ROW_START; k<BLOCK_SIZE_K; k+=B_TILE_ROW_STRIDE){
+                FETCH_FLOAT4(Bs[k][B_BLOCK_COL_START]) = FETCH_FLOAT4(B[(k_seq*BLOCK_SIZE_K+k)*N + bx * BLOCK_SIZE_N + B_BLOCK_COL_START]);
+            }
+            __syncthreads();
+            // if(tid==0)
+            //     printf("load value: %f\n", __half2float(Bs[0][0]));
+            #pragma unroll
+            for(int k_step=0; k_step<BLOCK_SIZE_K/16; k_step++){
+                wmma::load_matrix_sync(frag_a, &As[wy*16][k_step*16], BLOCK_SIZE_K + APAD);
+                wmma::load_matrix_sync(frag_b, &Bs[k_step*16][wx*16], BLOCK_SIZE_N + BPAD);
+                wmma::mma_sync(frag_c, frag_a, frag_b, frag_c);
+            }
+
+            __syncthreads();
+
+        }
+        wmma::store_matrix_sync(&Cs[wy*16][wx*16], frag_c, BLOCK_SIZE_N, wmma::mem_row_major);
+        __syncthreads();
+
+        for(int k=C_BLOCK_ROW_START; k<index_end-index_start; k+=C_TILE_ROW_STRIDE){
+            if(tid==0){
+                printf("bx:%d by:%d k:%d C_BLOCK_COL_START:%d m_index:%d offset:%d result %f\n", bx, by, k, C_BLOCK_COL_START, m_index[k], m_index[k] * N + bx * BLOCK_SIZE_N + C_BLOCK_COL_START,__half2float(Cs[k][C_BLOCK_COL_START]));
+            }
+            FETCH_FLOAT4(C[m_index[k] * N + bx * BLOCK_SIZE_N + C_BLOCK_COL_START]) = FETCH_FLOAT4(Cs[k][C_BLOCK_COL_START]);
+        }
+    }
+
+
+    
+}
+
+
  __global__ void convert_sparse_index(int * router_index, int total_token, int * expert_count, int *sparse_index, const int TMAX)
 {
     int bx =  blockIdx.x;
@@ -347,6 +462,121 @@ void forward_function(
 }
 
 
+__global__ void HGEMM(
+    int * csr_row, int * csr_col, half *__restrict__ csr_val,
+    half *__restrict__ B, half *__restrict__ C,
+    const int M, const int N, const int K, const int BLOCK_H, const int BLOCK_W)
+{
+
+    const int BM = 32;
+    const int BN = 32;
+    const int BK = 64;
+    const int w_per_row = BN/16;
+
+    int bx = blockIdx.x;
+    int by = blockIdx.y;
+    int tid = threadIdx.x;
+    int wid = tid >> 5;
+
+    int wy = wid / w_per_row;
+    int wx = wid % w_per_row;
+    const int APAD = 8;
+    const int BPAD = 8;
+
+    __shared__ half As[BM][BK + APAD];
+    __shared__ half Bs[BK][BN + BPAD];
+
+
+
+    wmma::fragment<wmma::matrix_a, 16, 16, 16, half, wmma::row_major> frag_a[4];
+    wmma::fragment<wmma::matrix_b, 16, 16, 16, half, wmma::row_major> frag_b[4];
+    wmma::fragment<wmma::accumulator, 16, 16, 16, half> frag_c;
+    wmma::fill_fragment(frag_c, 0.0);
+    // load to the shared memory
+    const int A_THREAD_PER_ROW = BK / 8; // 1 float4 = 8 half
+    const int B_THREAD_PER_ROW = BN / 8;
+    const int A_TILE_ROW_STRIDE = blockDim.x / A_THREAD_PER_ROW;
+    const int B_TILE_ROW_STRIDE = blockDim.x / B_THREAD_PER_ROW;
+    const int A_BLOCK_ROW_START = tid / A_THREAD_PER_ROW;
+    const int B_BLOCK_ROW_START = tid / B_THREAD_PER_ROW;
+    const int A_BLOCK_COL_START = tid % A_THREAD_PER_ROW * 8;
+    const int B_BLOCK_COL_START = tid % B_THREAD_PER_ROW * 8;
+    
+    int index_start = csr_row[by];
+    int index_end = csr_row[by+1];
+    for(int tile_block_idx = index_start; tile_block_idx< index_end; tile_block_idx++){
+        int col_pos = csr_col[tile_block_idx] * BK;
+        #pragma unroll
+        for(int k = 0; k < BM; k += A_TILE_ROW_STRIDE){
+            FETCH_FLOAT4(As[k+A_BLOCK_ROW_START][A_BLOCK_COL_START]) = FETCH_FLOAT4(csr_val[tile_block_idx * BM * BK + OFFSET(k+A_BLOCK_ROW_START, A_BLOCK_COL_START, BK)]);
+        }
+
+        #pragma unroll
+        for(int k = 0; k < BK; k += B_TILE_ROW_STRIDE){
+            // FETCH_FLOAT4(Bs[OFFSET(k+B_BLOCK_ROW_START, B_BLOCK_COL_START, BN+BPAD)]) = FETCH_FLOAT4(B[OFFSET(col_pos+k+B_BLOCK_ROW_START, bx*BN + B_BLOCK_COL_START, N)]);
+            FETCH_FLOAT4(Bs[k+B_BLOCK_ROW_START][B_BLOCK_COL_START]) = FETCH_FLOAT4(B[OFFSET(col_pos+k+B_BLOCK_ROW_START, bx*BN + B_BLOCK_COL_START, N)]);
+        }
+
+        __syncthreads();
+        #pragma unroll
+        for(int k_step=0; k_step<BK/16; k_step++){
+            wmma::load_matrix_sync(frag_a[k_step], &As[wy*16][k_step*16], BK + APAD);
+            wmma::load_matrix_sync(frag_b[k_step], &Bs[k_step*16][wx*16], BN + BPAD);
+        }
+        #pragma unroll
+        for(int k_step=0; k_step<BK/16; k_step++){
+            wmma::mma_sync(frag_c, frag_a[k_step], frag_b[k_step], frag_c);
+        }
+        __syncthreads();
+
+    }
+    int write_offset = (by * BM + wy * 16) * N + bx * BN + wx * 16;
+    wmma::store_matrix_sync(&C[write_offset], frag_c, N, wmma::mem_row_major);
+}
+
+void forward_function(
+    int * router_index,
+    int * sparse_index,
+    c10::Half* __restrict__ tokens,
+    c10::Half* __restrict__ weight,
+    c10::Half* output,
+    int * expert_count,
+    int total_token,
+    int in_hidden,
+    int out_hidden,
+    int n_expert,
+    const int GLOBAL_M,
+    const int TMAX
+    )
+{
+    const int BLOCK_SIZE_M = 32;
+    const int BLOCK_SIZE_K = 64;
+    const int BLOCK_SIZE_N = 32;
+    const int max_block = (GLOBAL_M -1 + BLOCK_SIZE_M)/BLOCK_SIZE_M;
+    dim3 blockDim(32*BLOCK_SIZE_M*BLOCK_SIZE_N/16/16);
+    dim3 gridDim(out_hidden/BLOCK_SIZE_N, max_block, n_expert);
+    BATCH_BLOCK_SPARSE_MATMUL_FP16<<<gridDim, blockDim>>>((half *)tokens, sparse_index, expert_count, (half *)weight, (half *)output, GLOBAL_M, in_hidden, out_hidden, TMAX);
+}
+
+void forward_function(
+    int * router_index,
+    int * sparse_index,
+    double* __restrict__ tokens,
+    double* __restrict__ weight,
+    double* output,
+    int * expert_count,
+    int total_token,
+    int in_hidden,
+    int out_hidden,
+    int n_expert,
+    const int GLOBAL_M,
+    const int TMAX
+    )
+{
+    // Not Implemented
+}
+
+
 void moe_sparse_convert_index(
     torch::Tensor router_index,
     torch::Tensor sparse_index,
@@ -392,13 +622,13 @@ at::Tensor moe_sparse_forward(
     const int TMAX = sparse_index.size(1); // the max token each expert can take
     assert(router_index.size(0) == total_token);
     torch::Tensor output = torch::zeros({total_token, out_hidden}, tokens.options());
-    AT_DISPATCH_FLOATING_TYPES(tokens.type(), "seqlen_dynamic_sparse_attention", ([&]
+    AT_DISPATCH_FLOATING_TYPES_AND_HALF(tokens.type(), "seqlen_dynamic_sparse_attention", ([&]
                             { forward_function(
                                     router_index.data_ptr<int>(),
                                     sparse_index.data_ptr<int>(),
-                                    tokens.data_ptr<float>(),
-                                    weight.data_ptr<float>(),
-                                    output.data_ptr<float>(),
+                                    tokens.data_ptr<scalar_t>(),
+                                    weight.data_ptr<scalar_t>(),
+                                    output.data_ptr<scalar_t>(),
                                     expert_count.data_ptr<int>(),
                                     total_token,
                                     in_hidden,
