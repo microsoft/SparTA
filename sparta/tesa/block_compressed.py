@@ -53,19 +53,20 @@ class BCSIndexes(TeSAIndexes):
         return mask.reshape(self.raw_mask.shape).contiguous()
 
     @abc.abstractmethod
-    def convert(self, dense: torch.Tensor):
+    def convert(self, dense: torch.Tensor) -> torch.Tensor:
         """Convert dense tensor to compressed sparse value."""
+        # TODO: convert_uint8()
 
     @abc.abstractmethod
-    def inverse(self, sparse_val: torch.Tensor):
+    def inverse(self, sparse_val: torch.Tensor) -> torch.Tensor:
         """Inversely convert compressed sparse value to dense tensor."""
 
     @abc.abstractmethod
-    def _row_sum(self, sparse_val: torch.Tensor):
+    def _row_sum(self, sparse_val: torch.Tensor) -> torch.Tensor:
         """Calculate sum value along rows."""
 
     @abc.abstractmethod
-    def _col_sum(self, sparse_val: torch.Tensor):
+    def _col_sum(self, sparse_val: torch.Tensor) -> torch.Tensor:
         """Calculate sum value along columns."""
 
     def sum(self, sparse_val: torch.Tensor, axis: int = -1) -> torch.Tensor:

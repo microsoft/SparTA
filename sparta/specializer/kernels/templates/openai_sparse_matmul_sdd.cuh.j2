@@ -1,6 +1,8 @@
 {# Copyright (c) Microsoft Corporation. #}
 {# Licensed under the MIT license. #}
 
+{% set IDX_T = "long long" if BCSR and BCSC else "int" %}
+
 __device__ __forceinline__ const float* add_ptr_f(const float* src, int offset) \
 {                                                                               \
     const float* dst;                                                           \
@@ -29,8 +31,8 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
     {% if BIASED %}float* bias,{% endif %}
     float* C,
     int* A_block_ptr,
-    int* A_block_idx,
-    int* A_block_nnz,
+    {{ IDX_T }}* A_block_idx,
+    int A_block_nnz,
     int M,
     int K,
     int N
@@ -51,7 +53,7 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
     const int THREAD_SIZE_K = 64;
 
     {% if COMPRESSED %}
-    A_val += A_block_nnz[0]*64*32*blockIdx.z;
+    A_val += A_block_nnz*64*32*blockIdx.z;
     {% else %}
     A_val += M*K*blockIdx.z;
     {% endif %}
@@ -86,13 +88,24 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
 
     {% if COMPRESSED %}
     // A is stored in sparse format
-        {% if TRANSPOSE_A %}
-    uint offsetA00 = A_block_ptr[by] * BLOCK_SIZE_M * BLOCK_SIZE_K + tid * 4;
+        {% if BCSR and BCSC %}
+            {% if TRANSPOSE_B %}
+    uint ori_offsetA00 = tid * 4;
+    uint ori_offsetA16 = ori_offsetA00 + BLOCK_SIZE_M * 32;
+            {% else %}
+    uint ori_offsetA00 = ty * BLOCK_SIZE_K + tx * 4;
+    uint ori_offsetA16 = ori_offsetA00 + BLOCK_SIZE_K * 16;
+    uint storA = (tid * 4 + tid / (BLOCK_SIZE_M/4) / 4 * 2) * 4;
+            {% endif %}
+        {% else %}
+            {% if TRANSPOSE_A %}
+    uint offsetA00 = (A_block_ptr[by] - 1) * BLOCK_SIZE_M * BLOCK_SIZE_K + tid * 4;
     uint offsetA16 = offsetA00 + BLOCK_SIZE_M * 32;
     uint storA = (tid * 4 + tid / (BLOCK_SIZE_M/4) / 4 * 2) * 4;
-        {% else %}
-    uint offsetA00 = A_block_ptr[by] * BLOCK_SIZE_M * BLOCK_SIZE_K + ty * BLOCK_SIZE_K + tx * 4;
+            {% else %}
+    uint offsetA00 = (A_block_ptr[by] - 1) * BLOCK_SIZE_M * BLOCK_SIZE_K + ty * BLOCK_SIZE_K + tx * 4;
     uint offsetA16 = offsetA00 + BLOCK_SIZE_K * 16;
+            {% endif %}
         {% endif %}
     {% else %}
     // A is stored in dense format
@@ -139,21 +152,34 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
     int index_start = A_block_ptr[by], index_end = A_block_ptr[by+1];
     for (int bcs_col_idx = index_start; bcs_col_idx < index_end; bcs_col_idx += 1)
     {
-        {% if not COMPRESSED %}
-            {% if TRANSPOSE_A %}
-        uint offsetA00 = ori_offsetA00 + 64 * A_block_idx[bcs_col_idx] * M;
-        uint offsetA16 = ori_offsetA16 + 64 * A_block_idx[bcs_col_idx] * M;
+        {{ IDX_T }} idx = A_block_idx[bcs_col_idx];
+        uint bk = idx & 0xffff;
+
+        {% if COMPRESSED %}
+            {% if BCSR and BCSC %}
+        uint blk_index = idx >> 32;
+        uint offsetA00 = ori_offsetA00 + blk_index * BLOCK_SIZE_M * BLOCK_SIZE_K;
+        uint offsetA16 = ori_offsetA16 + blk_index * BLOCK_SIZE_M * BLOCK_SIZE_K;
             {% else %}
-        uint offsetA00 = ori_offsetA00 + 64 * A_block_idx[bcs_col_idx];
-        uint offsetA16 = ori_offsetA16 + 64 * A_block_idx[bcs_col_idx];
+        offsetA00 += BLOCK_SIZE_M * BLOCK_SIZE_K;
+        offsetA16 += BLOCK_SIZE_M * BLOCK_SIZE_K;
+            {% endif %}
+        {% else %}
+            {% if TRANSPOSE_A %}
+        uint offsetA00 = ori_offsetA00 + 64 * bk * M;
+        uint offsetA16 = ori_offsetA16 + 64 * bk * M;
+            {% else %}
+        uint offsetA00 = ori_offsetA00 + 64 * bk;
+        uint offsetA16 = ori_offsetA16 + 64 * bk;
             {% endif %}
         {% endif %}
+
         {% if TRANSPOSE_B %}
-        uint offsetB00 = ori_offsetB00 + 64 * A_block_idx[bcs_col_idx];
-        uint offsetB16 = ori_offsetB16 + 64 * A_block_idx[bcs_col_idx];
+        uint offsetB00 = ori_offsetB00 + 64 * bk;
+        uint offsetB16 = ori_offsetB16 + 64 * bk;
         {% else %}
-        uint offsetB00 = ori_offsetB00 + 64 * A_block_idx[bcs_col_idx] * N;
-        uint offsetB16 = ori_offsetB16 + 64 * A_block_idx[bcs_col_idx] * N;
+        uint offsetB00 = ori_offsetB00 + 64 * bk * N;
+        uint offsetB16 = ori_offsetB16 + 64 * bk * N;
         {% endif %}
 
         float4 a00 = {0}, a16 = {0};
@@ -162,9 +188,6 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
         a16 = __ldg((const float4*)(add_ptr_f(A_val, offsetA16)));
         b00 = __ldg((const float4*)(add_ptr_f(B, offsetB00)));
         b16 = __ldg((const float4*)(add_ptr_f(B, offsetB16)));
-
-        offsetA00 += BLOCK_SIZE_M * BLOCK_SIZE_K;
-        offsetA16 += BLOCK_SIZE_M * BLOCK_SIZE_K;
 
         __syncthreads();
 

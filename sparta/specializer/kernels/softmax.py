@@ -6,8 +6,8 @@ from typing import Any, Dict, Tuple, Callable
 
 import torch
 import jinja2
+import numpy as np
 
-from sparta.common.tesa import BCSR
 from sparta.common.tuning import TunableItemCfg
 from sparta.specializer.kernels.kernel_base import KernelBase, PortConfig
 from sparta.testing import sparse_softmax_forward_reference, sparse_softmax_backward_reference
@@ -23,15 +23,17 @@ class SparseSoftmaxKernel(KernelBase):
         self._dtype = dtype
         super().__init__()
 
-    def _set_ports(self):
-        for port in self.ports.values():
-            port.set_tesa(BCSR, ['BLOCK_SIZE_H_VALUE', 'BLOCK_SIZE_W_VALUE'])
-
     def _add_parameters(self):
         self._add_parameter('BATCH_SIZE')
         self._add_parameter('GLOBAL_H_VALUE')
         self._add_parameter('GLOBAL_W_VALUE')
         self._add_parameter('COMPRESSED', value=self._compressed)
+
+    def set_parameters(self, params: Dict[str, Any]):
+        super().set_parameters(params)
+        sparse_port = self.ports['y']
+        BH, BW = self.get_block_shape()
+        sparse_port.set_block_size(BH, BW)
 
     def set_shape(self, batch_size: int, H: int, W: int):
         self.set_parameter('BATCH_SIZE', batch_size)
@@ -52,98 +54,96 @@ class SparseSoftmaxKernel(KernelBase):
 
 class SparseSoftmaxForwardKernel(SparseSoftmaxKernel):
 
-    def set_port_params(self):
-        self.ports['x'].set_params(self.get_parameters())
-
     def _set_ports(self):
-        self.ports['x'] = PortConfig(name='x', is_input=True)
-        self.ports['y'] = PortConfig(name='y', is_input=False)
-        super()._set_ports()
-        self.ports['x'].connect(self.ports['y'])
+        self.ports['x'] = PortConfig(name='x', is_input=True, is_sparse=True, BCSR=True)
+        self.ports['y'] = PortConfig(name='y', is_input=False, is_sparse=True, BCSR=True)
+        self.ports['x'].connect(self, 'y')
 
     def _set_func_call(self, kernel_func_call: Callable):
         batch_size, H, W = self.get_shape()
         BH, BW = self.get_block_shape()
 
-        converter = self.get_converter('x')
-        row_ptr = converter.get_attr('row_ptr')
-        col_idx = converter.get_attr('col_idx')
-        block_nnz = converter.get_attr('nnz').item()
-        shape = (batch_size, block_nnz * BH * BW) if self._compressed else (batch_size, H, W)
-        mask = self.get_mask('x').unsqueeze(0).tile([batch_size, 1, 1]).to(torch.float32)
+        indexes = self.ports['y'].indexes
+        row_ptr = indexes.row_ptr
+        BCSR_idx = indexes.BCSR_idx
         if self._compressed:
-            mask = self.get_converter('x').convert(mask)
+            shape = (batch_size, indexes.block_nnz * BH * BW)
+        else:
+            shape = (batch_size, H, W)
+        mask = indexes.raw_mask
+        if self._compressed:
+            mask = indexes.convert(mask.to(torch.float32)).to(torch.uint8)
         block = self.threads_per_block()
         grid = self.blocks_per_grid()
 
-        def softmax_forward_func(x, T):
+        def softmax_forward_func(x: torch.Tensor, T: np.int32):
             y = torch.zeros(shape, device=x.device)
-            kernel_func_call(x, row_ptr, col_idx, mask, T, y, block=block, grid=grid)
+            kernel_func_call(x, row_ptr, BCSR_idx, mask, T, y, block=block, grid=grid)
             return y
 
         return softmax_forward_func
 
     def _convert_data(self, inputs, outputs):
-        inputs[0] = inputs[0].reshape(self.get_shape())
-        outputs[0] = outputs[0].reshape(self.get_shape())
+        inputs[0] = inputs[0].reshape(self.get_shape()).detach()
+        outputs[0] = outputs[0].reshape(self.get_shape()).detach()
         if self._compressed:
-            inputs[0] = self.get_converter('x').convert(inputs[0])
-            outputs[0] = self.get_converter('y').convert(outputs[0])
+            indexes = self.ports['y'].indexes
+            inputs[0] = indexes.convert(inputs[0])
+            outputs[0] = indexes.convert(outputs[0])
 
     def reference(self, *args):
         x, T = args
-        mask = self.get_mask('x')
+        mask = self.ports['y'].indexes.raw_mask
         y = sparse_softmax_forward_reference(x, mask, 1 / T)
         return y
 
 
 class SparseSoftmaxBackwardKernel(SparseSoftmaxKernel):
 
-    def set_port_params(self):
-        self.ports['grad_y'].set_params(self.get_parameters())
-
     def _set_ports(self):
-        self.ports['grad_y'] = PortConfig(name='grad_y', is_input=True)
-        self.ports['y'] = PortConfig(name='y', is_input=True)
-        self.ports['grad_x'] = PortConfig(name='grad_x', is_input=False)
-        super()._set_ports()
-        self.ports['grad_y'].connect(self.ports['y'])
-        self.ports['grad_y'].connect(self.ports['grad_x'])
+        self.ports['grad_y'] = PortConfig(name='grad_y', is_input=True, is_sparse=True, BCSR=True)
+        self.ports['y'] = PortConfig(name='y', is_input=True, is_sparse=True, BCSR=True)
+        self.ports['grad_x'] = PortConfig(name='grad_x', is_input=False, is_sparse=True, BCSR=True)
+        self.ports['grad_y'].connect(self, 'y')
+        self.ports['grad_y'].connect(self, 'grad_x')
 
     def _set_func_call(self, kernel_func_call: Callable):
         batch_size, H, W = self.get_shape()
         BH, BW = self.get_block_shape()
 
-        converter = self.get_converter('grad_y')
-        row_ptr = converter.get_attr('row_ptr')
-        col_idx = converter.get_attr('col_idx')
-        block_nnz = converter.get_attr('nnz').item()
-        shape = (batch_size, block_nnz * BH * BW) if self._compressed else (batch_size, H, W)
-        mask = self.get_mask('grad_y').unsqueeze(0).tile([batch_size, 1, 1]).to(torch.float32)
+        indexes = self.ports['y'].indexes
+        row_ptr = indexes.row_ptr
+        BCSR_idx = indexes.BCSR_idx
         if self._compressed:
-            mask = self.get_converter('grad_y').convert(mask)
+            shape = (batch_size, indexes.block_nnz * BH * BW)
+        else:
+            shape = (batch_size, H, W)
+        mask = indexes.raw_mask
+        if self._compressed:
+            mask = indexes.convert(mask.to(torch.float32)).to(torch.uint8)
         block = self.threads_per_block()
         grid = self.blocks_per_grid()
 
-        def softmax_backward_func(grad_y, y, T):
+        def softmax_backward_func(grad_y: torch.Tensor, y: torch.Tensor, T: np.int32):
             x = torch.zeros(shape, device=grad_y.device)
-            kernel_func_call(grad_y, row_ptr, col_idx, y, mask, T, x, block=block, grid=grid)
+            kernel_func_call(grad_y, row_ptr, BCSR_idx, y, mask, T, x, block=block, grid=grid)
             return x
 
         return softmax_backward_func
 
     def _convert_data(self, inputs, outputs):
-        inputs[0] = inputs[0].reshape(self.get_shape())
-        inputs[1] = inputs[1].reshape(self.get_shape())
-        outputs[0] = outputs[0].reshape(self.get_shape())
+        inputs[0] = inputs[0].reshape(self.get_shape()).detach()
+        inputs[1] = inputs[1].reshape(self.get_shape()).detach()
+        outputs[0] = outputs[0].reshape(self.get_shape()).detach()
         if self._compressed:
-            inputs[0] = self.get_converter('grad_y').convert(inputs[0])
-            inputs[1] = self.get_converter('y').convert(inputs[1])
-            outputs[0] = self.get_converter('grad_x').convert(outputs[0])
+            indexes = self.ports['y'].indexes
+            inputs[0] = indexes.convert(inputs[0])
+            inputs[1] = indexes.convert(inputs[1])
+            outputs[0] = indexes.convert(outputs[0])
 
     def reference(self, *args):
         grad_y, y, T = args
-        mask = self.get_mask('grad_y')
+        mask = self.ports['y'].indexes.raw_mask
         grad_x = sparse_softmax_backward_reference(grad_y, y, mask, 1 / T)
         return grad_x
 

@@ -16,7 +16,7 @@ if __env_ready__:
     import pycuda.autoprimaryctx
     from pycuda.compiler import SourceModule
 
-from sparta.tesa import get_bcs_function
+from sparta.tesa import get_bcs_function, BCSIndexes
 from sparta.common.tuning import TunableItemCfg
 from sparta.testing import profile
 
@@ -38,77 +38,46 @@ class _Parameter:
 class PortConfig(object):
     name: str
     is_input: bool
+    is_sparse: bool = False
+    BCSR: bool = False
+    BCSC: bool = False
 
     def __post_init__(self):
-        self.tesa_type: Optional[Type[TeSAConverter]] = None
-        self.real_tesa_type: Optional[Type[TeSAConverter]] = None
-        self._tesa_config: Optional[List[Any]] = None
-        self._tesa_params: Optional[List[str]] = None
-        self.mask: Optional[torch.Tensor] = None
-        self.parent: Optional[PortConfig] = None
-        self.children: List[PortConfig] = []
-        self.converter: Optional[TeSAConverter] = None
+        self.mask: torch.Tensor = None
+        self._block_H: int = 0
+        self._block_W: int = 0
+        self.indexes: BCSIndexes = None
 
-    def set_tesa(
-        self,
-        tesa_type: Type[TeSAConverter], tesa_params: List[str],
-        real_tesa_type: Type[TeSAConverter] = None,
-    ):
-        self.tesa_type = tesa_type
-        self._tesa_params = tesa_params
-        self.real_tesa_type = tesa_type if real_tesa_type is None else real_tesa_type 
+    def set_sparse(self, BCSR: bool, BCSC: bool):
+        self.is_sparse = True
+        self.BCSR = BCSR
+        self.BCSC = BCSC
+
+    def set_block_size(self, block_H: int, block_W: int):
+        if self.is_sparse:
+            if block_H != self._block_H or block_W != self._block_W:
+                self._block_H = block_H
+                self._block_W = block_W
+                self._update_indexes()
 
     def set_mask(self, mask: torch.Tensor):
-        if self.parent is not None:
-            self.parent.set_mask()
-        else:
+        if self.is_sparse:
             self.mask = mask
-            for child in self.children:
-                child.mask = mask
-            self._update_converter()
+            self._update_indexes()
 
-    def set_params(self, params: Dict[str, Any]):
-        if self._tesa_params is not None:
-            tesa_config = [params[p] for p in self._tesa_params]
-            if any([val is None for val in tesa_config]):
-                return
-            if self._tesa_config is not None:
-                if all([a == b for a, b in zip(tesa_config, self._tesa_config)]):
-                    return
-            self._tesa_config = tesa_config
-            self._update_converter()
+    def _update_indexes(self):
+        if self._block_H > 0 and self._block_W > 0 and self.mask is not None:
+            self.indexes = get_bcs_function(
+                self._block_H, self._block_W,
+                self.BCSR, self.BCSC,
+            ).build_indexes(self.mask)
 
-    def _update_converter(self):
-        if self._tesa_config is not None and self.mask is not None:
-            if self.real_tesa_type is not None:
-                if issubclass(self.real_tesa_type, BCS):
-                    BH, BW = self._tesa_config
-                    converter = self.real_tesa_type(
-                        mask=self.mask,
-                        block_size=(BH, BW)
-                    )
-                else:
-                    raise ValueError(f'unsupported TeSA type {self.real_tesa_type}')
-                self.set_converter(converter)
-
-    def set_converter(self, converter: TeSAConverter):
-        if self.parent is not None:
-            self.parent.set_converter(converter)
-        else:
-            self.converter = converter
-            for child in self.children:
-                child.converter = converter
-
-    def connect(self, port: PortConfig):
-        if self.parent is not None:
-            self.parent.connect(port)
-        elif port.parent is not None:
-            self.connect(port.parent)
-        else:
-            self.children.append(port)
-            if len(port.children) > 0:
-                self.children = list(self.children, *port.children)
-                port.children = []
+    def connect(self, kernel: KernelBase, port_name: str):
+        other_port = kernel.ports[port_name]
+        assert self.is_sparse == other_port.is_sparse
+        self.BCSR |= other_port.BCSR
+        self.BCSC |= other_port.BCSC
+        kernel.ports[port_name] = self
 
 
 class KernelBase(Callable):
@@ -173,10 +142,6 @@ class KernelBase(Callable):
         for name, value in params.items():
             self.set_parameter(name, value)
 
-    def set_port_params(self):
-        for port in self.ports.values():
-            port.set_params(self.get_parameters())
-
     def get_parameter(self, name: str):
         return self._parameters[name].value
 
@@ -185,19 +150,6 @@ class KernelBase(Callable):
             return {k: v.value for k, v in self._parameters.items()}
         else:
             return {k: self._parameters[k].value for k in names}
-
-    def set_mask(self, name: str, value: torch.Tensor):
-        self.ports[name].set_mask(value)
-
-    def set_masks(self, mask_dict: Dict[str, torch.Tensor]):
-        for name, value in mask_dict.items():
-            self.set_mask(name, value)
-
-    def get_mask(self, name: str):
-        return self.ports[name].mask
-
-    def get_converter(self, name: str) -> TeSAConverter:
-        return self.ports[name].converter
 
     @abc.abstractmethod
     def set_shape(self, *args, **kwargs):
@@ -226,7 +178,6 @@ class KernelBase(Callable):
     def compile(self, params: Dict[str, Any]):
         self._check_parameters(params)
         self.set_parameters(params)
-        self.set_port_params()
         kernel_code = self.get_kernel_code()
         kernel_name = kernel_code[kernel_code.find('__global__ void') + 15:]
         kernel_name = kernel_name[:kernel_name.find('(')].strip()

@@ -1,6 +1,8 @@
 {# Copyright (c) Microsoft Corporation. #}
 {# Licensed under the MIT license. #}
 
+{% set IDX_T = "long long" if BCSR and BCSC else "int" %}
+
 const int BM = {{ BLOCK_SIZE_M_VALUE }};
 const int BK = {{ BLOCK_SIZE_K_VALUE }};
 const int BN = {{ BLOCK_SIZE_N_VALUE }};
@@ -13,9 +15,8 @@ __global__ void BLOCK_SPARSE_MATMUL(
     float* input_B,
     {% if BIASED %}float* input_bias,{% endif %}
     float* output_C_val,
-    int* output_C_row_idx,
-    int* output_C_col_idx,
-    int* output_C_block_nnz,
+    {{ IDX_T }}* output_C_block_idx,
+    int C_block_nnz,
     int M,
     int K,
     int N
@@ -24,19 +25,30 @@ __global__ void BLOCK_SPARSE_MATMUL(
     float * B = reinterpret_cast<float*>(input_B);
     {% if BIASED %}float * bias = reinterpret_cast<float*>(input_bias);{% endif %}
     float * C_val = reinterpret_cast<float*>(output_C_val);
-    int * C_row_idx = reinterpret_cast<int*>(output_C_row_idx);
-    int * C_col_idx = reinterpret_cast<int*>(output_C_col_idx);
-    int * C_block_nnz = reinterpret_cast<int*>(output_C_block_nnz);
+    {{ IDX_T }} * C_block_idx = reinterpret_cast<{{ IDX_T }}*>(output_C_block_idx);
 
-    int bx = C_col_idx[blockIdx.x]; // N
-    int by = C_row_idx[blockIdx.x]; // M
+    {{ IDX_T }} idx = C_block_idx[blockIdx.x];
+    {% if BCSR %}
+        {% if BCSC %}
+    uint blk_index = idx >> 32;
+    idx &= 0xffffffff;
+        {% else %}
+    uint blk_index = blockIdx.x;
+        {% endif %}
+    uint bx = idx & 0xffff;
+    uint by = idx >> 16;
+    {% else %}
+    uint blk_index = blockIdx.x;
+    uint bx = idx >> 16;
+    uint by = idx & 0xffff;
+    {% endif %}
     int ty = threadIdx.y;
     int tx = threadIdx.x;
 
     A += M * K * blockIdx.y;
     B += K * N * blockIdx.y;
     {% if COMPRESSED %}
-    C_val += C_block_nnz[0] * BM * BN * blockIdx.y;
+    C_val += C_block_nnz * BM * BN * blockIdx.y;
     {% else %}
     C_val += M * N * blockIdx.y;
     {% endif %}
@@ -149,7 +161,7 @@ __global__ void BLOCK_SPARSE_MATMUL(
         #pragma unroll
         for (int thread_y = 0; thread_y < TM; thread_y+=1) {
             {% if COMPRESSED %}
-            C_val[BM * BN * blockIdx.x + (ty + thread_y * vBLOCK_SIZE_M) * BN + tx + thread_x * vBLOCK_SIZE_N] =
+            C_val[BM * BN * blk_index + (ty + thread_y * vBLOCK_SIZE_M) * BN + tx + thread_x * vBLOCK_SIZE_N] =
                 (accum[thread_x][thread_y]){% if BIASED %} + bias_local[thread_x]{% endif %};
             {% else %}
             C_val[(BM * by + ty + thread_y * vBLOCK_SIZE_M) * N + BN * bx + tx + thread_x * vBLOCK_SIZE_N] =

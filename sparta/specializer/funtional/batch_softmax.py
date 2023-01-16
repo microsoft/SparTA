@@ -18,17 +18,18 @@ class SparseBatchSoftmaxCtx(SparseCtxBase):
         self._compressed = compressed
         self._T = np.float32(1 / temperature)
         self._batch_size: int = None
+        self.sparse_ports['y'] = []
 
-        for kernel_name, kernel_class, first_tensor in zip(
+        for kernel_name, kernel_class in zip(
             ['forward:y', 'backward:x'],
             [SparTASparseSoftmaxForwardKernel, SparTASparseSoftmaxBackwardKernel],
-            ['x', 'grad_y'],
         ):
             self._kernels[kernel_name] = KernelPlaceholder(
                 name=kernel_name,
                 impls={'sparta': kernel_class},
                 args={'compressed': compressed},
-                mask_map={'x': first_tensor},
+                port_map={'y': 'y'},
+                connectable=compressed,
             )
 
     def set_temperature(self, temperature: float):
@@ -50,6 +51,7 @@ class SparseBatchSoftmaxCtx(SparseCtxBase):
 
     def build(self, config: Dict[str, Dict[str, Any]]):
         super().build(config)
+        indexes = self.sparse_ports['y'][0].indexes
         forward_kernel = self._kernels['forward:y'].active_kernel()
         if forward_kernel is not None:
             self.forward = lambda x: forward_kernel(x, self._T)

@@ -1,6 +1,8 @@
 {# Copyright (c) Microsoft Corporation. #}
 {# Licensed under the MIT license. #}
 
+{% set IDX_T = "long long" if BCSR and BCSC else "int" %}
+
 __device__ __forceinline__ const float* add_ptr_f(const float* src, int offset) \
 {                                                                               \
     const float* dst;                                                           \
@@ -28,9 +30,8 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
     float* B,
     {% if BIASED %}float* bias,{% endif %}
     float* C_val,
-    int* C_row_idx,
-    int* C_col_idx,
-    int* C_block_nnz,
+    {{ IDX_T }}* C_block_idx,
+    int C_block_nnz,
     int M,
     int K,
     int N
@@ -53,7 +54,7 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
     A += M*K*blockIdx.y;
     B += K*N*blockIdx.y;
     {% if COMPRESSED %}
-    C_val += C_block_nnz[0]*32*32*blockIdx.y;
+    C_val += C_block_nnz*32*32*blockIdx.y;
     {% else %}
     C_val += M*N*blockIdx.y;
     {% endif %}
@@ -73,8 +74,21 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
     {% if BIASED %}__shared__ float bias_share[BLOCK_SIZE_N];{% endif %}
 
     uint tid = threadIdx.x;
-    uint bx = C_col_idx[blockIdx.x]; // N
-    uint by = C_row_idx[blockIdx.x]; // M
+    {{ IDX_T }} idx = C_block_idx[blockIdx.x];
+    {% if BCSR %}
+        {% if BCSC %}
+    uint blk_index = idx >> 32;
+    idx &= 0xffffffff;
+        {% else %}
+    uint blk_index = blockIdx.x;
+        {% endif %}
+    uint bx = idx & 0xffff;
+    uint by = idx >> 16;
+    {% else %}
+    uint blk_index = blockIdx.x;
+    uint bx = idx >> 16;
+    uint by = idx & 0xffff;
+    {% endif %}
     {% if BIASED %}
     if (tid < BLOCK_SIZE_N) {
         bias_share[tid] = bias[bx * BLOCK_SIZE_N + tid % 32]; 
@@ -236,9 +250,6 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
 
     uint readC = ty*32*8 + tx*2 + ((tid & 192)>>2);
     {% if COMPRESSED %}
-    // uint blk_index = block_index[blockIdx.x] / 2;
-    uint blk_index = blockIdx.x;
-    // uint intra_blk_index = block_index[blockIdx.x] % 2;
     C_val += 32 * 32 * blk_index;
     C_val += ty * 32 + tx * 2;
     {% endif %}
