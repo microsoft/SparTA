@@ -48,8 +48,8 @@ class BCSIndexes(TeSAIndexes):
         """Rebuild block mask using BCSR/BCSC indexes"""
 
     def get_mask(self) -> torch.Tensor:
-        mask = self.get_block_mask().unsqueeze(0).unsqueeze(0)
-        mask = mask.tile((self.block_H, self.block_W, 1, 1)).swapaxes(1, 2)
+        mask = self.get_block_mask().unsqueeze(-1).unsqueeze(-1)
+        mask = mask.tile((1, 1, self.block_H, self.block_W)).swapaxes(1, 2)
         return mask.reshape(self.raw_mask.shape).contiguous()
 
     @abc.abstractmethod
@@ -101,8 +101,9 @@ class BCSRIndexes(BCSIndexes):
             dtype=torch.uint8,
             device=self.row_ptr.device
         )
-        col_idx = self.BCSR_idx.bitwise_and(0xffff)
-        return torch.sparse_csr_tensor(self.row_ptr, col_idx, block_mask_val).to_dense()
+        row_ptr = self.row_ptr.to(torch.int64)
+        col_idx = self.BCSR_idx.bitwise_and(0xffff).to(torch.int64)
+        return torch.sparse_csr_tensor(row_ptr, col_idx, block_mask_val).to_dense()
 
     def convert(self, dense: torch.Tensor):
         return self.function_context.convert(

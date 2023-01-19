@@ -141,7 +141,7 @@ class SparseMatMulKernel(KernelBase):
             BM, BK, BN = self.get_block_shape()
             return (N // BN, M // BM, batch_size)
 
-    def _set_func_call(self, kernel_func_call: Callable):
+    def update_func(self):
         batch_size, M, K, N = self.get_shape()
         BM, BK, BN = self.get_block_shape()
 
@@ -157,11 +157,12 @@ class SparseMatMulKernel(KernelBase):
         tesa_vars = [getattr(indexes, x) for x in self._tesa_vars]
         block = self.threads_per_block()
         grid = self.blocks_per_grid()
+        raw_func = self._kernel
 
         if self._biased:
             def matmul_func(A: torch.Tensor, B: torch.Tensor, bias: torch.Tensor):
                 C = torch.zeros(C_shape, device=A.device)
-                kernel_func_call(
+                raw_func(
                     A, B, bias, C, *tesa_vars,
                     M_32, K_32, N_32,
                     block=block, grid=grid
@@ -170,14 +171,14 @@ class SparseMatMulKernel(KernelBase):
         else:
             def matmul_func(A: torch.Tensor, B: torch.Tensor):
                 C = torch.zeros(C_shape, device=A.device)
-                kernel_func_call(
+                raw_func(
                     A, B, C, *tesa_vars,
                     M_32, K_32, N_32,
                     block=block, grid=grid
                 )
                 return C
 
-        return matmul_func
+        self._func = matmul_func
 
     def get_kernel_code(self):
         template_file = f'{self.__algo__}_sparse_matmul_{self._mode}.cuh.j2'

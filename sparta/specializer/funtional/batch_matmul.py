@@ -42,7 +42,6 @@ class SparseBatchMatMulCtx(SparseCtxBase):
                 return ('M', 'N')
 
         sparse_tensor = select('s', mode, 'ABC')
-        self.sparse_ports[sparse_tensor] = []
 
         self._tesa_shapes: Dict[str, Tuple[str, str]] = {}
         for kernel_name, bias, target_order, trans_A, trans_B in zip(
@@ -70,6 +69,8 @@ class SparseBatchMatMulCtx(SparseCtxBase):
                 connectable=compressed,
             )
             self._tesa_shapes[kernel_name] = calc_tesa_shape(s_type, trans_A, trans_B)
+
+        self._init_sparse_ports([sparse_tensor])
 
     def set_shape(self, batch_size: int, M: int, K: int, N: int):
         self._kernels['forward:C'].set_shape(batch_size, M, K, N)

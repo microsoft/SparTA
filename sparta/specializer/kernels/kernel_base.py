@@ -84,6 +84,7 @@ class KernelBase(Callable):
 
     def __init__(self):
         self._parameters: Dict[str, _Parameter] = {}
+        self._kernel: Callable = None
         self._func: Callable = None
         self.ports: Dict[str, PortConfig] = {}
         self.ready = False
@@ -172,8 +173,8 @@ class KernelBase(Callable):
         """Raise an error if the input paramater dict is invalid."""
 
     @abc.abstractmethod
-    def _set_func_call(self, kernel_func_call: Callable) -> Callable:
-        """Convert python function call to pycuda kernel function call."""
+    def update_func(self):
+        """Convert pycuda kernel (self._kernel) to python function call (self._func)."""
 
     def compile(self, params: Dict[str, Any]):
         self._check_parameters(params)
@@ -184,8 +185,8 @@ class KernelBase(Callable):
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
             source_module = SourceModule(kernel_code, options=['-O3'])
-        kernel_func_call = source_module.get_function(kernel_name)
-        self._func = self._set_func_call(kernel_func_call)
+        self._kernel = source_module.get_function(kernel_name)
+        self.update_func()
         self.ready = True
 
     @abc.abstractmethod

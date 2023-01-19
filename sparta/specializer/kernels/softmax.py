@@ -59,7 +59,7 @@ class SparseSoftmaxForwardKernel(SparseSoftmaxKernel):
         self.ports['y'] = PortConfig(name='y', is_input=False, is_sparse=True, BCSR=True)
         self.ports['x'].connect(self, 'y')
 
-    def _set_func_call(self, kernel_func_call: Callable):
+    def update_func(self):
         batch_size, H, W = self.get_shape()
         BH, BW = self.get_block_shape()
 
@@ -75,13 +75,14 @@ class SparseSoftmaxForwardKernel(SparseSoftmaxKernel):
             mask = indexes.convert(mask.to(torch.float32)).to(torch.uint8)
         block = self.threads_per_block()
         grid = self.blocks_per_grid()
+        raw_func = self._kernel
 
         def softmax_forward_func(x: torch.Tensor, T: np.int32):
             y = torch.zeros(shape, device=x.device)
-            kernel_func_call(x, row_ptr, BCSR_idx, mask, T, y, block=block, grid=grid)
+            raw_func(x, row_ptr, BCSR_idx, mask, T, y, block=block, grid=grid)
             return y
 
-        return softmax_forward_func
+        self._func = softmax_forward_func
 
     def _convert_data(self, inputs, outputs):
         inputs[0] = inputs[0].reshape(self.get_shape()).detach()
@@ -93,7 +94,7 @@ class SparseSoftmaxForwardKernel(SparseSoftmaxKernel):
 
     def reference(self, *args):
         x, T = args
-        mask = self.ports['y'].indexes.raw_mask
+        mask = self.ports['y'].mask
         y = sparse_softmax_forward_reference(x, mask, 1 / T)
         return y
 
@@ -107,7 +108,7 @@ class SparseSoftmaxBackwardKernel(SparseSoftmaxKernel):
         self.ports['grad_y'].connect(self, 'y')
         self.ports['grad_y'].connect(self, 'grad_x')
 
-    def _set_func_call(self, kernel_func_call: Callable):
+    def update_func(self):
         batch_size, H, W = self.get_shape()
         BH, BW = self.get_block_shape()
 
@@ -123,13 +124,14 @@ class SparseSoftmaxBackwardKernel(SparseSoftmaxKernel):
             mask = indexes.convert(mask.to(torch.float32)).to(torch.uint8)
         block = self.threads_per_block()
         grid = self.blocks_per_grid()
+        raw_func = self._kernel
 
         def softmax_backward_func(grad_y: torch.Tensor, y: torch.Tensor, T: np.int32):
             x = torch.zeros(shape, device=grad_y.device)
-            kernel_func_call(grad_y, row_ptr, BCSR_idx, y, mask, T, x, block=block, grid=grid)
+            raw_func(grad_y, row_ptr, BCSR_idx, y, mask, T, x, block=block, grid=grid)
             return x
 
-        return softmax_backward_func
+        self._func = softmax_backward_func
 
     def _convert_data(self, inputs, outputs):
         inputs[0] = inputs[0].reshape(self.get_shape()).detach()

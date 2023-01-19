@@ -73,31 +73,62 @@ class SparseLinear(OperatorBase):
         N, K = raw_module.weight.shape
         biased = raw_module.bias is not None
         self._raw_weight = torch.clone(raw_module.weight)
-
-        if sum(map(lambda x: x is not None, [input_mask, weight_mask, output_mask])) > 1:
-            raise ValueError(f'linear operators with multiple sparse masks are not supported')
+        self.weight = None
+        self.bias = raw_module.bias
 
         if input_mask is not None:
             self._sparse_ctx = SparseBatchMatMulCtx('sdd', False, True, biased, False)
-            assert input_mask.shape[1] == K, f'expected input mask shape (?, {K}), got {input_mask.shape}'
-            self._set_masks({'A': input_mask})
             M = input_mask.shape[0]
         elif weight_mask is not None:
             self._sparse_ctx = SparseBatchMatMulCtx('dsd', False, True, biased, True)
-            assert weight_mask.shape == (N, K), f'expected weight mask shape ({N}, {K}), got {weight_mask.shape}'
-            self._raw_weight *= weight_mask
-            self._set_masks({'B': weight_mask})
         elif output_mask is not None:
             self._sparse_ctx = SparseBatchMatMulCtx('dds', False, True, biased, False)
-            assert output_mask.shape[1] == N, f'expected output mask shape (?, {N}), got {output_mask.shape}'
-            self._set_masks({'C': output_mask})
             M = output_mask.shape[0]
         else:
             raise ValueError(f'expected a sparse mask on input / weight / output')
 
         self._shape = {'batch_size': 1, 'M': M, 'K': K, 'N': N}
-        self.weight = None
-        self.bias = raw_module.bias
+        self.update_mask(input_mask, weight_mask, output_mask)
+
+    def update_mask(
+        self,
+        input_mask: Optional[torch.Tensor] = None,
+        weight_mask: Optional[torch.Tensor] = None,
+        output_mask: Optional[torch.Tensor] = None,
+    ):
+        if sum(map(lambda x: x is not None, [input_mask, weight_mask, output_mask])) > 1:
+            raise ValueError(f'linear operators with multiple sparse masks are not supported')
+
+        M, K, N = self._shape['M'], self._shape['K'], self._shape['N']
+
+        def check_mask_shape(mask: torch.Tensor, name: str, H: Optional[int], W: Optional[int]):
+            if H is None:
+                check_H = lambda x: True
+                H = '?'
+            else:
+                check_H = lambda x: x == H
+            if W is None:
+                check_W = lambda x: True
+                W = '?'
+            else:
+                check_W = lambda x: x == W
+            err_msg = f'expected {name} mask shape ({H}, {W}), got {mask.shape}'
+            assert check_H(mask.shape[0]) and check_W(mask.shape[1]), err_msg
+
+        if input_mask is not None:
+            check_mask_shape(input_mask, 'input', M, K)
+            self._set_mask({'A': input_mask})
+        elif weight_mask is not None:
+            check_mask_shape(weight_mask, 'weight', N, K)
+            self._set_mask({'B': weight_mask})
+        elif output_mask is not None:
+            check_mask_shape(output_mask, 'output', M, N)
+            self._set_mask({'C': output_mask})
+        else:
+            raise ValueError(f'expected a sparse mask on input / weight / output')
+
+        if self.ready:
+            self._update_parameters()
 
     def _read_sample_inputs(self, A: torch.Tensor):
         M, K = self._shape['M'], self._shape['K']
@@ -107,13 +138,16 @@ class SparseLinear(OperatorBase):
         else:
             assert (M, K) == A.shape, f'expect input shape ({M}, {K}), got {A.shape}'
 
-    def build(self, params: Dict[str, Any], sample_inputs: List[Any]):
-        super().build(params, sample_inputs)
+    def _update_parameters(self):
         weight = self._raw_weight
-        weight_converter = self._sparse_ctx.get_converter('forward:C', 'B')
-        if weight_converter is not None:
-            weight = weight_converter.convert(weight.detach())
+        weight_indexes = self.get_sparse_indexes('B')
+        if weight_indexes is not None:
+            weight = weight_indexes.convert(weight.detach())
         self.weight = torch.nn.Parameter(weight, requires_grad=True)
+
+    def _compile(self, config: Optional[Dict[str, Dict[str, Any]]] = None):
+        super()._compile(config)
+        self._update_parameters()
 
     def _sparse_forward(self, input_tensor: torch.Tensor):
         inputs = [self._sparse_ctx, input_tensor, self.weight]

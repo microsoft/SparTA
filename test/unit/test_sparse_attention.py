@@ -8,7 +8,7 @@ import torch
 import pytest
 
 from sparta.nn import SparseAttention
-from sparta.testing import block_mask
+from sparta.testing import block_mask, sparse_multi_head_attention_reference
 
 
 def get_params():
@@ -64,27 +64,30 @@ def test_sparse_attention_operator(
     value.requires_grad = True
 
     sparse_attention = SparseAttention(mask=mask)
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore')
-        target_out = sparse_attention.forward(query, key, value)
-        target_out.backward(grad_out)
-
-    target_grad_query = query.grad
-    query.grad = None
-    target_grad_key = key.grad
-    key.grad = None
-    target_grad_value = value.grad
-    value.grad = None
 
     sparse_attention.build(
         config=get_params(),
         sample_inputs=[query, key, value],
     )
 
-    out = sparse_attention.forward(query, key, value)
-    out.backward(grad_out)
+    for random_seed in range(3):  # Test dynamic sparse
+        query.grad, key.grad, value.grad = None, None, None
+        target_out = sparse_multi_head_attention_reference(query, key, value, mask)
+        target_out.backward(grad_out)
 
-    torch.testing.assert_close(out, target_out)
-    torch.testing.assert_close(query.grad, target_grad_query)
-    torch.testing.assert_close(key.grad, target_grad_key)
-    torch.testing.assert_close(value.grad, target_grad_value)
+        target_grad_query = query.grad
+        target_grad_key = key.grad
+        target_grad_value = value.grad
+        query.grad, key.grad, value.grad = None, None, None
+
+        out = sparse_attention.forward(query, key, value)
+        out.backward(grad_out)
+
+        torch.testing.assert_close(out, target_out)
+        torch.testing.assert_close(query.grad, target_grad_query)
+        torch.testing.assert_close(key.grad, target_grad_key)
+        torch.testing.assert_close(value.grad, target_grad_value)
+
+        torch.manual_seed(random_seed)
+        mask = block_mask((Nt, Ns), block=granularity, sparsity=sparsity).cuda()
+        sparse_attention.update_mask(mask)
