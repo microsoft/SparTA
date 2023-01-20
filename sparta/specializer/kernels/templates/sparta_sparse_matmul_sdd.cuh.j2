@@ -1,6 +1,8 @@
 {# Copyright (c) Microsoft Corporation. #}
 {# Licensed under the MIT license. #}
 
+{% set IDX_T = "long long" if BCSR and BCSC else "int" %}
+
 const int BM = {{ BLOCK_SIZE_M_VALUE }};
 const int BK = {{ BLOCK_SIZE_K_VALUE }};
 const int BN = {{ BLOCK_SIZE_N_VALUE }};
@@ -14,8 +16,8 @@ __global__ void BLOCK_SPARSE_MATMUL(
     {% if BIASED %}float* input_bias,{% endif %}
     float* output_C,
     int* input_A_block_ptr,
-    int* input_A_block_idx,
-    int* input_A_block_nnz,
+    {{ IDX_T }}* input_A_block_idx,
+    int A_block_nnz,
     int M,
     int K,
     int N
@@ -25,8 +27,7 @@ __global__ void BLOCK_SPARSE_MATMUL(
     {% if BIASED %}float * bias = reinterpret_cast<float*>(input_bias);{% endif %}
     float * C = reinterpret_cast<float*>(output_C);
     int * A_block_ptr = reinterpret_cast<int*>(input_A_block_ptr);
-    int * A_block_idx = reinterpret_cast<int*>(input_A_block_idx);
-    int * A_block_nnz = reinterpret_cast<int*>(input_A_block_nnz);
+    {{ IDX_T }} * A_block_idx = reinterpret_cast<{{ IDX_T }}*>(input_A_block_idx);
 
     int by = blockIdx.y;
     int bx = blockIdx.x;
@@ -34,7 +35,7 @@ __global__ void BLOCK_SPARSE_MATMUL(
     int tx = threadIdx.x;
 
     {% if COMPRESSED %}
-    A_val += A_block_nnz[0] * BM * BK * blockIdx.z;
+    A_val += A_block_nnz * BM * BK * blockIdx.z;
     {% else %}
     A_val += M * K * blockIdx.z;
     {% endif %}
@@ -76,12 +77,18 @@ __global__ void BLOCK_SPARSE_MATMUL(
     const int vBLOCK_SIZE_N = BN / TN;
     {% if TRANSPOSE_A or TRANSPOSE_B %}float4 tmp_float4;{% endif %}
     for (int tile_block_idx = index_start; tile_block_idx < index_end; tile_block_idx += 1) {
-        int tile_idx = A_block_idx[tile_block_idx] * BK;
+        {{ IDX_T }} idx = A_block_idx[tile_block_idx];
+        {% if BCSR and BCSC %}
+        int block_idx = idx >> 32;
+        {% else %}
+        int block_idx = tile_block_idx;
+        {% endif %}
+        int tile_idx = (idx & 0xffff) * BK;
         #pragma unroll
         for (int k = 0; k < {% if TRANSPOSE_A %}BK{% else %}BM{% endif %}; k += A_TILE_ROW_STRIDE) {
             {% if TRANSPOSE_A %}
                 {% if COMPRESSED %}
-            tmp_float4 = (reinterpret_cast<float4*>(&A_val[tile_block_idx * BM * BK + (k+A_BLOCK_ROW_START) * BM + A_BLOCK_COL_START]))[0];
+            tmp_float4 = (reinterpret_cast<float4*>(&A_val[block_idx * BM * BK + (k+A_BLOCK_ROW_START) * BM + A_BLOCK_COL_START]))[0];
                 {% else %}
             tmp_float4 = (reinterpret_cast<float4*>(&A_val[(tile_idx + A_BLOCK_ROW_START+k) * M + by*BM + A_BLOCK_COL_START]))[0];
                 {% endif %}
@@ -92,7 +99,7 @@ __global__ void BLOCK_SPARSE_MATMUL(
             {% else %}
             *((float4 *)(&As[(k+A_BLOCK_ROW_START) * BK + A_BLOCK_COL_START])) =
                 {% if COMPRESSED %}
-                *((float4 *)(&A_val[tile_block_idx * BM * BK + (k+A_BLOCK_ROW_START) * BK + A_BLOCK_COL_START]));
+                *((float4 *)(&A_val[block_idx * BM * BK + (k+A_BLOCK_ROW_START) * BK + A_BLOCK_COL_START]));
                 {% else %}
                 *((float4 *)(&A_val[(by*BM + k+A_BLOCK_ROW_START) * K + tile_idx + A_BLOCK_COL_START]));
                 {% endif %}

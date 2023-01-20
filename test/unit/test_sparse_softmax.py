@@ -44,6 +44,12 @@ def prepare_data(
     return data, mask
 
 
+def check_results(data: Dict[str, torch.Tensor]):
+    for name, val in data.items():
+        if name.startswith('target_'):
+            torch.testing.assert_close(val, data[name.replace('target', 'output')], msg=name)
+
+
 def get_params():
     return {
         '_impl': 'sparta',
@@ -67,11 +73,17 @@ def test_sparse_softmax_kernels(
     forward_kernel = SparTASparseSoftmaxForwardKernel(compressed=compressed)
     backward_kernel = SparTASparseSoftmaxBackwardKernel(compressed=compressed)
 
+    if compressed:
+        sparse_port = backward_kernel.ports['y']
+        sparse_port.connect(forward_kernel, 'x')
+        sparse_port.connect(forward_kernel, 'y')
+        sparse_port.set_mask(mask)
+    else:
+        forward_kernel.ports['y'].set_mask(mask)
+        backward_kernel.ports['y'].set_mask(mask)
     forward_kernel.set_shape(batch, H, W)
-    forward_kernel.set_masks({'x': mask})
     forward_kernel.compile(get_params())
     backward_kernel.set_shape(batch, H, W)
-    backward_kernel.set_masks({'grad_y': mask})
     backward_kernel.compile(get_params())
 
     temperature = np.float32(1 / np.sqrt(W))
@@ -94,26 +106,31 @@ def test_sparse_softmax_function(
     data, mask = prepare_data(batch, H, W, granularity, sparsity, requires_grad=True)
 
     sparse_ctx = SparseBatchSoftmaxCtx(compressed, np.sqrt(W))
+    kernel_names = sparse_ctx.get_kernel_placeholders(backward=True).keys()
+    sparse_ctx.select_impls({
+        kernel_name: 'sparta'
+        for kernel_name in kernel_names
+    })
     sparse_ctx.set_shape(batch, H, W)
-    sparse_ctx.set_masks({'x': mask})
+    for port_name, ports in sparse_ctx.sparse_ports.items():
+        for port in ports:
+            port.set_mask(mask)
     sparse_ctx.build({
         kernel_name: get_params()
-        for kernel_name in sparse_ctx.get_kernel_placeholders(backward=True)
+        for kernel_name in kernel_names
     })
 
     if compressed:
-        converter = sparse_ctx.get_converter('forward:y', 'x')
+        indexes = sparse_ctx.sparse_ports['y'][0].indexes
         for name in data:
-            data[name] = converter.convert(data[name].detach())
+            data[name] = indexes.convert(data[name].detach())
         data['input_x'].requires_grad = True
 
     data['output_y'] = SparseBatchSoftmaxFunc.apply(sparse_ctx, data['input_x'])
     data['output_y'].backward(data['grad_y'])
     data['output_grad_x'] = data['input_x'].grad
 
-    for name, val in data.items():
-        if name.startswith('target_'):
-            torch.testing.assert_close(val, data[name.replace('target', 'output')])
+    check_results(data)
 
 
 @pytest.mark.parametrize("batch", [None, 4])
@@ -137,16 +154,18 @@ def test_sparse_softmax_operator(
         sample_inputs=[data['input_x']],
     )
 
-    if compressed:
-        converter = sparse_softmax.get_converter('forward:y', 'x')
-        for name in data:
-            data[name] = converter.convert(data[name].detach())
-        data['input_x'].requires_grad = True
+    for random_seed in range(3):  # Test dynamic sparse
+        if compressed:
+            indexes = sparse_softmax.get_sparse_indexes('y')
+            for name in data:
+                data[name] = indexes.convert(data[name].detach())
+            data['input_x'].requires_grad = True
 
-    data['output_y'] = sparse_softmax.forward(data['input_x'])
-    data['output_y'].backward(data['grad_y'])
-    data['output_grad_x'] = data['input_x'].grad
+        data['output_y'] = sparse_softmax.forward(data['input_x'])
+        data['output_y'].backward(data['grad_y'])
+        data['output_grad_x'] = data['input_x'].grad
 
-    for name, val in data.items():
-        if name.startswith('target_'):
-            torch.testing.assert_close(val, data[name.replace('target', 'output')])
+        check_results(data)
+
+        data, mask = prepare_data(batch, H, W, granularity, sparsity, True, random_seed)
+        sparse_softmax.update_mask(mask)

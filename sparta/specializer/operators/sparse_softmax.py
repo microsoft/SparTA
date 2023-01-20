@@ -49,8 +49,13 @@ class SparseSoftmax(OperatorBase):
         super().__init__()
         H, W = mask.shape
         self._sparse_ctx = SparseBatchSoftmaxCtx(compressed, temperature)
-        self._set_masks({'x': mask})
         self._shape = {'H': H, 'W': W}
+        self.update_mask(mask)
+
+    def update_mask(self, mask: torch.Tensor):
+        H, W = self._shape['H'], self._shape['W']
+        assert mask.shape == (H, W), f'expected mask shape ({H}, {W}), got {mask.shape}'
+        self._set_mask({'y': mask})
 
     def set_temperature(self, temperature):
         self._sparse_ctx.set_temperature(temperature)

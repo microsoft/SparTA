@@ -42,12 +42,6 @@ class SparseBatchMatMulCtx(SparseCtxBase):
                 return ('M', 'N')
 
         sparse_tensor = select('s', mode, 'ABC')
-        if sparse_tensor == 'A' and transpose_A:
-            bcs_mode = 'BCSC'
-        elif sparse_tensor == 'B' and not transpose_B:
-            bcs_mode = 'BCSC'
-        else:
-            bcs_mode = 'BCSR'
 
         self._tesa_shapes: Dict[str, Tuple[str, str]] = {}
         for kernel_name, bias, target_order, trans_A, trans_B in zip(
@@ -66,15 +60,17 @@ class SparseBatchMatMulCtx(SparseCtxBase):
                 },
                 args={
                     'biased': bias,
-                    'bcs_mode': bcs_mode,
                     'compressed': compressed,
                     'transpose_A': trans_A,
                     'transpose_B': trans_B,
                     'mode': s_type,
                 },
-                mask_map={sparse_tensor: select(sparse_tensor, target_order, 'ABC')},
+                port_map={sparse_tensor: select(sparse_tensor, target_order, 'ABC')},
+                connectable=compressed,
             )
             self._tesa_shapes[kernel_name] = calc_tesa_shape(s_type, trans_A, trans_B)
+
+        self._init_sparse_ports([sparse_tensor])
 
     def set_shape(self, batch_size: int, M: int, K: int, N: int):
         self._kernels['forward:C'].set_shape(batch_size, M, K, N)
@@ -96,8 +92,8 @@ class SparseBatchMatMulCtx(SparseCtxBase):
             else:
                 self.forward_C = lambda A, B: forward_kernel(A, B)
             if self._mode == 'dds' and self._compressed:
-                C_converter = self._kernels['forward:C'].get_converter('C')
-                self.backward_bias = lambda grad_C: C_converter.sum(grad_C, axis=-2)
+                C_indexes = self._kernels['forward:C'].active_kernel().ports['C'].indexes
+                self.backward_bias = lambda grad_C: C_indexes.sum(grad_C, axis=-2)
             else:
                 self.backward_bias = lambda grad_C: grad_C.sum(-2)
         backward_A_kernel = self._kernels['backward:A'].active_kernel()
@@ -120,10 +116,6 @@ class SparseBatchMatMulCtx(SparseCtxBase):
     ):
         A = sample_inputs[0]
         B = sample_inputs[1]
-        if 'A' in self._masks:
-            A = A.detach() * self._masks['A']
-        elif 'B' in self._masks:
-            B = B.detach() * self._masks['B']
         if self._biased:
             bias = sample_inputs[2].detach()
             self._kernels['forward:C'].set_sample_inputs([A, B, bias])
@@ -131,8 +123,6 @@ class SparseBatchMatMulCtx(SparseCtxBase):
             self._kernels['forward:C'].set_sample_inputs([A, B])
         if sample_grads is not None:
             grad_C = sample_grads[0]
-            if 'C' in self._masks:
-                grad_C = grad_C.detach() * self._masks['C']
             if self._transpose_A:
                 self._kernels['backward:A'].set_sample_inputs([B, grad_C])
             else:

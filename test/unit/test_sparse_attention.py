@@ -8,7 +8,7 @@ import torch
 import pytest
 
 from sparta.nn import SparseAttention
-from sparta.testing import block_mask
+from sparta.testing import block_mask, sparse_multi_head_attention_reference
 
 
 def get_params():
@@ -44,11 +44,15 @@ def get_params():
     )
 
 
+@pytest.mark.parametrize("batch", [1, 4])
+@pytest.mark.parametrize("Ns", [256, 512, 1024])
+@pytest.mark.parametrize("Nt", [256, 512, 1024])
+@pytest.mark.parametrize("E", [256, 512, 1024])
 def test_sparse_attention_operator(
-    batch: int = 4,
-    Ns: int = 512,
-    Nt: int = 1024,
-    E: int = 256,
+    batch: int,
+    Ns: int,
+    Nt: int,
+    E: int,
     granularity: Tuple[int, int] = (8, 8),
     sparsity: float = 0.95,
 ):
@@ -64,27 +68,30 @@ def test_sparse_attention_operator(
     value.requires_grad = True
 
     sparse_attention = SparseAttention(mask=mask)
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore')
-        target_out = sparse_attention.forward(query, key, value)
-        target_out.backward(grad_out)
-
-    target_grad_query = query.grad
-    query.grad = None
-    target_grad_key = key.grad
-    key.grad = None
-    target_grad_value = value.grad
-    value.grad = None
 
     sparse_attention.build(
         config=get_params(),
         sample_inputs=[query, key, value],
     )
 
-    out = sparse_attention.forward(query, key, value)
-    out.backward(grad_out)
+    for random_seed in range(3):  # Test dynamic sparse
+        query.grad, key.grad, value.grad = None, None, None
+        target_out = sparse_multi_head_attention_reference(query, key, value, mask)
+        target_out.backward(grad_out)
 
-    torch.testing.assert_close(out, target_out)
-    torch.testing.assert_close(query.grad, target_grad_query)
-    torch.testing.assert_close(key.grad, target_grad_key)
-    torch.testing.assert_close(value.grad, target_grad_value)
+        target_grad_query = query.grad
+        target_grad_key = key.grad
+        target_grad_value = value.grad
+        query.grad, key.grad, value.grad = None, None, None
+
+        out = sparse_attention.forward(query, key, value)
+        out.backward(grad_out)
+
+        torch.testing.assert_close(out, target_out, atol=1e-4, rtol=1e-4)
+        torch.testing.assert_close(query.grad, target_grad_query, atol=1e-4, rtol=1e-4)
+        torch.testing.assert_close(key.grad, target_grad_key, atol=1e-4, rtol=1e-4)
+        torch.testing.assert_close(value.grad, target_grad_value, atol=1e-4, rtol=1e-4)
+
+        torch.manual_seed(random_seed)
+        mask = block_mask((Nt, Ns), block=granularity, sparsity=sparsity).cuda()
+        sparse_attention.update_mask(mask)

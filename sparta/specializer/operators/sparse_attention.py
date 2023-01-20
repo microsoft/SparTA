@@ -8,6 +8,7 @@ import torch
 import numpy as np
 
 from sparta.specializer.operators import OperatorBase, SparseBatchMatMul, SparseSoftmax
+from sparta.specializer.kernels import KernelBase, PortConfig
 
 
 class SparseAttention(OperatorBase):
@@ -53,18 +54,43 @@ class SparseAttention(OperatorBase):
         super().__init__()
         self.mask = mask
         self._Nt, self._Ns = mask.shape
-        self._matmul_qk = SparseBatchMatMul(C_mask=mask, transpose_A=False, transpose_B=True, compressed=True)
-        self._softmax = SparseSoftmax(mask=mask, compressed=True)
-        self._matmul_out = SparseBatchMatMul(A_mask=mask, transpose_A=False, transpose_B=False, compressed=True)
+        self._matmul_qk = SparseBatchMatMul(
+            C_mask=mask,
+            transpose_A=False,
+            transpose_B=True,
+            compressed=True,
+        )
+        self._softmax = SparseSoftmax(
+            mask=mask,
+            compressed=True,
+        )
+        self._matmul_out = SparseBatchMatMul(
+            A_mask=mask,
+            transpose_A=False,
+            transpose_B=False,
+            compressed=True,
+        )
+        self._sparse_port: PortConfig = None
         self.ready: bool = False
 
     def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor):
-        if not self.ready:
-            self._softmax.set_temperature(np.sqrt(query.shape[-1]))
         qk = self._matmul_qk.forward(query, key)
         sm = self._softmax.forward(qk)
         out = self._matmul_out.forward(sm, value)
         return out
+
+    def update_mask(self, mask: torch.Tensor):
+        if self.ready:
+            self._sparse_port.set_mask(mask)
+            self._matmul_qk._sparse_ctx.update_func()
+            self._softmax._sparse_ctx.update_func()
+            self._matmul_out._sparse_ctx.update_func()
+        else:
+            op_list: List[OperatorBase] = [self._matmul_qk, self._softmax, self._matmul_out]
+            for op in op_list:
+                for ports in op._sparse_ctx.sparse_ports.values():
+                    for port in ports:
+                        port.set_mask(mask)
 
     def build(self, config: Dict[str, Any], sample_inputs: List[torch.Tensor]):
         query, key, value = sample_inputs
@@ -88,30 +114,42 @@ class SparseAttention(OperatorBase):
             qk = self._matmul_qk.forward(query, key)
             sm = self._softmax.forward(qk)
 
-        self._matmul_qk.build(
-            config={
-                k.split('/')[1]: v
-                for k, v in config.items()
-                if k.startswith('qk')
-            },
-            sample_inputs=[query, key],
-        )
-        self._softmax.build(
-            config={
-                k.split('/')[1]: v
-                for k, v in config.items()
-                if k.startswith('sm')
-            },
-            sample_inputs=[qk],
-        )
-        self._matmul_out.build(
-            config={
-                k.split('/')[1]: v
-                for k, v in config.items()
-                if k.startswith('out')
-            },
-            sample_inputs=[sm, value],
-        )
+        op_dict: Dict[str, OperatorBase] = {
+            'qk': self._matmul_qk,
+            'sm': self._softmax,
+            'out': self._matmul_out,
+        }
+        inputs_dict: Dict[str, List[torch.Tensor]] = {
+            'qk': [query, key],
+            'sm': [qk],
+            'out': [sm, value],
+        }
+        sparse_port_map: Dict[str, str] = {
+            'qk': 'C',
+            'sm': 'y',
+            'out': 'A',
+        }
+
+        kernels: List[KernelBase] = []
+        port_names: List[str] = []
+        for op_name, op in op_dict.items():
+            for k, v in op._sparse_ctx.get_kernel_placeholders().items():
+                kernel = v.possible_kernels[config[f'{op_name}/{k}']['_impl']]
+                port_names.append(v.port_map[sparse_port_map[op_name]])
+                kernels.append(kernel)
+        self._sparse_port = kernels[0].ports[port_names[0]]
+        for kernel, port_name in zip(kernels[1:], port_names[1:]):
+            self._sparse_port.connect(kernel, port_name)
+
+        for op_name, op in op_dict.items():
+            op.build(
+                config={
+                    k.split('/')[1]: v
+                    for k, v in config.items()
+                    if k.startswith(op_name)
+                },
+                sample_inputs=inputs_dict[op_name],
+            )
 
         self.ready = True
 
@@ -121,6 +159,7 @@ class SparseAttention(OperatorBase):
         sample_grads: Optional[List[torch.Tensor]] = None,
     ):
         query, key, value = sample_inputs
+        self._softmax.set_temperature(np.sqrt(query.shape[-1]))
 
         if sample_grads is not None:
             query.requires_grad = True

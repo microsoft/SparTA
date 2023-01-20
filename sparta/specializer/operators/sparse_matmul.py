@@ -83,31 +83,45 @@ class SparseBatchMatMul(OperatorBase):
         }
         batch_size, M, K, N = None, None, None, None
 
-        if sum(map(lambda x: x is not None, [A_mask, B_mask, C_mask])) > 1:
-            raise ValueError(f'linear operators with multiple sparse masks are not supported')
-
         if A_mask is not None:
             self._sparse_ctx = SparseBatchMatMulCtx(mode='sdd', **ctx_args)
-            self._set_masks({'A': A_mask})
             if transpose_A:
                 K, M = A_mask.shape
             else:
                 M, K = A_mask.shape
         elif B_mask is not None:
             self._sparse_ctx = SparseBatchMatMulCtx(mode='dsd', **ctx_args)
-            self._set_masks({'B': B_mask})
             if transpose_B:
                 N, K = B_mask.shape
             else:
                 K, N = B_mask.shape
         elif C_mask is not None:
             self._sparse_ctx = SparseBatchMatMulCtx(mode='dds', **ctx_args)
-            self._set_masks({'C': C_mask})
             M, N = C_mask.shape
         else:
             raise ValueError(f'expected a sparse mask on A / B / C')
 
         self._shape = {'batch_size': batch_size, 'M': M, 'K': K, 'N': N}
+        self.update_mask(A_mask, B_mask, C_mask)
+
+    def update_mask(
+        self,
+        A_mask: Optional[torch.Tensor] = None,
+        B_mask: Optional[torch.Tensor] = None,
+        C_mask: Optional[torch.Tensor] = None,
+    ):
+        # TODO: check shape conflicts
+        if sum(map(lambda x: x is not None, [A_mask, B_mask, C_mask])) > 1:
+            raise ValueError(f'linear operators with multiple sparse masks are not supported')
+
+        if A_mask is not None:
+            self._set_mask({'A': A_mask})
+        elif B_mask is not None:
+            self._set_mask({'B': B_mask})
+        elif C_mask is not None:
+            self._set_mask({'C': C_mask})
+        else:
+            raise ValueError(f'expected a sparse mask on A / B / C')
 
     def _read_sample_inputs(self, A: torch.Tensor, B: torch.Tensor):
         # TODO: check shape conflicts

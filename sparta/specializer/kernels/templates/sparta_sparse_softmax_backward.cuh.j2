@@ -16,9 +16,9 @@ const int row_tile = {{ ROW_TILE_VALUE }};
 __global__ void SPARSE_SOFTMAX(
     float* out_grad,
     int* row_ptr,
-    int* col_idx,
+    int* BCSR_idx,
     float* out_val,
-    int* mask,
+    unsigned char* mask,
     float temperature,
     float* in_grad
 ) {
@@ -46,9 +46,11 @@ __global__ void SPARSE_SOFTMAX(
     for (int block_inter_col = bn; block_inter_col < block_w; block_inter_col += 32) {
         for (int block_seq = block_seq_start; block_seq < block_seq_end; block_seq++) {
             {% if COMPRESSED %}
-            uint index = block_h * block_w * block_seq + (block_inter_row + bm) * block_w + block_inter_col;
+            uint index = block_h * block_w * block_seq +
+                (block_inter_row + bm) * block_w + block_inter_col;
             {% else %}
-            uint index = (blk_row_idx * block_h + block_inter_row + bm) * W + (col_idx[block_seq] * block_w + block_inter_col);
+            uint index = (blk_row_idx * block_h + block_inter_row + bm) * W +
+                ((BCSR_idx[block_seq] & 0xffff) * block_w + block_inter_col);
             {% endif %}
             if (mask[index]) {
                 index_list[val_num++] = index;

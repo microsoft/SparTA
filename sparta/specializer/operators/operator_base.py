@@ -36,22 +36,27 @@ class OperatorBase(torch.nn.Module):
         self._shape: Dict[str, int] = None
         self.ready: bool = False
 
-    def _set_masks(self, masks: Dict[str, torch.Tensor]):
-        """Set masks for the sparse context."""
-        self._sparse_ctx.set_masks(masks)
+    @abc.abstractmethod
+    def update_mask(self, *args, **kwargs):
+        """Translate and set input mask(s) to sparse port(s)."""
+
+    def _set_mask(self, masks: Dict[str, torch.Tensor]):
+        for port_name, ports in self._sparse_ctx.sparse_ports.items():
+            for port in ports:
+                port.set_mask(masks[port_name])
+        if self.ready:
+            self._sparse_ctx.update_func()
 
     @abc.abstractmethod
     def _read_sample_inputs(self, *args):
         """Read missing shape value from sample inputs."""
 
-    def build(self, config: Dict[str, Any], sample_inputs: List[Any]):
+    def build(self, config: Dict[str, Dict[str, Any]], sample_inputs: List[Any]):
         """The build function includes following steps:
         1. Read and confirm the operator shape from sample inputs.
-        2. Set shape for the sparse context.
-        3. Build the sparse context with input config.
-        4. Replace the forward function from dense to sparse version.
-        5. Disconnect the raw module which contains dense parameter(s).
-        6. Mark the sparse operator as ready.
+        2. Set implementations for the sparse context.
+        3. Set shape for the sparse context.
+        4. Compile with input config.
 
         Args:
             config (Dict[str, Any]): A dictionary gives value of each required
@@ -59,7 +64,21 @@ class OperatorBase(torch.nn.Module):
             sample_inputs (List[Any]): List of sample inputs.
         """
         self._read_sample_inputs(*sample_inputs)
+        self._sparse_ctx.select_impls({k: v['_impl'] for k, v in config.items()})
         self._sparse_ctx.set_shape(**self._shape)
+        self._compile(config=config)
+
+    def _compile(self, config: Optional[Dict[str, Dict[str, Any]]] = None):
+        """The compile function includes following steps:
+        1. Build the sparse context with input config.
+        2. Replace the forward function from dense to sparse version.
+        3. Disconnect the raw module which may contain dense parameter(s).
+        4. Mark the sparse operator as ready.
+
+        Args:
+            config (Dict[str, Any]): A dictionary gives value of each required
+                hyper parameter of the sparse context.
+        """
         self._sparse_ctx.build(config)
         self.forward = self._sparse_forward
         self._raw_module = None
@@ -99,9 +118,9 @@ class OperatorBase(torch.nn.Module):
         """Get cross-kernel connected hyper parameters of the sparse context."""
         return self._sparse_ctx.get_connections(backward)
 
-    def get_converter(self, kernel_name: str, tensor_name: str):
-        """Get a sparse tensor's TeSA converter of a kernel."""
-        return self._sparse_ctx.get_converter(kernel_name, tensor_name)
+    def get_sparse_indexes(self, port_name: str):
+        """Get TeSA indexes of specified sparse port."""
+        return self._sparse_ctx.get_sparse_indexes(port_name)
 
     def get_kernel_placeholders(self, backward: bool = False):
         """Get kernel placeholders.

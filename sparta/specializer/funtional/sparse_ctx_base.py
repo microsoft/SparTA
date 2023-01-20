@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Type, Optional
 
 import torch
 
-from sparta.specializer.kernels import KernelBase
+from sparta.specializer.kernels import KernelBase, PortConfig
 
 
 class KernelPlaceholder(object):
@@ -16,46 +16,44 @@ class KernelPlaceholder(object):
         name: str,
         impls: Dict[str, Type[KernelBase]],
         args: Dict[str, Any],
-        mask_map: Dict[str, str],
+        port_map: Dict[str, str],
+        connectable: bool,
     ):
         self.name = name
-        self._possible_kernels = {key: impl(**args) for key, impl in impls.items()}
+        self.possible_kernels = {key: impl(**args) for key, impl in impls.items()}
+        self.port_map = port_map
+        self.connectable = connectable
         self._active_impl: str = None
-        self._mask_map = mask_map
         self.sample_inputs: List[torch.Tensor] = []
-        self.dense_func = list(self._possible_kernels.values())[0].reference
+        self.dense_func = list(self.possible_kernels.values())[0].reference
         self.ready = False
 
     def set_shape(self, *args, **kwargs):
-        for kernel in self._possible_kernels.values():
-            kernel.set_shape(*args, **kwargs)
-            kernel.set_port_params()
-
-    def set_masks(self, masks: Dict[str, torch.Tensor]):
-        mapped_masks = {y: masks[x] for x, y in self._mask_map.items()}
-        for kernel in self._possible_kernels.values():
-            kernel.set_masks(mapped_masks)
-
-    def build(self, impl: str, config: Dict[str, Any], ):
-        self._active_impl = impl
-        self._possible_kernels[impl].compile(config)
-        self.ready = True
-
-    def get_converter(self, name: str):
-        if name in self._mask_map:
-            return self.active_kernel().get_converter(self._mask_map[name])
+        if self._active_impl is None:
+            for kernel in self.possible_kernels.values():
+                kernel.set_shape(*args, **kwargs)
         else:
-            return None
+            self.possible_kernels[self._active_impl].set_shape(*args, **kwargs)
+
+    def select_impl(self, impl: str):
+        self._active_impl = impl
 
     def active_kernel(self):
         if self._active_impl is None:
             return None
         else:
-            return self._possible_kernels[self._active_impl]
+            return self.possible_kernels[self._active_impl]
+
+    def update_func(self):
+        self.active_kernel().update_func()
+
+    def build(self, config: Dict[str, Any]):
+        self.active_kernel().compile(config)
+        self.ready = True
 
     def get_search_space(self, fixed_params: Optional[Dict[str, Any]] = None):
         search_space = {}
-        for impl, kernel in self._possible_kernels.items():
+        for impl, kernel in self.possible_kernels.items():
             kernel_search_space = kernel.get_search_space(fixed_params)
             if kernel_search_space is not None:
                 search_space[impl] = kernel_search_space
@@ -80,24 +78,53 @@ class SparseCtxBase(object):
 
     def __init__(self):
         self._kernels: Dict[str, KernelPlaceholder] = {}
-        self._masks: Dict[str, torch.Tensor] = {}
+        self.sparse_ports: Dict[str, List[PortConfig]] = {}
+
+    def _init_sparse_ports(self, port_names: List[str]):
+        self.sparse_ports = {
+            port_name: [
+                kernel.ports[kernel_placeholder.port_map[port_name]]
+                for kernel_placeholder in self._kernels.values()
+                for kernel in kernel_placeholder.possible_kernels.values()
+            ]
+            for port_name in port_names
+        }
 
     @abc.abstractmethod
     def set_shape(self, *args, **kwargs):
         """Set shape parameters."""
 
-    def set_masks(self, masks: Dict[str, torch.Tensor]):
-        for kernel in self._kernels.values():
-            kernel.set_masks(masks)
-        self._masks = masks
+    def select_impls(self, impls: Dict[str, str]):
+        connected_ports: Dict[str, PortConfig] = {}
+        self.sparse_ports = {port_name: [] for port_name in self.sparse_ports.keys()}
+        for kernel_name, kernel_impl in impls.items():
+            kernel_placeholder = self._kernels[kernel_name]
+            kernel_placeholder.select_impl(kernel_impl)
+            for global_port_name, kernel_port_name in kernel_placeholder.port_map.items():
+                kernel = kernel_placeholder.active_kernel()
+                if kernel_placeholder.connectable:
+                    if global_port_name in connected_ports:
+                        connected_ports[global_port_name].connect(kernel, kernel_port_name)
+                    else:
+                        connected_ports[global_port_name] = kernel.ports[kernel_port_name]
+                else:
+                    self.sparse_ports[global_port_name].append(kernel.ports[kernel_port_name])
+        for global_port_name, port in connected_ports.items():
+            self.sparse_ports[global_port_name].append(port)
+
+    def update_func(self):
+        for kernel_placeholder in self._kernels.values():
+            kernel_placeholder.update_func()
 
     def build(self, config: Dict[str, Dict[str, Any]]):
         for kernel_name, kernel_config in config.items():
-            impl = kernel_config['_impl']
-            self._kernels[kernel_name].build(impl, kernel_config)
+            self._kernels[kernel_name].build(kernel_config)
 
-    def get_converter(self, kernel_name: str, tensor_name: str):
-        return self._kernels[kernel_name].get_converter(tensor_name)
+    def get_sparse_indexes(self, port_name: str):
+        if port_name in self.sparse_ports:
+            return self.sparse_ports[port_name][0].indexes
+        else:
+            return None
 
     def get_kernel_placeholders(self, backward: bool = False):
         return {

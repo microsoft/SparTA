@@ -13,7 +13,7 @@ def block_mask(
     algo: str = 'rand',
     device: Any = 'cuda',
 ):
-    """Generate a 2D bool tensor as block mask.
+    """Generate a 2D uint8 tensor as block mask.
 
     Args:
         shape (Tuple[int]): Mask shape.
@@ -37,7 +37,7 @@ def random_block_mask(
     sparsity: float = 0.99,
     device: Any = 'cuda',
 ):
-    """Randomly generate a 2D bool tensor as block mask.
+    """Randomly generate a 2D uint8 tensor as block mask.
 
     Args:
         shape (Tuple[int]): Mask shape.
@@ -51,10 +51,10 @@ def random_block_mask(
 
 
 def random_mask(shape: Tuple[int], sparsity: float = 0.99, device: Any = 'cuda'):
-    """Randomly generate a 2D bool tensor as finegrained mask.
+    """Randomly generate a 2D uint8 tensor as finegrained mask.
 
     Args:
         shape (Tuple[int]): Mask shape.
         sparsity (float): The ratio of empty block number to total block number.
     """
-    return torch.rand(shape, device=device) > sparsity
+    return (torch.rand(shape, device=device) > sparsity).to(torch.uint8)
