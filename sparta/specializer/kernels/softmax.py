@@ -1,22 +1,23 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-import os
-from typing import Any, Dict, Tuple, Callable
+from typing import Any, Dict, Tuple
+import importlib.resources as res
 
 import torch
 import jinja2
 import numpy as np
 
 from sparta.common.tuning import TunableItemCfg
+from sparta.specializer.kernels import templates
 from sparta.specializer.kernels.kernel_base import KernelBase, PortConfig
 from sparta.testing import sparse_softmax_forward_reference, sparse_softmax_backward_reference
 
 
-TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'templates')
-
-
 class SparseSoftmaxKernel(KernelBase):
+
+    __algo__: str = ''
+    __direction__: str = ''
 
     def __init__(self, compressed: bool = False, dtype: str = 'float'):
         self._compressed = compressed
@@ -53,6 +54,8 @@ class SparseSoftmaxKernel(KernelBase):
 
 
 class SparseSoftmaxForwardKernel(SparseSoftmaxKernel):
+
+    __direction__ = 'forward'
 
     def _set_ports(self):
         self.ports['x'] = PortConfig(name='x', is_input=True, is_sparse=True, BCSR=True)
@@ -101,6 +104,8 @@ class SparseSoftmaxForwardKernel(SparseSoftmaxKernel):
 
 
 class SparseSoftmaxBackwardKernel(SparseSoftmaxKernel):
+
+    __direction__ = 'backward'
 
     def _set_ports(self):
         self.ports['grad_y'] = PortConfig(name='grad_y', is_input=True, is_sparse=True, BCSR=True)
@@ -154,6 +159,8 @@ class SparseSoftmaxBackwardKernel(SparseSoftmaxKernel):
 
 class SparTASoftmaxKernel(SparseSoftmaxKernel):
 
+    __algo__ = 'sparta'
+
     def _add_parameters(self):
         super()._add_parameters()
         self._add_parameter(
@@ -187,18 +194,17 @@ class SparTASoftmaxKernel(SparseSoftmaxKernel):
         RT = params['ROW_TILE_VALUE']
         assert BH > RT
 
+    def get_kernel_code(self):
+        template_file = f'{self.__algo__}_sparse_softmax_{self.__direction__}.cuh.j2'
+        kernel_template = res.read_text(templates, template_file)
+        return jinja2.Template(kernel_template).render(self.get_parameters())
+
 
 class SparTASparseSoftmaxForwardKernel(SparseSoftmaxForwardKernel, SparTASoftmaxKernel):
 
-    def get_kernel_code(self):
-        with open(os.path.join(TEMPLATE_DIR, 'sparta_sparse_softmax_forward.cuh.j2')) as f:
-            kernel_template = f.read()
-        return jinja2.Template(kernel_template).render(self.get_parameters())
+    pass
 
 
 class SparTASparseSoftmaxBackwardKernel(SparseSoftmaxBackwardKernel, SparTASoftmaxKernel):
 
-    def get_kernel_code(self):
-        with open(os.path.join(TEMPLATE_DIR, 'sparta_sparse_softmax_backward.cuh.j2')) as f:
-            kernel_template = f.read()
-        return jinja2.Template(kernel_template).render(self.get_parameters())
+    pass

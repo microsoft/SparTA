@@ -3,9 +3,9 @@
 
 from __future__ import annotations
 
-import os
 import abc
 from typing import Any, Dict
+import importlib.resources as res
 
 import torch
 import jinja2
@@ -17,10 +17,7 @@ if __env_ready__:
     import pycuda.autoprimaryctx
     from pycuda.compiler import SourceModule
 
-from sparta.tesa import TeSAIndexes, TeSAFunctionContext
-
-
-KERNEL_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'kernels')
+from sparta.tesa import templates, TeSAIndexes, TeSAFunctionContext
 
 
 class BCSIndexes(TeSAIndexes):
@@ -213,10 +210,10 @@ class BCSFunctionContext(TeSAFunctionContext):
         self._index_block_dim = (self._block_size // min(block_W, 16), 1, 1)
         self._convert_block_dim = (min(self._block_size // 4, 256), 1, 1)
         self._sum_block_dim = (min(self._block_size, 256), 1, 1)
-        with open(os.path.join(KERNEL_DIR, 'block_compressed.cu.j2')) as f:
-            kernel_code = jinja2.Template(f.read()).render({
-                'BH': block_H, 'BW': block_W, 'BCSR': BCSR, 'BCSC': BCSC,
-            })
+        kernel_template = res.read_text(templates, 'block_compressed.cu.j2')
+        kernel_code = jinja2.Template(kernel_template).render({
+            'BH': block_H, 'BW': block_W, 'BCSR': BCSR, 'BCSC': BCSC,
+        })
         source_module = SourceModule(kernel_code, options=['-O3'])
         self.index_1_kernel = source_module.get_function('bcs_index_1')
         self.index_2_kernel = source_module.get_function('bcs_index_2')

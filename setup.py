@@ -23,7 +23,7 @@ setup(
     ],
     include_package_data=True,
     package_data={
-        'sparta.specializer.kernels': ['templates/*.j2'],
-        'sparta.tesa': ['kernels/*.j2'],
+        'sparta.specializer.kernels': ['templates/*.j2', 'look_up_tables/*.csv'],
+        'sparta.tesa': ['templates/*.j2'],
     },
 )

@@ -1,8 +1,9 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-import os
-from typing import Any, Dict, List, Tuple, Callable, Optional
+import io
+from typing import Any, Dict
+import importlib.resources as res
 
 import torch
 import jinja2
@@ -10,12 +11,11 @@ import numpy as np
 import pandas as pd
 
 from sparta.common.tuning import TunableItemCfg
+from sparta.specializer.kernels import templates, look_up_tables
 from sparta.specializer.kernels.kernel_base import KernelBase, PortConfig
 
 
-TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'templates')
-TILE_LUT_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'lut')
-TILE_LUT = pd.read_csv(os.path.join(TILE_LUT_DIR, 'sparta_matmul_lut.csv'))
+TILE_LUT = pd.read_csv(io.StringIO(res.read_text(look_up_tables, 'sparta_matmul_lut.csv')))
 
 
 class SparseMatMulKernel(KernelBase):
@@ -189,8 +189,7 @@ class SparseMatMulKernel(KernelBase):
 
     def get_kernel_code(self):
         template_file = f'{self.__algo__}_sparse_matmul_{self._mode}.cuh.j2'
-        with open(os.path.join(TEMPLATE_DIR, template_file)) as f:
-            kernel_template = f.read()
+        kernel_template = res.read_text(templates, template_file)
         return jinja2.Template(kernel_template).render(self.get_parameters())
 
     def _convert_data(self, inputs, outputs):

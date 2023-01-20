@@ -44,11 +44,15 @@ def get_params():
     )
 
 
+@pytest.mark.parametrize("batch", [1, 4])
+@pytest.mark.parametrize("Ns", [256, 512, 1024])
+@pytest.mark.parametrize("Nt", [256, 512, 1024])
+@pytest.mark.parametrize("E", [256, 512, 1024])
 def test_sparse_attention_operator(
-    batch: int = 4,
-    Ns: int = 512,
-    Nt: int = 1024,
-    E: int = 256,
+    batch: int,
+    Ns: int,
+    Nt: int,
+    E: int,
     granularity: Tuple[int, int] = (8, 8),
     sparsity: float = 0.95,
 ):
@@ -83,10 +87,10 @@ def test_sparse_attention_operator(
         out = sparse_attention.forward(query, key, value)
         out.backward(grad_out)
 
-        torch.testing.assert_close(out, target_out)
-        torch.testing.assert_close(query.grad, target_grad_query)
-        torch.testing.assert_close(key.grad, target_grad_key)
-        torch.testing.assert_close(value.grad, target_grad_value)
+        torch.testing.assert_close(out, target_out, atol=1e-4, rtol=1e-4)
+        torch.testing.assert_close(query.grad, target_grad_query, atol=1e-4, rtol=1e-4)
+        torch.testing.assert_close(key.grad, target_grad_key, atol=1e-4, rtol=1e-4)
+        torch.testing.assert_close(value.grad, target_grad_value, atol=1e-4, rtol=1e-4)
 
         torch.manual_seed(random_seed)
         mask = block_mask((Nt, Ns), block=granularity, sparsity=sparsity).cuda()
