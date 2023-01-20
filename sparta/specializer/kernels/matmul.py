@@ -7,12 +7,15 @@ from typing import Any, Dict, List, Tuple, Callable, Optional
 import torch
 import jinja2
 import numpy as np
+import pandas as pd
 
 from sparta.common.tuning import TunableItemCfg
 from sparta.specializer.kernels.kernel_base import KernelBase, PortConfig
 
 
 TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'templates')
+TILE_LUT_DIR = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'lut')
+TILE_LUT = pd.read_csv(os.path.join(TILE_LUT_DIR, 'sparta_matmul_lut.csv'))
 
 
 class SparseMatMulKernel(KernelBase):
@@ -41,6 +44,10 @@ class SparseMatMulKernel(KernelBase):
         self._sparse_block_H = ''
         self._sparse_block_W = ''
         self._tesa_vars = []
+        mode_filter = TILE_LUT['mode'] == self._mode
+        trans_A_filter = TILE_LUT['trans_A'] == self._transpose_A
+        trans_B_filter = TILE_LUT['trans_B'] == self._transpose_B
+        self._lut = TILE_LUT[mode_filter & trans_A_filter & trans_B_filter]
         super().__init__()
 
     def _set_ports(self):
@@ -187,6 +194,10 @@ class SparseMatMulKernel(KernelBase):
         return jinja2.Template(kernel_template).render(self.get_parameters())
 
     def _convert_data(self, inputs, outputs):
+        if self._mode == 'sdd':
+            inputs[0] = inputs[0] * self.ports['A'].mask
+        elif self._mode == 'dsd':
+            inputs[1] = inputs[1] * self.ports['B'].mask
         for i in range(len(inputs)):
             inputs[i] = inputs[i].detach()
         outputs[0] = outputs[0].detach()
@@ -198,20 +209,22 @@ class SparseMatMulKernel(KernelBase):
             elif self._sparse_port == 'C':
                 outputs[0] = self.ports['C'].indexes.convert(outputs[0])
 
-    def reference_matmul(self, A: torch.Tensor, B: torch.Tensor) -> torch.Tensor:
+    def reference(self, *args):
+        A, B = args[0], args[1]
+        if self._mode == 'sdd':
+            A = A * self.ports['A'].mask
+        elif self._mode == 'dsd':
+            B = B * self.ports['B'].mask
         A_str = 'bkm' if self._transpose_A else 'bmk'
         B_str = 'bnk' if self._transpose_B else 'bkn'
-        return torch.einsum(f'{A_str},{B_str}->bmn', A, B)
-
-    def reference_bias(self, C: torch.Tensor, bias: torch.Tensor):
-        return C + bias.unsqueeze(1)
-
-    def reference(self, *args):
-        C = self.reference_matmul(args[0], args[1])
+        C: torch.Tensor = torch.einsum(f'{A_str},{B_str}->bmn', A, B)
         if self._biased:
-            C = self.reference_bias(C, args[2])
-        if self._mode == 'dds' and self.ready:
-            C = C * self.ports['C'].indexes.get_mask()  # DDS known issue
+            C = C + args[2].unsqueeze(1)
+        if self._mode == 'dds':
+            if self.ready:
+                C = C * self.ports['C'].indexes.get_mask()  # DDS known issue
+            else:
+                C = C * self.ports['C'].mask
         return C
 
 
@@ -229,9 +242,27 @@ class SparTASparseMatMulKernel(SparseMatMulKernel):
             )
             self._add_parameter(
                 f'THREAD_SIZE_{dim}_VALUE',
-                is_tunable=True,
-                search_space=TunableItemCfg('choice', [4, 8])
             )
+
+    def set_parameters(self, params: Dict[str, Any]):
+        super().set_parameters(params)
+        if 'THREAD_SIZE_M_VALUE' in params:
+            if 'THREAD_SIZE_K_VALUE' in params:
+                if 'THREAD_SIZE_N_VALUE' in params:
+                    return
+        BM = params['BLOCK_SIZE_M_VALUE']
+        BK = params['BLOCK_SIZE_K_VALUE']
+        BN = params['BLOCK_SIZE_N_VALUE']
+        BM_filter = self._lut['BM'] == BM
+        BK_filter = self._lut['BK'] == BK
+        BN_filter = self._lut['BN'] == BN
+        row = self._lut[BM_filter & BK_filter & BN_filter]
+        assert len(row) > 0, f'block shape ({BM}, {BK}, {BN}) not found in LUT'
+        row = row.reset_index(drop=True).iloc[0, :]
+        TM, TK, TN = row['TM'], row['TK'], row['TN']
+        self.set_parameter('THREAD_SIZE_M_VALUE', int(TM))
+        self.set_parameter('THREAD_SIZE_K_VALUE', int(TK))
+        self.set_parameter('THREAD_SIZE_N_VALUE', int(TN))
 
     def get_thread_shape(self):
         TM = self.get_parameter('THREAD_SIZE_M_VALUE')
@@ -245,20 +276,23 @@ class SparTASparseMatMulKernel(SparseMatMulKernel):
         return (BN // TN, BM // TM, 1)
 
     def _check_parameters(self, params: Dict[str, Any]):
-        BM = params['BLOCK_SIZE_M_VALUE']
-        BK = params['BLOCK_SIZE_K_VALUE']
-        BN = params['BLOCK_SIZE_N_VALUE']
-        TM = params['THREAD_SIZE_M_VALUE']
-        TK = params['THREAD_SIZE_K_VALUE']
-        TN = params['THREAD_SIZE_N_VALUE']
-        assert BM > TM
-        assert BK > TK
-        assert BN > TN
-        A_thread_per_rows = (BM if self._transpose_A else BK) // 4
-        B_thread_per_rows = (BK if self._transpose_A else BN) // 4
-        threads_per_block = (BM // TM) * (BN // TN)
-        assert threads_per_block >= A_thread_per_rows
-        assert threads_per_block >= B_thread_per_rows
+        if 'THREAD_SIZE_M_VALUE' in params:
+            if 'THREAD_SIZE_K_VALUE' in params:
+                if 'THREAD_SIZE_N_VALUE' in params:
+                    BM = params['BLOCK_SIZE_M_VALUE']
+                    BK = params['BLOCK_SIZE_K_VALUE']
+                    BN = params['BLOCK_SIZE_N_VALUE']
+                    TM = params['THREAD_SIZE_M_VALUE']
+                    TK = params['THREAD_SIZE_K_VALUE']
+                    TN = params['THREAD_SIZE_N_VALUE']
+                    assert BM > TM
+                    assert BK > TK
+                    assert BN > TN
+                    A_thread_per_rows = (BM if self._transpose_A else BK) // 4
+                    B_thread_per_rows = (BK if self._transpose_A else BN) // 4
+                    threads_per_block = (BM // TM) * (BN // TN)
+                    assert threads_per_block >= A_thread_per_rows
+                    assert threads_per_block >= B_thread_per_rows
 
 
 class OpenAISparseMatMulKernel(SparseMatMulKernel):

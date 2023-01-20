@@ -29,7 +29,11 @@ class KernelPlaceholder(object):
         self.ready = False
 
     def set_shape(self, *args, **kwargs):
-        self.active_kernel().set_shape(*args, **kwargs)
+        if self._active_impl is None:
+            for kernel in self.possible_kernels.values():
+                kernel.set_shape(*args, **kwargs)
+        else:
+            self.possible_kernels[self._active_impl].set_shape(*args, **kwargs)
 
     def select_impl(self, impl: str):
         self._active_impl = impl

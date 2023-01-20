@@ -35,8 +35,7 @@ def test_sparse_matmul_search_space(
         kernel_names.append('backward:B')
     impls = ['sparta', 'openai']
     sparta_params = [
-        f'{layer}_SIZE_{dim}_VALUE'
-        for layer in ['BLOCK', 'THREAD']
+        f'BLOCK_SIZE_{dim}_VALUE'
         for dim in ['M', 'K', 'N']
     ]
     openai_params = [

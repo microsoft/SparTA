@@ -85,8 +85,9 @@ class SparseSoftmaxForwardKernel(SparseSoftmaxKernel):
         self._func = softmax_forward_func
 
     def _convert_data(self, inputs, outputs):
-        inputs[0] = inputs[0].reshape(self.get_shape()).detach()
-        outputs[0] = outputs[0].reshape(self.get_shape()).detach()
+        mask = self.ports['y'].mask
+        inputs[0] = (inputs[0].reshape(self.get_shape()) * mask).detach()
+        outputs[0] = (outputs[0].reshape(self.get_shape()) * mask).detach()
         if self._compressed:
             indexes = self.ports['y'].indexes
             inputs[0] = indexes.convert(inputs[0])
@@ -134,9 +135,10 @@ class SparseSoftmaxBackwardKernel(SparseSoftmaxKernel):
         self._func = softmax_backward_func
 
     def _convert_data(self, inputs, outputs):
-        inputs[0] = inputs[0].reshape(self.get_shape()).detach()
-        inputs[1] = inputs[1].reshape(self.get_shape()).detach()
-        outputs[0] = outputs[0].reshape(self.get_shape()).detach()
+        mask = self.ports['y'].mask
+        inputs[0] = (inputs[0].reshape(self.get_shape()) * mask).detach()
+        inputs[1] = (inputs[1].reshape(self.get_shape()) * mask).detach()
+        outputs[0] = (outputs[0].reshape(self.get_shape()) * mask).detach()
         if self._compressed:
             indexes = self.ports['y'].indexes
             inputs[0] = indexes.convert(inputs[0])

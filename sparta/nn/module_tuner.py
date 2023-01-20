@@ -220,9 +220,10 @@ def tune_sparse_module(
                 for i, val in upper_params.items()
             }
             for impl, kernel_space in kernel.get_search_space(fixed_params).items():
+                kernel.select_impl(impl)
                 def try_params(lower_idx: int, params: Dict[Any, Any]):
                     try:
-                        kernel.build(impl, params)
+                        kernel.build(params)
                         latency = kernel.test()
                     except AssertionError:
                         latency = np.inf
@@ -242,14 +243,15 @@ def tune_sparse_module(
     tuner = tuner_type(upper_space, lower_search, upper_space_size)
     tuner.tune()
     _logger.info(f'[{name}] Tuning completed.')
-    if tuner.best_config is None:
-        _logger.warn(f'[{name}] All trials failed.')
-        return None
-    else:
-        best_config = lower_params_cache[str(tuner.best_config)]
-        _logger.info(f'[{name}] Best config:\n{best_config}')
-        module.build(best_config, sample_inputs)
-        return best_config
+    if debug_func is None:
+        if tuner.best_config is None:
+            _logger.warn(f'[{name}] All trials failed.')
+            return None
+        else:
+            best_config = lower_params_cache[str(tuner.best_config)]
+            _logger.info(f'[{name}] Best config:\n{best_config}')
+            module.build(best_config, sample_inputs)
+            return best_config
 
 
 def tune_combined_module(

@@ -50,15 +50,15 @@ def test_tune_sparse_linear(
     dense_linear = torch.nn.Linear(in_dims, out_dims, device='cuda')
     sample_input = torch.zeros((batch_size, in_dims), dtype=torch.float32, device='cuda')
     sample_grad = torch.zeros((batch_size, out_dims), dtype=torch.float32, device='cuda')
-    mask = torch.ones((out_dims, in_dims), dtype=torch.bool, device='cuda')
+    mask = torch.ones((out_dims, in_dims), dtype=torch.uint8, device='cuda')
 
     sparse_linear = SparseLinear(dense_linear, weight_mask=mask)
     if backward:
         count = debug_tune(sparse_linear, [sample_input], [sample_grad])
-        assert count == (3 * 3 * 3 * 2 * 2 * 2 + 1) * 3
+        assert count == (3 * 3 * 3 + 1) * 3
     else:
         count = debug_tune(sparse_linear, [sample_input], None)
-        assert count == (3 * 3 * 3 * 2 * 2 * 2 + 1) * 1
+        assert count == (3 * 3 * 3 + 1) * 1
 
 
 @pytest.mark.parametrize("backward", [False, True])
@@ -89,22 +89,22 @@ def test_tune_sparse_matmul(
     }
 
     if mode == 'sdd':
-        A_mask = torch.ones(A_shape, dtype=torch.bool, device='cuda')
+        A_mask = torch.ones(A_shape, dtype=torch.uint8, device='cuda')
         matmul_args['A_mask'] = A_mask
     elif mode == 'dsd':
-        B_mask = torch.ones(B_shape, dtype=torch.bool, device='cuda')
+        B_mask = torch.ones(B_shape, dtype=torch.uint8, device='cuda')
         matmul_args['B_mask'] = B_mask
     else:
-        C_mask = torch.ones(C_shape, dtype=torch.bool, device='cuda')
+        C_mask = torch.ones(C_shape, dtype=torch.uint8, device='cuda')
         matmul_args['C_mask'] = C_mask
 
     sparse_matmul = SparseBatchMatMul(**matmul_args)
     if backward:
         count = debug_tune(sparse_matmul, [A, B], [grad_C])
-        assert count == (3 * 3 * 3 * 2 * 2 * 2 + 1) * 3
+        assert count == (3 * 3 * 3 + 1) * 3
     else:
         count = debug_tune(sparse_matmul, [A, B], None)
-        assert count == (3 * 3 * 3 * 2 * 2 * 2 + 1) * 1
+        assert count == (3 * 3 * 3 + 1) * 1
 
 
 @pytest.mark.parametrize("backward", [False, True])
@@ -116,7 +116,7 @@ def test_tune_sparse_softmax(
     batch_size: Optional[int] = None,
 ):
     torch.manual_seed(2022)
-    mask = torch.ones((head_num, dims), dtype=torch.bool, device='cuda')
+    mask = torch.ones((head_num, dims), dtype=torch.uint8, device='cuda')
     shape = (head_num, dims) if batch_size is None else (batch_size, head_num, dims)
     sample_input = torch.zeros(shape, dtype=torch.float32, device='cuda')
     sample_grad = torch.zeros(shape, dtype=torch.float32, device='cuda')
@@ -131,7 +131,7 @@ def test_tune_sparse_softmax(
 
 
 @pytest.mark.parametrize("backward", [False, True])
-def test_tune_sparse_attention_operator(
+def test_tune_sparse_attention(
     backward: bool,
     batch_size: int = 1,
     Ns: int = 128,
@@ -139,7 +139,7 @@ def test_tune_sparse_attention_operator(
     E: int = 128,
 ):
     torch.manual_seed(2022)
-    mask = torch.ones((Nt, Ns), dtype=torch.bool, device='cuda')
+    mask = torch.ones((Nt, Ns), dtype=torch.uint8, device='cuda')
     query = torch.rand(size=(batch_size, Nt, E)).cuda()
     key = torch.rand(size=(batch_size, Ns, E)).cuda()
     value = torch.rand(size=(batch_size, Ns, E)).cuda()
@@ -148,7 +148,7 @@ def test_tune_sparse_attention_operator(
     sparse_attention = SparseAttention(mask=mask)
     if backward:
         count = debug_tune(sparse_attention, [query, key, value], [grad_out])
-        assert count == (3 * 3 * 3 * 2 * 2 * 2 + 1) * 6 + (3 * 3 * 5) * 2
+        assert count == (3 * 3 * 3 + 1) * 6 + (3 * 3 * 5) * 2
     else:
         count = debug_tune(sparse_attention, [query, key, value], None)
-        assert count == (3 * 3 * 3 * 2 * 2 * 2 + 1) * 2 + (3 * 3 * 5) * 1
+        assert count == (3 * 3 * 3 + 1) * 2 + (3 * 3 * 5) * 1
