@@ -1,3 +1,4 @@
+pandas
 jinja2
 pycuda
 nni

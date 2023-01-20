@@ -19,6 +19,7 @@ readme_link
 :maxdepth: 2
 :caption: Docs
 reference/nn
+reference/tesa
 reference/common
 reference/testing
 ```
