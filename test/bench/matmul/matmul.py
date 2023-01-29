@@ -131,9 +131,9 @@ def profile_sparta_matmul(
     )
     sparta_matmul.build(config, sample_inputs=[data['A'], data['B']])
 
-    converter = sparta_matmul.get_converter('forward:C', 'B')
-    data['B'] = converter.convert(data['B'])
-    data['grad_B'] = converter.convert(data['grad_B'])
+    indexes = sparta_matmul.get_sparse_indexes('B')
+    data['B'] = indexes.convert(data['B'])
+    data['grad_B'] = indexes.convert(data['grad_B'])
 
     return profile_matmul(sparta_matmul, data)
 

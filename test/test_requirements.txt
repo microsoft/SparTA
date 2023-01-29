@@ -4,4 +4,4 @@ scipy
 pandas
 tabulate
 matplotlib
-triton==2.0.0.dev20221120
+triton==2.0.0.dev20220505
