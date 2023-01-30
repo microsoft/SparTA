@@ -19,10 +19,13 @@ dds,False,False,32,64,32,4,4,4,69.5779
 dds,False,False,32,64,64,4,4,4,56.5643
 dds,False,False,64,16,16,4,4,4,64.2577
 dds,False,False,64,16,32,4,4,4,50.0309
+dds,False,False,64,16,64,4,4,4,50.0309
 dds,False,False,64,32,16,4,4,4,75.437
 dds,False,False,64,32,32,4,4,4,54.0036
+dds,False,False,64,32,64,4,4,4,54.0036
 dds,False,False,64,64,16,4,4,4,88.9933
 dds,False,False,64,64,32,4,4,4,56.6697
+dds,False,False,64,64,64,4,4,4,56.6697
 dds,False,True,16,16,16,4,4,4,134.6172
 dds,False,True,16,16,32,4,4,4,106.9163
 dds,False,True,16,16,64,4,4,4,101.0877
@@ -43,10 +46,13 @@ dds,False,True,32,64,32,4,4,4,98.9469
 dds,False,True,32,64,64,4,4,4,83.0436
 dds,False,True,64,16,16,4,4,4,65.8737
 dds,False,True,64,16,32,4,4,4,53.26
+dds,False,True,64,16,64,4,4,4,53.26
 dds,False,True,64,32,16,4,4,4,81.8998
 dds,False,True,64,32,32,4,4,4,60.1544
+dds,False,True,64,32,64,4,4,4,60.1544
 dds,False,True,64,64,16,4,4,4,99.884
 dds,False,True,64,64,32,4,4,4,70.5451
+dds,False,True,64,64,64,4,4,4,70.5451
 dds,True,False,16,16,16,4,4,4,135.2541
 dds,True,False,16,16,32,4,4,4,88.3433
 dds,True,False,16,16,64,4,4,4,80.7328
@@ -67,10 +73,13 @@ dds,True,False,32,64,32,4,4,4,80.3177
 dds,True,False,32,64,64,4,4,4,61.5147
 dds,True,False,64,16,16,4,4,4,124.6127
 dds,True,False,64,16,32,4,4,4,76.9557
+dds,True,False,64,16,64,4,4,4,76.9557
 dds,True,False,64,32,16,4,4,4,143.3676
 dds,True,False,64,32,32,4,4,4,84.2901
+dds,True,False,64,32,64,4,4,4,84.2901
 dds,True,False,64,64,16,4,4,4,150.3928
 dds,True,False,64,64,32,4,4,4,87.5746
+dds,True,False,64,64,64,4,4,4,87.5746
 dds,True,True,16,16,16,4,4,4,163.2706
 dds,True,True,16,16,32,4,4,4,111.4495
 dds,True,True,16,16,64,4,4,4,105.2302
@@ -91,10 +100,13 @@ dds,True,True,32,64,32,4,4,4,112.8103
 dds,True,True,32,64,64,4,4,4,91.3851
 dds,True,True,64,16,16,4,4,4,126.8568
 dds,True,True,64,16,32,4,4,4,81.2913
+dds,True,True,64,16,64,4,4,4,81.2913
 dds,True,True,64,32,16,4,4,4,149.8753
 dds,True,True,64,32,32,4,4,4,91.8136
+dds,True,True,64,32,64,4,4,4,91.8136
 dds,True,True,64,64,16,4,4,4,167.0518
 dds,True,True,64,64,32,4,4,4,105.5301
+dds,True,True,64,64,64,4,4,4,105.5301
 dsd,False,False,16,16,16,4,4,4,108.1017
 dsd,False,False,16,16,32,4,4,4,87.8983
 dsd,False,False,16,16,64,4,4,4,80.2562
@@ -103,6 +115,7 @@ dsd,False,False,16,32,32,4,4,4,83.6637
 dsd,False,False,16,32,64,4,4,4,83.4532
 dsd,False,False,16,64,16,4,4,4,135.7782
 dsd,False,False,16,64,32,4,4,4,96.0233
+dsd,False,False,16,64,64,4,4,4,96.0233
 dsd,False,False,32,16,16,4,4,4,72.3478
 dsd,False,False,32,16,32,4,4,4,57.4545
 dsd,False,False,32,16,64,4,4,4,52.2037
@@ -111,6 +124,7 @@ dsd,False,False,32,32,32,4,4,4,59.3432
 dsd,False,False,32,32,64,4,4,4,54.5784
 dsd,False,False,32,64,16,4,4,4,91.2725
 dsd,False,False,32,64,32,4,4,4,67.9594
+dsd,False,False,32,64,64,4,4,4,67.9594
 dsd,False,False,64,16,16,4,4,4,60.3805
 dsd,False,False,64,16,32,4,4,4,49.5804
 dsd,False,False,64,16,64,4,4,4,46.6983
@@ -119,6 +133,7 @@ dsd,False,False,64,32,32,4,4,4,53.7312
 dsd,False,False,64,32,64,4,4,4,46.5469
 dsd,False,False,64,64,16,4,4,4,85.0814
 dsd,False,False,64,64,32,4,4,4,56.0396
+dsd,False,False,64,64,64,4,4,4,56.0396
 dsd,False,True,16,16,16,4,4,4,130.935
 dsd,False,True,16,16,32,4,4,4,109.5658
 dsd,False,True,16,16,64,4,4,4,92.5529
@@ -127,6 +142,7 @@ dsd,False,True,16,32,32,4,4,4,101.6086
 dsd,False,True,16,32,64,4,4,4,96.7423
 dsd,False,True,16,64,16,4,4,4,278.8124
 dsd,False,True,16,64,32,4,4,4,142.8228
+dsd,False,True,16,64,64,4,4,4,142.8228
 dsd,False,True,32,16,16,4,4,4,87.9781
 dsd,False,True,32,16,32,4,4,4,66.9843
 dsd,False,True,32,16,64,4,4,4,59.9348
@@ -135,6 +151,7 @@ dsd,False,True,32,32,32,4,4,4,73.2396
 dsd,False,True,32,32,64,4,4,4,65.7842
 dsd,False,True,32,64,16,4,4,4,124.7007
 dsd,False,True,32,64,32,4,4,4,98.0345
+dsd,False,True,32,64,64,4,4,4,98.0345
 dsd,False,True,64,16,16,4,4,4,68.01
 dsd,False,True,64,16,32,4,4,4,54.7027
 dsd,False,True,64,16,64,4,4,4,49.913
@@ -143,6 +160,7 @@ dsd,False,True,64,32,32,4,4,4,61.7535
 dsd,False,True,64,32,64,4,4,4,53.0829
 dsd,False,True,64,64,16,4,4,4,101.6558
 dsd,False,True,64,64,32,4,4,4,70.1075
+dsd,False,True,64,64,64,4,4,4,70.1075
 dsd,True,False,16,16,16,4,4,4,128.4223
 dsd,True,False,16,16,32,4,4,4,90.0412
 dsd,True,False,16,16,64,4,4,4,83.3222
@@ -151,6 +169,7 @@ dsd,True,False,16,32,32,4,4,4,86.9283
 dsd,True,False,16,32,64,4,4,4,84.5636
 dsd,True,False,16,64,16,4,4,4,163.221
 dsd,True,False,16,64,32,4,4,4,99.8338
+dsd,True,False,16,64,64,4,4,4,99.8338
 dsd,True,False,32,16,16,4,4,4,93.9119
 dsd,True,False,32,16,32,4,4,4,62.1346
 dsd,True,False,32,16,64,4,4,4,56.0104
@@ -159,6 +178,7 @@ dsd,True,False,32,32,32,4,4,4,70.8843
 dsd,True,False,32,32,64,4,4,4,59.1251
 dsd,True,False,32,64,16,4,4,4,119.8824
 dsd,True,False,32,64,32,4,4,4,80.5292
+dsd,True,False,32,64,64,4,4,4,80.5292
 dsd,True,False,64,16,16,4,4,4,123.8651
 dsd,True,False,64,16,32,4,4,4,76.5209
 dsd,True,False,64,16,64,4,4,4,60.1391
@@ -167,6 +187,7 @@ dsd,True,False,64,32,32,4,4,4,83.946
 dsd,True,False,64,32,64,4,4,4,60.4473
 dsd,True,False,64,64,16,4,4,4,148.974
 dsd,True,False,64,64,32,4,4,4,87.7046
+dsd,True,False,64,64,64,4,4,4,87.7046
 dsd,True,True,16,16,16,4,4,4,159.7035
 dsd,True,True,16,16,32,4,4,4,112.7343
 dsd,True,True,16,16,64,4,4,4,96.109
@@ -175,6 +196,7 @@ dsd,True,True,16,32,32,4,4,4,113.0748
 dsd,True,True,16,32,64,4,4,4,102.4129
 dsd,True,True,16,64,16,4,4,4,311.4233
 dsd,True,True,16,64,32,4,4,4,152.9842
+dsd,True,True,16,64,64,4,4,4,152.9842
 dsd,True,True,32,16,16,4,4,4,101.2226
 dsd,True,True,32,16,32,4,4,4,73.1764
 dsd,True,True,32,16,64,4,4,4,62.08
@@ -183,6 +205,7 @@ dsd,True,True,32,32,32,4,4,4,85.9566
 dsd,True,True,32,32,64,4,4,4,71.4414
 dsd,True,True,32,64,16,4,4,4,156.3029
 dsd,True,True,32,64,32,4,4,4,112.7689
+dsd,True,True,32,64,64,4,4,4,112.7689
 dsd,True,True,64,16,16,4,4,4,127.2963
 dsd,True,True,64,16,32,4,4,4,79.6703
 dsd,True,True,64,16,64,4,4,4,61.7858
@@ -191,6 +214,7 @@ dsd,True,True,64,32,32,4,4,4,91.4158
 dsd,True,True,64,32,64,4,4,4,67.6785
 dsd,True,True,64,64,16,4,4,4,168.1443
 dsd,True,True,64,64,32,4,4,4,105.573
+dsd,True,True,64,64,64,4,4,4,105.573
 sdd,False,False,16,16,16,4,4,4,110.7007
 sdd,False,False,16,16,32,4,4,4,83.8641
 sdd,False,False,16,16,64,4,4,4,79.1289
@@ -215,6 +239,9 @@ sdd,False,False,64,16,64,4,4,4,46.1422
 sdd,False,False,64,32,16,4,4,4,74.8587
 sdd,False,False,64,32,32,4,4,4,53.8419
 sdd,False,False,64,32,64,4,4,4,46.7183
+sdd,False,False,64,64,16,4,4,4,74.8587
+sdd,False,False,64,64,32,4,4,4,53.8419
+sdd,False,False,64,64,64,4,4,4,46.7183
 sdd,False,True,16,16,16,4,4,4,131.2918
 sdd,False,True,16,16,32,4,4,4,104.9111
 sdd,False,True,16,16,64,4,4,4,100.4713
@@ -239,6 +266,9 @@ sdd,False,True,64,16,64,4,4,4,49.1211
 sdd,False,True,64,32,16,4,4,4,81.5417
 sdd,False,True,64,32,32,4,4,4,59.0152
 sdd,False,True,64,32,64,4,4,4,52.0989
+sdd,False,True,64,64,16,4,4,4,81.5417
+sdd,False,True,64,64,32,4,4,4,59.0152
+sdd,False,True,64,64,64,4,4,4,52.0989
 sdd,True,False,16,16,16,4,4,4,130.6109
 sdd,True,False,16,16,32,4,4,4,84.93
 sdd,True,False,16,16,64,4,4,4,79.0723
@@ -263,6 +293,9 @@ sdd,True,False,64,16,64,4,4,4,60.097
 sdd,True,False,64,32,16,4,4,4,141.8331
 sdd,True,False,64,32,32,4,4,4,83.7384
 sdd,True,False,64,32,64,4,4,4,60.9805
+sdd,True,False,64,64,16,4,4,4,141.8331
+sdd,True,False,64,64,32,4,4,4,83.7384
+sdd,True,False,64,64,64,4,4,4,60.9805
 sdd,True,True,16,16,16,4,4,4,159.6109
 sdd,True,True,16,16,32,4,4,4,105.5516
 sdd,True,True,16,16,64,4,4,4,100.7452
@@ -287,3 +320,6 @@ sdd,True,True,64,16,64,4,4,4,62.273
 sdd,True,True,64,32,16,4,4,4,148.6517
 sdd,True,True,64,32,32,4,4,4,90.9354
 sdd,True,True,64,32,64,4,4,4,67.6934
+sdd,True,True,64,64,16,4,4,4,148.6517
+sdd,True,True,64,64,32,4,4,4,90.9354
+sdd,True,True,64,64,64,4,4,4,67.6934

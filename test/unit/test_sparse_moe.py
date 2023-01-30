@@ -21,7 +21,7 @@ def moe_reference(
     out_dims: int,
 ):
     n_exp = len(exp_modules)
-    out = torch.zeros(data.size(0), out_dims).to(data.device)
+    out = torch.zeros((data.size(0), out_dims), dtype=data.dtype, device=data.device)
     for eid in range(n_exp):
         out[exp_ids == eid] = exp_modules[eid](data[exp_ids == eid])
     return out
@@ -53,10 +53,14 @@ def test_sparse_moe(
 
     for random_seed in range(3):  # Test dynamic sparse
         torch.manual_seed(random_seed)
-        data = torch.rand(batch * seq_len, in_dims, dtype=dtype, device='cuda')
+        data = torch.rand((batch * seq_len, in_dims), dtype=dtype, device='cuda')
         exp_ids = torch.randint(0, num_exps, (batch * seq_len, ), dtype=torch.int32, device='cuda')
 
         out = moe(data, exp_ids)
         target_out = moe_reference(exp_modules, data, exp_ids, out_dims)
 
-        assert torch.allclose(out, target_out, atol=1e-4, rtol=1e-8)
+        if dtype is torch.float16:
+            atol, rtol = 2e-2, 1e-4
+        else:
+            atol, rtol = 1e-4, 1e-8
+        torch.testing.assert_close(out, target_out, atol=atol, rtol=rtol)
