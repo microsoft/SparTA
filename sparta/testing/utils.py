@@ -70,4 +70,4 @@ def check(func: Callable, inputs: List, target_outputs: List):
         outputs = [outputs]
     assert len(outputs) == len(target_outputs), f'expected {len(target_outputs)} outputs, got {len(outputs)}'
     for output, target_output in zip(outputs, target_outputs):
-        torch.testing.assert_close(output, target_output, atol=1e-4, rtol=1e-4)
+        torch.testing.assert_close(output, target_output, atol=1e-4, rtol=1e-8)

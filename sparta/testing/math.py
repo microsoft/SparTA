@@ -55,21 +55,25 @@ def sparse_multi_head_attention_reference(
     key: torch.Tensor,
     value: torch.Tensor,
     mask: torch.Tensor,
+    temperature: float = np.nan,
 ) -> torch.Tensor:
-    """Sparse multi-head attention reference function of shape (B * H, Ns, Nt, E).
-    Where B is the batch size, H is the head number, Ns is the sourse sequence length,
-    Nt is the target sequence length, and E is the embed dimention.
+    r"""Sparse multi-head attention reference function with batch size :math:`B`,
+    head number :math:`H`, sourse sequence length :math:`N_{source}`,
+    target sequence length :math:`N_{target}` and embed dimention :math:`E`.
 
     Args:
-        query (torch.Tensor): The input query tensor of shape (B * H, Nt, E).
-        key (torch.Tensor): The input key tensor of shape (B * H, Ns, E).
-        value (torch.Tensor): The input value tensor of shape (B * H, Ns, E).
-        mask (torch.Tensor): The mask tensor of shape (Nt, Ns).
+        query (torch.Tensor): The input query tensor of shape :math:`(B, H, N_{target}, E)`.
+        key (torch.Tensor): The input key tensor of shape :math:`(B, H, N_{source}, E)`.
+        value (torch.Tensor): The input value tensor of shape :math:`(B, H, N_{source}, E)`.
+        mask (torch.Tensor): The mask tensor of shape :math:`(N_{target}, N_{source})`.
+        temperature (float): The softmax temperature which is set to :math:`\sqrt{E}` by default.
 
     Returns:
-        torch.Tensor: Sparse multi-head attention output of shape (B * H, Nt, E).
+        torch.Tensor: Sparse multi-head attention output of shape :math:`(B, H, N_{target}, E)`.
     """
-    temperature = np.sqrt(query.shape[-1])
-    qk = torch.einsum('bmk,bnk->bmn', query, key)
+    if np.isnan(temperature):
+        temperature = np.sqrt(query.shape[-1])
+    high_dims = ''.join([chr(ord('a') + i) for i in range(len(query.shape) - 2)])
+    qk = torch.einsum(f'{high_dims}mk, {high_dims}nk -> {high_dims}mn', query, key)
     sm = sparse_softmax_forward_reference(qk, mask, temperature)
-    return torch.einsum('bmk,bkn->bmn', sm, value)
+    return torch.einsum(f'{high_dims}mn, {high_dims}nk -> {high_dims}mk', sm, value)

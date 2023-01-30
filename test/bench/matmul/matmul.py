@@ -150,7 +150,7 @@ def profile_dense_matmul(
     if mask.sum() == 0:
         return 0., 0.
 
-    dense_matmul = lambda A, B: torch.einsum('bik,bjk->bij', A, B)
+    dense_matmul = lambda A, B: torch.einsum('bik, bjk -> bij', A, B)
 
     return profile_matmul(dense_matmul, data)
 

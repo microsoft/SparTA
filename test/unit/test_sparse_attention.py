@@ -2,7 +2,6 @@
 # Licensed under the MIT license.
 
 from typing import Tuple
-import warnings
 
 import torch
 import pytest
@@ -44,12 +43,12 @@ def get_params():
     )
 
 
-@pytest.mark.parametrize("batch", [1, 4])
+@pytest.mark.parametrize("H", [1, 4])
 @pytest.mark.parametrize("Ns", [256, 512, 1024])
 @pytest.mark.parametrize("Nt", [256, 512, 1024])
 @pytest.mark.parametrize("E", [256, 512, 1024])
 def test_sparse_attention_operator(
-    batch: int,
+    H: int,
     Ns: int,
     Nt: int,
     E: int,
@@ -57,11 +56,11 @@ def test_sparse_attention_operator(
     sparsity: float = 0.95,
 ):
     torch.manual_seed(2022)
-    mask = block_mask((Nt, Ns), block=granularity, sparsity=sparsity).cuda()
-    query = torch.rand(size=(batch, Nt, E)).cuda()
-    key = torch.rand(size=(batch, Ns, E)).cuda()
-    value = torch.rand(size=(batch, Ns, E)).cuda()
-    grad_out = torch.rand(size=(batch, Nt, E)).cuda()
+    mask = block_mask((Nt, Ns), block=granularity, sparsity=sparsity, device='cuda')
+    query = torch.rand(size=(H, Nt, E), device='cuda')
+    key = torch.rand(size=(H, Ns, E), device='cuda')
+    value = torch.rand(size=(H, Ns, E), device='cuda')
+    grad_out = torch.rand(size=(H, Nt, E), device='cuda')
 
     query.requires_grad = True
     key.requires_grad = True
@@ -87,11 +86,11 @@ def test_sparse_attention_operator(
         out = sparse_attention.forward(query, key, value)
         out.backward(grad_out)
 
-        torch.testing.assert_close(out, target_out, atol=1e-4, rtol=1e-4)
-        torch.testing.assert_close(query.grad, target_grad_query, atol=1e-4, rtol=1e-4)
-        torch.testing.assert_close(key.grad, target_grad_key, atol=1e-4, rtol=1e-4)
-        torch.testing.assert_close(value.grad, target_grad_value, atol=1e-4, rtol=1e-4)
+        torch.testing.assert_close(out, target_out, atol=1e-4, rtol=1e-8)
+        torch.testing.assert_close(query.grad, target_grad_query, atol=1e-4, rtol=1e-8)
+        torch.testing.assert_close(key.grad, target_grad_key, atol=1e-4, rtol=1e-8)
+        torch.testing.assert_close(value.grad, target_grad_value, atol=1e-4, rtol=1e-8)
 
         torch.manual_seed(random_seed)
-        mask = block_mask((Nt, Ns), block=granularity, sparsity=sparsity).cuda()
+        mask = block_mask((Nt, Ns), block=granularity, sparsity=sparsity, device='cuda')
         sparse_attention.update_mask(mask)
