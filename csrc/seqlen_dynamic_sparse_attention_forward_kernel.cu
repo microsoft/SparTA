@@ -1,14 +1,19 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
+#include <assert.h>
 
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <pybind11/numpy.h>
 #include <torch/extension.h>
-using namespace std;
-// Macro definition for the cuda and cusparse
 
-#include <assert.h>
-// CUDA runtime
 #include <cuda.h>
+
+
+using namespace std;
+
+
 #define OFFSET(row, col, ld) ((row) * ld + col)
 #define FETCH_FLOAT4(pointer) (reinterpret_cast<float4*>(&pointer))[0]
 #define FETCH_UINT32(pointer) (reinterpret_cast<unsigned int*>(&(pointer))[0])
@@ -19,11 +24,9 @@ using namespace std;
 #define FULL_MASK 0xffffffff
 
 #define CUBLAS_SAFE_CALL(func)                                                                  \
-    do                                                                                          \
-    {                                                                                           \
+    do {                                                                                        \
         cublasStatus_t e = (func);                                                              \
-        if (e != CUBLAS_STATUS_SUCCESS)                                                         \
-        {                                                                                       \
+        if (e != CUBLAS_STATUS_SUCCESS) {                                                       \
             std::stringstream safe_call_ss;                                                     \
             safe_call_ss << "\nerror: " #func " failed with error"                              \
                          << "\nfile: " << __FILE__ << "\nline: " << __LINE__ << "\nmsg: " << e; \
@@ -32,11 +35,9 @@ using namespace std;
     } while (0)
 
 #define CUDA_SAFE_CALL(x)                                                                         \
-    do                                                                                            \
-    {                                                                                             \
+    do {                                                                                          \
         cudaError_t result = (x);                                                                 \
-        if (result != cudaSuccess)                                                                \
-        {                                                                                         \
+        if (result != cudaSuccess) {                                                              \
             const char *msg = cudaGetErrorString(result);                                         \
             std::stringstream safe_call_ss;                                                       \
             safe_call_ss << "\nerror: " #x " failed with error"                                   \
@@ -54,45 +55,49 @@ __device__ void warpReduce(volatile int* sdata, int tid) {
     sdata[tid] += sdata[tid + 1]; 
 }
 
-__device__ __forceinline__ const int* add_ptr_u(const int* src, int offset)      \
-{                                                                            \
+__device__ __forceinline__ const int* add_ptr_u(const int* src, int offset) {  \
     const int* dst;                                                            \
-    asm("{                       \n\t"                                       \
-        ".reg .u32 lo,hi,of;     \n\t"                                       \
-        "mul.lo.u32 of, %2, %3;  \n\t"                                       \
-        "mov.b64    {lo,hi}, %1; \n\t"                                       \
-        "add.cc.u32  lo,lo,  of; \n\t"                                       \
-        "addc.u32    hi,hi,  0;  \n\t"                                       \
-        "mov.b64 %0, {lo,hi};    \n\t"                                       \
-        "}" : "=l"(dst) : "l"(src), "r"(offset), "r"((int)sizeof(*src)));    \
-    return dst;                                                              \
+    asm("{                       \n\t"                                         \
+        ".reg .u32 lo,hi,of;     \n\t"                                         \
+        "mul.lo.u32 of, %2, %3;  \n\t"                                         \
+        "mov.b64    {lo,hi}, %1; \n\t"                                         \
+        "add.cc.u32  lo,lo,  of; \n\t"                                         \
+        "addc.u32    hi,hi,  0;  \n\t"                                         \
+        "mov.b64 %0, {lo,hi};    \n\t"                                         \
+        "}" : "=l"(dst) : "l"(src), "r"(offset), "r"((int)sizeof(*src)));      \
+    return dst;                                                                \
 }
 
-__device__ __forceinline__ const float* add_ptr_f(const float* src, int offset)      \
-{                                                                            \
-    const float* dst;                                                            \
-    asm("{                       \n\t"                                       \
-        ".reg .u32 lo,hi,of;     \n\t"                                       \
-        "mul.lo.u32 of, %2, %3;  \n\t"                                       \
-        "mov.b64    {lo,hi}, %1; \n\t"                                       \
-        "add.cc.u32  lo,lo,  of; \n\t"                                       \
-        "addc.u32    hi,hi,  0;  \n\t"                                       \
-        "mov.b64 %0, {lo,hi};    \n\t"                                       \
-        "}" : "=l"(dst) : "l"(src), "r"(offset), "r"((int)sizeof(*src)));    \
-    return dst;                                                              \
+__device__ __forceinline__ const float* add_ptr_f(const float* src, int offset) { \
+    const float* dst;                                                             \
+    asm("{                       \n\t"                                            \
+        ".reg .u32 lo,hi,of;     \n\t"                                            \
+        "mul.lo.u32 of, %2, %3;  \n\t"                                            \
+        "mov.b64    {lo,hi}, %1; \n\t"                                            \
+        "add.cc.u32  lo,lo,  of; \n\t"                                            \
+        "addc.u32    hi,hi,  0;  \n\t"                                            \
+        "mov.b64 %0, {lo,hi};    \n\t"                                            \
+        "}" : "=l"(dst) : "l"(src), "r"(offset), "r"((int)sizeof(*src)));         \
+    return dst;                                                                   \
 }
 
-__device__ __forceinline__ float2  _add(float2 x, float2 y) { float2 res; res.x = x.x + y.x; res.y = x.y + y.y; return res; }
+__device__ __forceinline__ float2  _add(float2 x, float2 y) { \
+    float2 res;                                               \
+    res.x = x.x + y.x;                                        \
+    res.y = x.y + y.y;                                        \
+    return res;                                               \
+}
 
 
 __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
     float* A,
     float* B,
     float* C_val,
-    int * seqlens,
+    int* seqlens,
     int GLOBAL_M,
     int GLOBAL_K,
-    int GLOBAL_N){
+    int GLOBAL_N
+) {
     /*
     description:
     tiling k dimension
@@ -100,15 +105,15 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
     the output sparse is block size 32x32, the blocks will be written to bcsr 32x64
     */
     const int BLOCK_SIZE_M = 32;  // 64
-    const int BLOCK_SIZE_K = 64;  //8
-    const int BLOCK_SIZE_N = 32;  //128
+    const int BLOCK_SIZE_K = 64;  // 8
+    const int BLOCK_SIZE_N = 32;  // 128
     const int THREAD_SIZE_K = 64;
     const int M = GLOBAL_M;
     const int K = GLOBAL_K;
     const int N = GLOBAL_N;
     int batch_idx = blockIdx.z;
     int head_idx = blockIdx.y + gridDim.y * blockIdx.z; // launch config: block_idx, head_idx, batch_idx
-    // if(threadIdx.x==0 && blockIdx.x==0){
+    // if (threadIdx.x == 0 && blockIdx.x == 0){
     //     printf("hid:%d, bY:%d, bZ:%d , gdim:%d \n", head_idx, blockIdx.y, blockIdx.z, gridDim.y);
     // }
     A += M * K * head_idx;
@@ -132,9 +137,12 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
     // uint bx = col_index[blockIdx.x]; // N
     // uint by = row_index[blockIdx.x]; // M
 
-    if (bx * BLOCK_SIZE_N < cur_seq_len && by * BLOCK_SIZE_M < cur_seq_len){
-        // if(threadIdx.x==0 ){
-        //     printf("## bid:%d blockIdx.y:%d bx:%d by:%d seqlen:%d headid:%d\n", batch_idx, blockIdx.y, bx, by, cur_seq_len, head_idx);
+    if (bx * BLOCK_SIZE_N < cur_seq_len && by * BLOCK_SIZE_M < cur_seq_len) {
+        // if (threadIdx.x == 0) {
+        //     printf(
+        //         "## bid:%d blockIdx.y:%d bx:%d by:%d seqlen:%d headid:%d\n",
+        //         batch_idx, blockIdx.y, bx, by, cur_seq_len, head_idx
+        //     );
         // }
         uint tx = tid % 16;
         uint ty = tid / 16;
@@ -162,8 +170,7 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
             for (int j = 0; j < 4; j++)
                 regC[i][j] = 0.0f;
 
-        for (int k_seq = 0; k_seq < (int)(K/64); k_seq++)
-        {
+        for (int k_seq = 0; k_seq < (int)(K/64); k_seq++) {
             uint offsetA00 = ori_offsetA00 + 64 * k_seq;
             uint offsetA16 = ori_offsetA16 + 64 * k_seq;
             uint offsetB00 = ori_offsetB00 + 64 * k_seq;
@@ -199,8 +206,7 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
 
             float regA[8], regB[4];
             #pragma unroll
-            for (int j = 0; j < 4; j++)
-            {
+            for (int j = 0; j < 4; j++) {
                 // fetch outer product data
                 *(float4*)&regA[0] = *(float4*)&bShare[loadA + (32*j +  0)*4];
                 *(float4*)&regA[4] = *(float4*)&bShare[loadA + (32*j + 16)*4];
@@ -211,8 +217,7 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
                         regC[i][j] += regA[i] * regB[j];
             }
             #pragma unroll
-            for (int j = 4; j < 8; j++)
-            {
+            for (int j = 4; j < 8; j++) {
                 *(float2*)&regA[0] = *(float2*)&bShare[loadA + (32*j +  0 + (j/4)*2)*4];
                 *(float2*)&regA[2] = *(float2*)&bShare[loadA + (32*j +  2 + (j/4)*2)*4];
                 *(float2*)&regA[4] = *(float2*)&bShare[loadA + (32*j + 16 + (j/4)*2)*4];
@@ -244,10 +249,16 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
         // uint blk_index = blockIdx.x;
         // uint intra_blk_index = block_index[blockIdx.x] % 2;
         // C_val += 32 * 32 * blk_index;
-        // if(threadIdx.x==0 ){
-        //     printf("#&& bid:%d blockIdx.y:%d bx:%d by:%d seqlen:%d headid:%d\n", batch_idx, blockIdx.y, (blockIdx.x % (GLOBAL_N / BLOCK_SIZE_N)), (blockIdx.x / (GLOBAL_N / BLOCK_SIZE_N)), cur_seq_len, head_idx);
+        // if (threadIdx.x == 0 ){
+        //     printf(
+        //         "#&& bid:%d blockIdx.y:%d bx:%d by:%d seqlen:%d headid:%d\n",
+        //         batch_idx, blockIdx.y,
+        //         (blockIdx.x % (GLOBAL_N / BLOCK_SIZE_N)), (blockIdx.x / (GLOBAL_N / BLOCK_SIZE_N)),
+        //         cur_seq_len, head_idx
+        //     );
         // }
-        C_val += ((blockIdx.x / (GLOBAL_N / BLOCK_SIZE_N)) * BLOCK_SIZE_M + ty) * GLOBAL_N + (blockIdx.x % (GLOBAL_N / BLOCK_SIZE_N)) * BLOCK_SIZE_N + tx * 2;
+        C_val += ((blockIdx.x / (GLOBAL_N / BLOCK_SIZE_N)) * BLOCK_SIZE_M + ty) * GLOBAL_N +
+            (blockIdx.x % (GLOBAL_N / BLOCK_SIZE_N)) * BLOCK_SIZE_N + tx * 2;
         // C_val += ty * 32 + tx * 2;
 
         __syncthreads();
@@ -287,10 +298,10 @@ __global__ void BLOCK_SPARSE_MATMUL_OUT_32_64_32(
         // C_val += 16 * 32;
         C_val += 16 * GLOBAL_N;
         *(float2*)C_val = c2[0];
-
-
     }
 }
+
+
 __global__ void SPARSE_SOFTMAX(
     float* C_val,
     int* seqlens,
@@ -306,7 +317,7 @@ __global__ void SPARSE_SOFTMAX(
 
     uint cur_seq_len = seqlens[blockIdx.z];
     uint tmp_seq_len = int((cur_seq_len+31)/32)*32;
-    assert(M%32==0 && N%32==0);
+    assert(M % 32 == 0 && N % 32 == 0);
     uint row_idx = blockIdx.x * row_tile;
     uint bm = threadIdx.x / 32;
     uint bn = threadIdx.x % 32;
@@ -317,7 +328,7 @@ __global__ void SPARSE_SOFTMAX(
     float regMax = -100000000.0;
     uint pos;
 
-    if(row_idx + bm<cur_seq_len){
+    if (row_idx + bm < cur_seq_len) {
         for (int index = bn; index < cur_seq_len; index+=32) {
             pos = (row_idx+bm) * N + index;
             regMax = max(regMax, C_val[pos]);
@@ -334,35 +345,37 @@ __global__ void SPARSE_SOFTMAX(
             regSum += __shfl_down_sync(FULL_MASK, regSum, offset);
         }
         regSum = __shfl_sync(FULL_MASK, regSum, 0);
-        // if(head_idx==0 && threadIdx.x==0 && blockIdx.x==0){
+        // if (head_idx == 0 && threadIdx.x == 0 && blockIdx.x == 0) {
         //     printf("regSum: %f \n", regSum);
         // }
         for (int index = bn; index < tmp_seq_len; index+=32) {
-            pos = (row_idx+bm) * N + index;
-            // if(head_idx==3 && row_idx+bm == 22 && index ==23){
+            pos = (row_idx + bm) * N + index;
+            // if (head_idx == 3 && row_idx + bm == 22 && index == 23){
             //     printf("regSum: %f exp:%f regMax:%f\n", regSum, expf(C_val[pos]), regMax);
             // }
-            if(index<cur_seq_len){
-                // if(head_idx==0 && threadIdx.x==0 && blockIdx.x==0){
+            if (index < cur_seq_len) {
+                // if (head_idx == 0 && threadIdx.x == 0 && blockIdx.x == 0){
                 //     printf("cur_seq_len: %d   tmp_seq_len:%d \n", cur_seq_len, tmp_seq_len);
-                //     printf("tid:%d index:%d regSum:%f expf(val):%f \n", threadIdx.x, index, regSum, expf(C_val[pos]));
+                //     printf(
+                //         "tid:%d index:%d regSum:%f expf(val):%f \n",
+                //         threadIdx.x, index, regSum, expf(C_val[pos])
+                //     );
                 // }
-                C_val[pos] = expf(C_val[pos]-regMax) / regSum;
-            }else{
+                C_val[pos] = expf(C_val[pos] - regMax) / regSum;
+            } else {
                 C_val[pos] = 0;
             }
-
         }
-
     }
-    else if(row_idx + bm < tmp_seq_len && row_idx + bm < M){
-        for (int index = bn; index < tmp_seq_len; index+=32) {
-            pos = (row_idx+bm) * N + index;
+    else if(row_idx + bm < tmp_seq_len && row_idx + bm < M) {
+        for (int index = bn; index < tmp_seq_len; index += 32) {
+            pos = (row_idx + bm) * N + index;
             C_val[pos] = 0;
         }
     }
-
 }
+
+
 template <
     const int BLOCK_SIZE_M, // 64
     const int BLOCK_SIZE_K, // 8
@@ -371,8 +384,16 @@ template <
     const int THREAD_SIZE_K, // 4
     const int THREAD_SIZE_N  // 8
 >
-__global__ void BLOCK_SPARSE_MATMUL_SDD(float* A, float * B, float* C, int* seqlens,  int M, int K, int N, int HEAD_NUM){
-
+__global__ void BLOCK_SPARSE_MATMUL_SDD(
+    float* A,
+    float * B,
+    float* C,
+    int* seqlens,
+    int M,
+    int K,
+    int N,
+    int HEAD_NUM
+) {
     int by = blockIdx.y; // M
     int bx = blockIdx.x; // N
     int bz = blockIdx.z;
@@ -408,8 +429,8 @@ __global__ void BLOCK_SPARSE_MATMUL_SDD(float* A, float * B, float* C, int* seql
     int tid = ty * bszx + tx;
 
     // int index_start = csr_row[by], index_end = csr_row[by+1];
-    if(by * BLOCK_SIZE_M < cur_seq_len){
-        int index_start = 0, index_end = (cur_seq_len + BLOCK_SIZE_K-1) / BLOCK_SIZE_K;
+    if (by * BLOCK_SIZE_M < cur_seq_len) {
+        int index_start = 0, index_end = (cur_seq_len + BLOCK_SIZE_K - 1) / BLOCK_SIZE_K;
         int A_BLOCK_ROW_START = tid / A_THREAD_PER_ROW;
         int B_BLOCK_ROW_START = tid / B_THREAD_PER_ROW;
 
@@ -418,17 +439,17 @@ __global__ void BLOCK_SPARSE_MATMUL_SDD(float* A, float * B, float* C, int* seql
         const int vBLOCK_SIZE_M = BLOCK_SIZE_M / THREAD_SIZE_M;
         const int vBLOCK_SIZE_N = BLOCK_SIZE_N / THREAD_SIZE_N;
 
-        for(int tile_block_idx = index_start; tile_block_idx < index_end; tile_block_idx += 1){
+        for (int tile_block_idx = index_start; tile_block_idx < index_end; tile_block_idx += 1) {
             int col_pos = tile_block_idx * BLOCK_SIZE_K;
             #pragma unroll
-            for(int k = 0; k < BLOCK_SIZE_M; k += A_TILE_ROW_STRIDE){
+            for (int k = 0; k < BLOCK_SIZE_M; k += A_TILE_ROW_STRIDE) {
                 FETCH_FLOAT4(As[OFFSET(k+A_BLOCK_ROW_START, A_BLOCK_COL_START, BLOCK_SIZE_K)]) =
                     FETCH_FLOAT4(A[OFFSET(k + A_BLOCK_ROW_START + by*BLOCK_SIZE_M, A_BLOCK_COL_START + col_pos, K)]);
                     // FETCH_FLOAT4(csr_val[tile_block_idx * BLOCK_SIZE_M * BLOCK_SIZE_K + OFFSET(k+A_BLOCK_ROW_START, A_BLOCK_COL_START, BLOCK_SIZE_K)]);
             }
 
             #pragma unroll
-            for(int k = 0; k < BLOCK_SIZE_K; k += B_TILE_ROW_STRIDE){
+            for (int k = 0; k < BLOCK_SIZE_K; k += B_TILE_ROW_STRIDE) {
                 FETCH_FLOAT4(Bs[OFFSET(k+B_BLOCK_ROW_START, B_BLOCK_COL_START, BLOCK_SIZE_N)]) = 
                     FETCH_FLOAT4(B[OFFSET(col_pos+k+B_BLOCK_ROW_START, bx*BLOCK_SIZE_N + B_BLOCK_COL_START, N)]);
                     // FETCH_FLOAT4(W_val[tile_block_idx * BLOCK_SIZE_N * BLOCK_SIZE_K + (k+B_BLOCK_ROW_START) * BLOCK_SIZE_N + B_BLOCK_COL_START]);
@@ -438,30 +459,30 @@ __global__ void BLOCK_SPARSE_MATMUL_SDD(float* A, float * B, float* C, int* seql
             __syncthreads();
 
             #pragma unroll
-            for(int k = 0; k < BLOCK_SIZE_K; k += THREAD_SIZE_K){
+            for (int k = 0; k < BLOCK_SIZE_K; k += THREAD_SIZE_K) {
                 #pragma unroll
-                for(int i = 0; i < THREAD_SIZE_K; i++){
+                for (int i = 0; i < THREAD_SIZE_K; i++) {
                     #pragma unroll
-                    for(int j = 0; j < THREAD_SIZE_M; j += 1){
+                    for (int j = 0; j < THREAD_SIZE_M; j += 1) {
                         a_frag[j][i] = As[OFFSET(ty + vBLOCK_SIZE_M * j, k+i, BLOCK_SIZE_K)];
                         //a_frag[j][i] = As[OFFSET(k+i, ty + vBLOCK_SIZE_M * j, BLOCK_SIZE_M)];
                     }
                 }
 
                 #pragma unroll
-                for(int i = 0; i < THREAD_SIZE_K; i++){
+                for (int i = 0; i < THREAD_SIZE_K; i++) {
                     #pragma unroll
-                    for(int j = 0; j < THREAD_SIZE_N; j += 1){
+                    for (int j = 0; j < THREAD_SIZE_N; j += 1) {
                         b_frag[j][i] = Bs[OFFSET(k+i, tx + vBLOCK_SIZE_N * j, BLOCK_SIZE_N)];
                     }
                 }
 
                 #pragma unroll
-                for(int i = 0; i < THREAD_SIZE_N; i++){
+                for (int i = 0; i < THREAD_SIZE_N; i++) {
                     #pragma unroll
-                    for(int j = 0; j < THREAD_SIZE_M; j++){
+                    for (int j = 0; j < THREAD_SIZE_M; j++) {
                         #pragma unroll
-                        for(int k_in = 0; k_in < THREAD_SIZE_K; k_in++){
+                        for (int k_in = 0; k_in < THREAD_SIZE_K; k_in++) {
                             // accum[i][j] = fma(a_frag[j][k_in], b_frag[i][k_in], accum[i][j]);
                             accum[i][j] += a_frag[j][k_in] * b_frag[i][k_in];
                         }
@@ -472,11 +493,10 @@ __global__ void BLOCK_SPARSE_MATMUL_SDD(float* A, float * B, float* C, int* seql
             __syncthreads();
         }
 
-
         #pragma unroll
-        for(int thread_x = 0; thread_x < THREAD_SIZE_N; thread_x++){
+        for (int thread_x = 0; thread_x < THREAD_SIZE_N; thread_x++) {
             #pragma unroll
-            for(int thread_y = 0; thread_y < THREAD_SIZE_M; thread_y+=1){
+            for (int thread_y = 0; thread_y < THREAD_SIZE_M; thread_y++) {
                 C[OFFSET(
                     BLOCK_SIZE_M * by + ty + thread_y * vBLOCK_SIZE_M,
                     BLOCK_SIZE_N * bx + tx + thread_x * vBLOCK_SIZE_N,
@@ -485,18 +505,27 @@ __global__ void BLOCK_SPARSE_MATMUL_SDD(float* A, float * B, float* C, int* seql
             }
         }
     }
-
 }
 
 
-void seqlen_dynamic_forward_function(float* Q, float* K, float* V,
-                    float * inter_result, int * seqlens,
-                    int batch_size, int head_num, int max_seq_length, int hidden_dim, float* output)
-{
+void seqlen_dynamic_forward_function(
+    float* Q,
+    float* K,
+    float* V,
+    float * inter_result,
+    int * seqlens,
+    int batch_size,
+    int head_num,
+    int max_seq_length,
+    int hidden_dim,
+    float* output
+) {
     int block_nnz = max_seq_length * max_seq_length / 32 / 32;
-    CUDA_SAFE_CALL(cudaMemset(inter_result, 0, sizeof(float) * max_seq_length * max_seq_length * batch_size * head_num));
+    CUDA_SAFE_CALL(
+        cudaMemset(inter_result, 0, sizeof(float) * max_seq_length * max_seq_length * batch_size * head_num)
+    );
     // already set to zero outside, no need to memset here
-    //cudaMemset((void*)val, 0, (SPARSE_VAL_SIZE * HEAD_NUM) * batch_size);
+    // cudaMemset((void*)val, 0, (SPARSE_VAL_SIZE * HEAD_NUM) * batch_size);
     const dim3 dimBlock(256);
     const dim3 dimGrid(block_nnz, head_num, batch_size);
     BLOCK_SPARSE_MATMUL_OUT_32_64_32<<<dimGrid, dimBlock>>>(
@@ -521,8 +550,8 @@ void seqlen_dynamic_forward_function(float* Q, float* K, float* V,
     );
     // printf("debug point 2\n");
 
-    // // // sparse x dense
-    // // // M: seq_length K: seq_length N:hidden dim
+    // sparse x dense
+    // M: seq_length K: seq_length N:hidden dim
     const int BLOCK_SIZE_M = 32;
     const int BLOCK_SIZE_K = 32;
     const int BLOCK_SIZE_N = 64;
@@ -532,7 +561,14 @@ void seqlen_dynamic_forward_function(float* Q, float* K, float* V,
 
     dim3 sdd_gridDim(hidden_dim/BLOCK_SIZE_N, max_seq_length/BLOCK_SIZE_M, head_num * batch_size);
     dim3 sdd_blockDim(BLOCK_SIZE_N/THREAD_SIZE_N, BLOCK_SIZE_M/THREAD_SIZE_M);
-    BLOCK_SPARSE_MATMUL_SDD<BLOCK_SIZE_M, BLOCK_SIZE_K, BLOCK_SIZE_N, THREAD_SIZE_M, THREAD_SIZE_K, THREAD_SIZE_N><<<sdd_gridDim, sdd_blockDim>>>(
+    BLOCK_SPARSE_MATMUL_SDD<
+        BLOCK_SIZE_M,
+        BLOCK_SIZE_K,
+        BLOCK_SIZE_N,
+        THREAD_SIZE_M,
+        THREAD_SIZE_K,
+        THREAD_SIZE_N
+    ><<<sdd_gridDim, sdd_blockDim>>>(
         inter_result,
         V,
         output,
@@ -540,10 +576,9 @@ void seqlen_dynamic_forward_function(float* Q, float* K, float* V,
         max_seq_length,
         max_seq_length,
         hidden_dim,
-        head_num);
-    // // printf("debug point 3\n");
-    
-
+        head_num
+    );
+    // printf("debug point 3\n");
 }
 
 
@@ -554,8 +589,7 @@ at::Tensor seqlen_dynamic_sparse_attention_forward(
     torch::Tensor inter_result,
     torch::Tensor seqlens,
     int head_num
-)
-{
+) {
     cudaSetDevice(Q.get_device());
     // Q, K, V should have the same shape which is {batchsize, seq_length, hidden_dim}
     int batch_size = Q.size(0);
@@ -564,28 +598,33 @@ at::Tensor seqlen_dynamic_sparse_attention_forward(
     int hidden_dim = Q.size(3);
     torch::Tensor output = torch::zeros({batch_size, head_num, max_seq_length, hidden_dim}, Q.options());
     // printf("bs:%d head_num:%d seq_len:%d hidden_dim:%d\n", batch_size, head_num, max_seq_length, hidden_dim);
-    AT_DISPATCH_FLOATING_TYPES(Q.type(), "seqlen_dynamic_sparse_attention", ([&]
-                            { seqlen_dynamic_forward_function(
-                                    Q.data_ptr<float>(),
-                                    K.data_ptr<float>(),
-                                    V.data_ptr<float>(),
-                                    inter_result.data_ptr<float>(),
-                                    seqlens.data_ptr<int>(),
-                                    batch_size,
-                                    head_num,
-                                    max_seq_length,
-                                    hidden_dim,
-                                    output.data_ptr<float>()
-                                ); }));
+    AT_DISPATCH_FLOATING_TYPES(
+        Q.type(),
+        "seqlen_dynamic_sparse_attention",
+        ([&]{
+            seqlen_dynamic_forward_function(
+                Q.data_ptr<float>(),
+                K.data_ptr<float>(),
+                V.data_ptr<float>(),
+                inter_result.data_ptr<float>(),
+                seqlens.data_ptr<int>(),
+                batch_size,
+                head_num,
+                max_seq_length,
+                hidden_dim,
+                output.data_ptr<float>()
+            );
+        })
+    );
     return output;
 }
+
 
 std::vector<at::Tensor> seqlen_dynamic_sparse_attention_backward(
     torch::Tensor grad,
     torch::Tensor Q,
     torch::Tensor K,
     torch::Tensor V
-    )
-{
+) {
     // TODO: support backward for the seqlen_dynamic_sparse_attention
 }

@@ -216,7 +216,7 @@ class SparseMatMulKernel(KernelBase):
             B = B * self.ports['B'].mask
         A_str = 'bkm' if self._transpose_A else 'bmk'
         B_str = 'bnk' if self._transpose_B else 'bkn'
-        C: torch.Tensor = torch.einsum(f'{A_str},{B_str}->bmn', A, B)
+        C: torch.Tensor = torch.einsum(f'{A_str}, {B_str} -> bmn', A, B)
         if self._biased:
             C = C + args[2].unsqueeze(1)
         if self._mode == 'dds':

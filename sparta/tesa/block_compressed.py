@@ -42,7 +42,7 @@ class BCSIndexes(TeSAIndexes):
 
     @abc.abstractmethod
     def get_block_mask(self) -> torch.Tensor:
-        """Rebuild block mask using BCSR/BCSC indexes"""
+        """Rebuild block mask using BCSR/BCSC indexes."""
 
     def get_mask(self) -> torch.Tensor:
         mask = self.get_block_mask().unsqueeze(-1).unsqueeze(-1)

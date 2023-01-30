@@ -23,11 +23,11 @@ class SparseAttention(OperatorBase):
             and :math:`N_{sourse}` is the sourse sequence length.
 
     Shape:
-        - Input1: :math:`(B * H, N_{target}, E)` where :math:`B` is the batch size,
+        - Input1: :math:`(B \times H, N_{target}, E)` where :math:`B` is the batch size,
             :math:`H` is the number of heads and :math:`E` is the embed dimension.
-        - Input2: :math:`(B * H, N_{sourse}, E)`.
-        - Input3: :math:`(B * H, N_{sourse}, E)`, same shape as the second input.
-        - Output: :math:`(B * H, N_{target}, E)`, same shape as the first input.
+        - Input2: :math:`(B \times H, N_{sourse}, E)`.
+        - Input3: :math:`(B \times H, N_{sourse}, E)`, same shape as the second input.
+        - Output: :math:`(B \times H, N_{target}, E)`, same shape as the first input.
 
     Examples:
 

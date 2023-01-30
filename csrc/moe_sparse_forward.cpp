@@ -1,3 +1,5 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
 
 #include <vector>
 #include "torch/extension.h"
@@ -17,9 +19,7 @@ void moe_sparse_convert_index(
     torch::Tensor expert_count
 );
 
-PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
-{
+PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("forward", &moe_sparse_forward, "dynamic sparse forward function of MOE");
     m.def("convert_index", &moe_sparse_convert_index, "dynamic sparse index function of MOE");
-
 }
