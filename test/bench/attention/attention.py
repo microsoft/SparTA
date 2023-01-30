@@ -188,8 +188,8 @@ def profile_dense_attention(
 
 
 def load_sparta_config(device: Any = 'cuda'):
-    device_name = torch.cuda.get_device_name(device)
-    device_cfg_path = os.path.join(WORK_DIR, 'params', f'{device_name}.csv')
+    major, minor = torch.cuda.get_device_capability()
+    device_cfg_path = os.path.join(WORK_DIR, 'params', f'{major}{minor}.csv')
     default_cfg_path = os.path.join(WORK_DIR, 'params', 'default.csv')
     if os.path.exists(device_cfg_path):
         return pd.read_csv(device_cfg_path)

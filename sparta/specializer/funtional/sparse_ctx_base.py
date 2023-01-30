@@ -65,7 +65,7 @@ class KernelPlaceholder(object):
             for x in sample_inputs
         ]
 
-    def test(self, num_warmups: int = 10, num_iters: int = 10, cuda: bool = True):
+    def test(self, num_warmups: int = 20, num_iters: int = 100, cuda: bool = False):
         return self.active_kernel().test(
             inputs=self.sample_inputs,
             num_warmups=num_warmups,

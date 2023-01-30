@@ -20,9 +20,6 @@ def get_params():
             'BLOCK_SIZE_M_VALUE': 32,
             'BLOCK_SIZE_K_VALUE': 32,
             'BLOCK_SIZE_N_VALUE': 32,
-            'THREAD_SIZE_M_VALUE': 4,
-            'THREAD_SIZE_K_VALUE': 4,
-            'THREAD_SIZE_N_VALUE': 4,
         }
         for kernel_name in matmul_kernel_names
     }

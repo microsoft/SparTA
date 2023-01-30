@@ -200,9 +200,9 @@ class KernelBase(Callable):
     def test(
         self,
         inputs: List[torch.Tensor],
-        num_warmups: int = 10,
-        num_iters: int = 10,
-        cuda: bool = True,
+        num_warmups: int = 20,
+        num_iters: int = 100,
+        cuda: bool = False,
     ):
         """Note that all inputs and outputs are dense tensors here."""
         sparse_inputs = [x for x in inputs]

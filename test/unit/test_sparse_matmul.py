@@ -102,9 +102,6 @@ def get_params(impl: str):
             'BLOCK_SIZE_M_VALUE': 32,
             'BLOCK_SIZE_K_VALUE': 32,
             'BLOCK_SIZE_N_VALUE': 32,
-            'THREAD_SIZE_M_VALUE': 4,
-            'THREAD_SIZE_K_VALUE': 4,
-            'THREAD_SIZE_N_VALUE': 4,
         }
     else:
         return {'_impl': impl}

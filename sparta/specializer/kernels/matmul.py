@@ -15,7 +15,18 @@ from sparta.specializer.kernels import templates, look_up_tables
 from sparta.specializer.kernels.kernel_base import KernelBase, PortConfig
 
 
-TILE_LUT = pd.read_csv(io.StringIO(res.read_text(look_up_tables, 'sparta_matmul_lut.csv')))
+def _get_sparta_matmul_lut():
+    major, minor = torch.cuda.get_device_capability()
+    try:
+        lut_file = f'matmul.sparta.{major}{minor}.csv'
+        lut_text = res.read_text(look_up_tables, lut_file)
+    except FileNotFoundError:
+        lut_file = f'matmul.sparta.default.csv'
+        lut_text = res.read_text(look_up_tables, lut_file)
+    return pd.read_csv(io.StringIO(lut_text))
+
+
+SPARTA_LUT = _get_sparta_matmul_lut()
 
 
 class SparseMatMulKernel(KernelBase):
@@ -44,10 +55,10 @@ class SparseMatMulKernel(KernelBase):
         self._sparse_block_H = ''
         self._sparse_block_W = ''
         self._tesa_vars = []
-        mode_filter = TILE_LUT['mode'] == self._mode
-        trans_A_filter = TILE_LUT['trans_A'] == self._transpose_A
-        trans_B_filter = TILE_LUT['trans_B'] == self._transpose_B
-        self._lut = TILE_LUT[mode_filter & trans_A_filter & trans_B_filter]
+        mode_filter = SPARTA_LUT['mode'] == self._mode
+        trans_A_filter = SPARTA_LUT['trans_A'] == self._transpose_A
+        trans_B_filter = SPARTA_LUT['trans_B'] == self._transpose_B
+        self._lut = SPARTA_LUT[mode_filter & trans_A_filter & trans_B_filter]
         super().__init__()
 
     def _set_ports(self):
