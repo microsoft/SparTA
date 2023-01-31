@@ -12,11 +12,6 @@ import numpy as np
 from sparta.tuning.tunable import TunableItemCfg
 
 
-_logger = logging.Logger(__name__)
-_handler = logging.StreamHandler()
-_logger.addHandler(_handler)
-
-
 class Tuner(object):
 
     def __init__(
