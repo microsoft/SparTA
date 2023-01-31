@@ -286,23 +286,34 @@ class SparTASparseMatMulKernel(SparseMatMulKernel):
         return (BN // TN, BM // TM, 1)
 
     def _check_parameters(self, params: Dict[str, Any]):
-        if 'THREAD_SIZE_M_VALUE' in params:
-            if 'THREAD_SIZE_K_VALUE' in params:
-                if 'THREAD_SIZE_N_VALUE' in params:
-                    BM = params['BLOCK_SIZE_M_VALUE']
-                    BK = params['BLOCK_SIZE_K_VALUE']
-                    BN = params['BLOCK_SIZE_N_VALUE']
-                    TM = params['THREAD_SIZE_M_VALUE']
-                    TK = params['THREAD_SIZE_K_VALUE']
-                    TN = params['THREAD_SIZE_N_VALUE']
-                    assert BM > TM
-                    assert BK > TK
-                    assert BN > TN
-                    A_thread_per_rows = (BM if self._transpose_A else BK) // 4
-                    B_thread_per_rows = (BK if self._transpose_A else BN) // 4
-                    threads_per_block = (BM // TM) * (BN // TN)
-                    assert threads_per_block >= A_thread_per_rows
-                    assert threads_per_block >= B_thread_per_rows
+        BM = params['BLOCK_SIZE_M_VALUE']
+        BK = params['BLOCK_SIZE_K_VALUE']
+        BN = params['BLOCK_SIZE_N_VALUE']
+        assert BM >= 4
+        assert BN >= 4
+        assert BK >= 4
+        assert BM & (BM - 1) == 0
+        assert BK & (BK - 1) == 0
+        assert BN & (BN - 1) == 0
+        if all([f'THREAD_SIZE_{dim}_VALUE' in params for dim in ['M', 'K', 'N']]):
+            TM = params['THREAD_SIZE_M_VALUE']
+            TK = params['THREAD_SIZE_K_VALUE']
+            TN = params['THREAD_SIZE_N_VALUE']
+            assert BM >= TM
+            assert BK >= TK
+            assert BN >= TN
+            assert TM & (TM - 1) == 0
+            assert TK & (TK - 1) == 0
+            assert TN & (TN - 1) == 0
+            A_threads_per_row = (BM if self._transpose_A else BK) // 4
+            B_threads_per_row = (BK if self._transpose_A else BN) // 4
+            threads_per_block = (BM // TM) * (BN // TN)
+            assert threads_per_block >= A_threads_per_row
+            assert threads_per_block >= B_threads_per_row
+            A_tile_row_stride = threads_per_block // A_threads_per_row
+            B_tile_row_stride = threads_per_block // B_threads_per_row
+            assert A_tile_row_stride <= (BK if self._transpose_A else BM)
+            assert B_tile_row_stride <= (BN if self._transpose_B else BK)
 
 
 class OpenAISparseMatMulKernel(SparseMatMulKernel):

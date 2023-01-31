@@ -155,16 +155,6 @@ def profile_dense_matmul(
     return profile_matmul(dense_matmul, data)
 
 
-def load_sparta_config(device: Any = 'cuda'):
-    major, minor = torch.cuda.get_device_capability()
-    device_cfg_path = os.path.join(WORK_DIR, 'params', f'{major}{minor}.csv')
-    default_cfg_path = os.path.join(WORK_DIR, 'params', 'default.csv')
-    if os.path.exists(device_cfg_path):
-        return pd.read_csv(device_cfg_path)
-    else:
-        return pd.read_csv(default_cfg_path)
-
-
 def get_sparta_config(configs: pd.DataFrame, granularity: int, sparsity: float):
     condition = (configs['granularity'] == granularity) & (configs['sparsity'] == sparsity)
     config: Dict[str, Any] = {}
@@ -184,7 +174,7 @@ def profile_all(log_path: str, device: Any = 'cuda'):
     cols = ['method', 'M', 'K', 'N', 'granularity', 'sparsity', 'forward', 'backward']
     with open(log_path, 'w') as f:
         f.write(','.join(cols) + '\n')
-    sparta_configs = load_sparta_config(device)
+    sparta_configs = pd.read_csv(os.path.join(WORK_DIR, 'sparta_params.csv'))
     for g in GRANULARITY_LIST:
         for s in SPARSITY_LIST:
             print(f'========== Granularuty: {g} Sparsity: {s} ==========')
