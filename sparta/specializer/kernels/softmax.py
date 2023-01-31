@@ -8,7 +8,7 @@ import torch
 import jinja2
 import numpy as np
 
-from sparta.common.tuning import TunableItemCfg
+from sparta.tuning import TunableItemCfg
 from sparta.specializer.kernels import templates
 from sparta.specializer.kernels.kernel_base import KernelBase, PortConfig
 from sparta.testing import sparse_softmax_forward_reference, sparse_softmax_backward_reference

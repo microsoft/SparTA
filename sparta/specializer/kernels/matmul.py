@@ -10,7 +10,7 @@ import jinja2
 import numpy as np
 import pandas as pd
 
-from sparta.common.tuning import TunableItemCfg
+from sparta.tuning import TunableItemCfg
 from sparta.specializer.kernels import templates, look_up_tables
 from sparta.specializer.kernels.kernel_base import KernelBase, PortConfig
 

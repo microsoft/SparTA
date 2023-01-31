@@ -4,8 +4,6 @@
 from dataclasses import dataclass
 from typing import Optional, Any, Union, Dict, List
 
-from sparta.common.utils import check_type, get_uname
-
 
 @dataclass
 class TunableItemCfg:
@@ -47,13 +45,13 @@ class TunableItemCfg:
     def __post_init__(self):
         assert self._type in ['choice']
         if self._is_nested:
-            check_type(self._value, dict)
+            assert isinstance(self._value, dict)
             for ss_name, ss_params in self._value.items():
-                check_type(ss_params, dict)
+                assert isinstance(ss_params, dict)
                 for p_name, p_cfg in ss_params.items():
-                    check_type(p_cfg, TunableItemCfg)
+                    assert isinstance(p_cfg, TunableItemCfg)
         else:
-            check_type(self._value, list)
+            assert isinstance(self._value, list)
 
     def to_nni_search_space(self):
         """convert to nni search space"""

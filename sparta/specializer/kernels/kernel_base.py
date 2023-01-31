@@ -17,7 +17,7 @@ if __env_ready__:
     from pycuda.compiler import SourceModule
 
 from sparta.tesa import get_bcs_function, BCSIndexes
-from sparta.common.tuning import TunableItemCfg
+from sparta.tuning import TunableItemCfg
 from sparta.testing import profile
 
 
