@@ -25,6 +25,7 @@ SEARCH_SPACE = {
     'TK': [2, 4, 8, 16],
     'TN': [2, 4, 8, 16],
 }
+HYPER_PARAMS = ['mode', 'trans_A', 'trans_B', 'BM', 'BK', 'BN']
 
 
 _logger = logging.Logger(__name__)
@@ -100,7 +101,7 @@ if __name__ == '__main__':
     with open(log_file, 'w') as f:
         f.write(','.join(keys) + ',latency\n')
 
-    torch.manual_seed(2022)
+    torch.manual_seed(RANDOM_SEED)
     A = torch.rand(size=(1, SIZE, SIZE), device='cuda')
     B = torch.rand(size=(1, SIZE, SIZE), device='cuda')
     mask = block_mask((SIZE, SIZE), sparsity=0, device='cuda')
@@ -112,8 +113,8 @@ if __name__ == '__main__':
         _logger.info(f'[{i} / {num}] {params} => {latency} ms')
 
     df = pd.read_csv(log_file)
-    df = df.groupby(['mode', 'trans_A', 'trans_B', 'BM', 'BK', 'BN']).min('latency')
+    df = df.loc[df.groupby(HYPER_PARAMS).aggregate({'latency': 'idxmin'})]
     with open(lut_file, 'w') as f:
-        f.write(df.reset_index().to_csv(index=False))
+        f.write(df.reset_index(drop=True).to_csv(index=False))
 
     _logger.info(f'========== Finished. Output: {lut_file} ==========')
