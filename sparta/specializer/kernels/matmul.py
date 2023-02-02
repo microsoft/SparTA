@@ -306,7 +306,7 @@ class SparTASparseMatMulKernel(SparseMatMulKernel):
             assert TK & (TK - 1) == 0
             assert TN & (TN - 1) == 0
             A_threads_per_row = (BM if self._transpose_A else BK) // 4
-            B_threads_per_row = (BK if self._transpose_A else BN) // 4
+            B_threads_per_row = (BK if self._transpose_B else BN) // 4
             threads_per_block = (BM // TM) * (BN // TN)
             assert threads_per_block >= A_threads_per_row
             assert threads_per_block >= B_threads_per_row
