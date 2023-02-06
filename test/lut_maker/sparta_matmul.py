@@ -74,8 +74,7 @@ def test_sparta_matmul_kernel(
     return latency
 
 
-if __name__ == '__main__':
-    _logger.setLevel(logging.DEBUG)
+def make_sparta_matmul_lut():
     major, minor = torch.cuda.get_device_capability()
     lut_file = os.path.join(
         'sparta',
@@ -113,8 +112,13 @@ if __name__ == '__main__':
         _logger.info(f'[{i} / {num}] {params} => {latency} ms')
 
     df = pd.read_csv(log_file)
-    df = df.loc[df.groupby(HYPER_PARAMS).aggregate({'latency': 'idxmin'})]
+    df = df.loc[df.groupby(HYPER_PARAMS).aggregate({'latency': 'idxmin'})['latency']]
     with open(lut_file, 'w') as f:
         f.write(df.reset_index(drop=True).to_csv(index=False))
 
     _logger.info(f'========== Finished. Output: {lut_file} ==========')
+
+
+if __name__ == '__main__':
+    _logger.setLevel(logging.DEBUG)
+    make_sparta_matmul_lut()

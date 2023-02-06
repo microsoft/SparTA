@@ -96,11 +96,15 @@ class BCSRIndexes(BCSIndexes):
         block_mask_val = torch.ones(
             size=(self.block_nnz, ),
             dtype=torch.uint8,
-            device=self.row_ptr.device
+            device=self.row_ptr.device,
         )
-        row_ptr = self.row_ptr.to(torch.int64)
-        col_idx = self.BCSR_idx.bitwise_and(0xffff).to(torch.int64)
-        return torch.sparse_csr_tensor(row_ptr, col_idx, block_mask_val).to_dense()
+        col_idx = self.BCSR_idx.bitwise_and(0xffff)
+        return torch.sparse_csr_tensor(
+            crow_indices=self.row_ptr,
+            col_indices=col_idx,
+            values=block_mask_val,
+            size=(self.row_num, self.col_num),
+        ).to_dense()
 
     def convert(self, dense: torch.Tensor):
         return self.function_context.convert(
@@ -144,10 +148,15 @@ class BCSCIndexes(BCSIndexes):
         block_mask_val = torch.ones(
             size=(self.block_nnz, ),
             dtype=torch.uint8,
-            device=self.col_ptr.device
+            device=self.col_ptr.device,
         )
         row_idx = self.BCSC_idx.bitwise_and(0xffff)
-        return torch.sparse_csr_tensor(self.col_ptr, row_idx, block_mask_val).to_dense().T
+        return torch.sparse_csr_tensor(
+            crow_indices=self.col_ptr,
+            col_indices=row_idx,
+            values=block_mask_val,
+            size=(self.col_num, self.row_num),
+        ).to_dense().T
 
     def convert(self, dense: torch.Tensor):
         return self.function_context.convert(

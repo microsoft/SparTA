@@ -26,7 +26,7 @@ def _get_sparta_matmul_lut():
     return pd.read_csv(io.StringIO(lut_text))
 
 
-SPARTA_LUT = _get_sparta_matmul_lut()
+SPARTA_MATMUL_LUT = _get_sparta_matmul_lut()
 
 
 class SparseMatMulKernel(KernelBase):
@@ -55,10 +55,10 @@ class SparseMatMulKernel(KernelBase):
         self._sparse_block_H = ''
         self._sparse_block_W = ''
         self._tesa_vars = []
-        mode_filter = SPARTA_LUT['mode'] == self._mode
-        trans_A_filter = SPARTA_LUT['trans_A'] == self._transpose_A
-        trans_B_filter = SPARTA_LUT['trans_B'] == self._transpose_B
-        self._lut = SPARTA_LUT[mode_filter & trans_A_filter & trans_B_filter]
+        mode_filter = SPARTA_MATMUL_LUT['mode'] == self._mode
+        trans_A_filter = SPARTA_MATMUL_LUT['trans_A'] == self._transpose_A
+        trans_B_filter = SPARTA_MATMUL_LUT['trans_B'] == self._transpose_B
+        self._lut = SPARTA_MATMUL_LUT[mode_filter & trans_A_filter & trans_B_filter]
         super().__init__()
 
     def _set_ports(self):
@@ -248,7 +248,7 @@ class SparTASparseMatMulKernel(SparseMatMulKernel):
             self._add_parameter(
                 f'BLOCK_SIZE_{dim}_VALUE',
                 is_tunable=True,
-                search_space=TunableItemCfg('choice', [16, 32, 64])
+                search_space=TunableItemCfg('choice', [8, 16, 32, 64])
             )
             self._add_parameter(
                 f'THREAD_SIZE_{dim}_VALUE',
@@ -268,6 +268,7 @@ class SparTASparseMatMulKernel(SparseMatMulKernel):
         BN_filter = self._lut['BN'] == BN
         row = self._lut[BM_filter & BK_filter & BN_filter]
         assert len(row) > 0, f'block shape ({BM}, {BK}, {BN}) not found in LUT'
+        assert float(row['latency']) < float('inf'), f'block shape ({BM}, {BK}, {BN}) is invalid'
         row = row.reset_index(drop=True).iloc[0, :]
         TM, TK, TN = row['TM'], row['TK'], row['TN']
         self.set_parameter('THREAD_SIZE_M_VALUE', int(TM))

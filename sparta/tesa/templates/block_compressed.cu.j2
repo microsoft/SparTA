@@ -88,27 +88,27 @@ __global__ void bcs_index_1(
         uint block_offset = _pos / ({{ BW }} / {{ MASK_BATCH }}) * W + _pos % ({{ BW }} / {{ MASK_BATCH }}) * {{ MASK_BATCH }};
         {% if BW == 4 %}
         uint data = __ldg((const uint*)(add_ptr_b(mask, global_offset + block_offset)));
-        flag += data;
+        flag = (flag || data);
         {% elif BW == 8 %}
         uint2 data = __ldg((const uint2*)(add_ptr_b(mask, global_offset + block_offset)));
-        flag += data.x + data.y;
+        flag = (flag || data.x || data.y);
         {% else %}
         uint4 data = __ldg((const uint4*)(add_ptr_b(mask, global_offset + block_offset)));
-        flag += data.x + data.y + data.z + data.w;
+        flag = (flag || data.x || data.y || data.z || data.w);
         {% endif %}
     }
-    reduce[tid] = flag > 0 ? 1 : 0;
+    reduce[tid] = flag;
 
     // Fast tree reduce accross the block
     __syncthreads();
     for (uint s = blockDim.x >> 1; s > 32; s >>= 1) {
-        if (tid < s) reduce[tid] += reduce[tid + s];
+        if (tid < s) reduce[tid] = (reduce[tid] || reduce[tid + s]);
         __syncthreads();
     }
     if (tid < {{ [BLOCK_DIM / 2, 32]|min }}) warpReduceMask(reduce, tid);
     __syncthreads();
 
-    if (tid == 0 & reduce[0] > 0) {
+    if (tid == 0 && reduce[0] > 0) {
         {% if BCSR %}
         // Record BCSR column index, +1 because 0 means empty
         int col_pos_id = atomicAdd(&extra_buffer[by], 1);

@@ -1,11 +1,9 @@
 {# Copyright (c) Microsoft Corporation. #}
 {# Licensed under the MIT license. #}
 
-{% if BLOCK_SIZE_W_VALUE < 32 %}
-#define FULL_MASK 0x{% for _ in range(BLOCK_SIZE_W_VALUE // 4) %}f{% endfor %}
-{% else %}
-#define FULL_MASK 0xffffffff
-{% endif %}
+{% set WARP_SIZE = [32, BLOCK_SIZE_W_VALUE]|min %}
+{% set INI_OFFSET = WARP_SIZE // 2 %}
+#define FULL_MASK 0x{% for _ in range(WARP_SIZE // 4) %}f{% endfor %}
 
 const int H = {{ GLOBAL_H_VALUE }};
 const int W = {{ GLOBAL_W_VALUE }};
@@ -32,16 +30,16 @@ __global__ void SPARSE_SOFTMAX(
 
     uint blk_row_idx = blockIdx.x / (block_h/row_tile) ;
     int block_inter_row = (blockIdx.x % (block_h/row_tile)) * row_tile;
-    uint bm = threadIdx.x / 32;
-    uint bn = threadIdx.x % 32;
+    uint bm = threadIdx.x / {{ WARP_SIZE }};
+    uint bn = threadIdx.x % {{ WARP_SIZE }};
     float regSum = 0.0f;
     float regMax = -100000.0;
     int block_seq_start = row_ptr[blk_row_idx];
     int block_seq_end = row_ptr[blk_row_idx+1];
 
-    uint index_list[W / 32];
+    uint index_list[W / {{ WARP_SIZE }}];
     int val_num = 0;
-    for (int block_inter_col = bn; block_inter_col < block_w; block_inter_col += 32) {
+    for (int block_inter_col = bn; block_inter_col < block_w; block_inter_col += {{ WARP_SIZE }}) {
         for (int block_seq = block_seq_start; block_seq < block_seq_end; block_seq++) {
             {% if COMPRESSED %}
             uint index = block_h * block_w * block_seq +
@@ -65,7 +63,7 @@ __global__ void SPARSE_SOFTMAX(
         regMax = max(regMax, in_val[index]);
     }
 
-    for (int offset = 16; offset > 0; offset >>= 1) {
+    for (int offset = {{ INI_OFFSET }}; offset > 0; offset >>= 1) {
         regMax = max(regMax, __shfl_down_sync(FULL_MASK, regMax, offset));
     }
     regMax = __shfl_sync(FULL_MASK, regMax, 0);
@@ -75,7 +73,7 @@ __global__ void SPARSE_SOFTMAX(
         regSum += expf((in_val[index] - regMax) * temperature);
     }
 
-    for (int offset = 16; offset > 0; offset >>= 1) {
+    for (int offset = {{ INI_OFFSET }}; offset > 0; offset >>= 1) {
         regSum += __shfl_down_sync(FULL_MASK, regSum, offset);
     }
     regSum = __shfl_sync(FULL_MASK, regSum, 0);

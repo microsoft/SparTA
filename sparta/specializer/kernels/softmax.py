@@ -1,17 +1,41 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
+import io
 from typing import Any, Dict, Tuple
 import importlib.resources as res
 
 import torch
 import jinja2
 import numpy as np
+import pandas as pd
 
 from sparta.tuning import TunableItemCfg
-from sparta.specializer.kernels import templates
+from sparta.specializer.kernels import templates, look_up_tables
 from sparta.specializer.kernels.kernel_base import KernelBase, PortConfig
 from sparta.testing import sparse_softmax_forward_reference, sparse_softmax_backward_reference
+
+
+def _get_sparta_softmax_lut():
+    major, minor = torch.cuda.get_device_capability()
+    try:
+        forward_lut_file = f'softmax.forward.sparta.{major}{minor}.csv'
+        forward_lut_text = res.read_text(look_up_tables, forward_lut_file)
+    except FileNotFoundError:
+        forward_lut_file = f'softmax.backward.sparta.default.csv'
+        forward_lut_text = res.read_text(look_up_tables, forward_lut_file)
+    forward_lut = pd.read_csv(io.StringIO(forward_lut_text))
+    try:
+        backward_lut_file = f'softmax.backward.sparta.{major}{minor}.csv'
+        backward_lut_text = res.read_text(look_up_tables, backward_lut_file)
+    except FileNotFoundError:
+        backward_lut_file = f'softmax.backward.sparta.default.csv'
+        backward_lut_text = res.read_text(look_up_tables, backward_lut_file)
+    backward_lut = pd.read_csv(io.StringIO(backward_lut_text))
+    return forward_lut, backward_lut
+
+
+SPARTA_SOFTMAX_FORWARD_LUT, SPARTA_SOFTMAX_BACKWARD_LUT = _get_sparta_softmax_lut()
 
 
 class SparseSoftmaxKernel(KernelBase):
@@ -161,6 +185,10 @@ class SparTASoftmaxKernel(SparseSoftmaxKernel):
 
     __algo__ = 'sparta'
 
+    def __init__(self, compressed: bool = False, dtype: str = 'float'):
+        super().__init__(compressed, dtype)
+        self._lut: pd.DataFrame = None
+
     def _add_parameters(self):
         super()._add_parameters()
         self._add_parameter(
@@ -175,9 +203,20 @@ class SparTASoftmaxKernel(SparseSoftmaxKernel):
         )
         self._add_parameter(
             'ROW_TILE_VALUE',
-            is_tunable=True,
-            search_space=TunableItemCfg('choice', [1, 2, 4, 8, 16])
         )
+
+    def set_parameters(self, params: Dict[str, Any]):
+        super().set_parameters(params)
+        if 'ROW_TILE_VALUE' in params:
+            return
+        BH, BW = self.get_block_shape()
+        BH_filter = self._lut['BH'] == BH
+        BW_filter = self._lut['BW'] == BW
+        row = self._lut[BH_filter & BW_filter]
+        assert len(row) > 0, f'block shape ({BH}, {BW}) not found in LUT'
+        assert row['latency'] < float('inf'), f'block shape ({BH}, {BW}) is invalid'
+        row = row.reset_index(drop=True).iloc[0, :]
+        self.set_parameter('ROW_TILE_VALUE', int(row['RT']))
 
     def blocks_per_grid(self):
         batch_size, H, W = self.get_shape()
@@ -185,14 +224,18 @@ class SparTASoftmaxKernel(SparseSoftmaxKernel):
         return (H // RT, batch_size, 1)
 
     def threads_per_block(self) -> Tuple[int]:
+        BW = self.get_parameter('BLOCK_SIZE_W_VALUE')
         RT = self.get_parameter('ROW_TILE_VALUE')
-        return (RT * 32, 1, 1)
+        return (RT * min(BW, 32), 1, 1)
 
     def _check_parameters(self, params: Dict[str, Any]):
         BH = params['BLOCK_SIZE_H_VALUE']
         BW = params['BLOCK_SIZE_W_VALUE']
-        RT = params['ROW_TILE_VALUE']
-        assert BH > RT
+        assert BH & (BH - 1) == 0
+        assert BW & (BW - 1) == 0
+        if 'ROW_TILE_VALUE' in params:
+            RT = params['ROW_TILE_VALUE']
+            assert BH >= RT
 
     def get_kernel_code(self):
         template_file = f'{self.__algo__}_sparse_softmax_{self.__direction__}.cuh.j2'
@@ -202,9 +245,13 @@ class SparTASoftmaxKernel(SparseSoftmaxKernel):
 
 class SparTASparseSoftmaxForwardKernel(SparseSoftmaxForwardKernel, SparTASoftmaxKernel):
 
-    pass
+    def __init__(self, compressed: bool = False, dtype: str = 'float'):
+        super().__init__(compressed, dtype)
+        self._lut = SPARTA_SOFTMAX_FORWARD_LUT
 
 
 class SparTASparseSoftmaxBackwardKernel(SparseSoftmaxBackwardKernel, SparTASoftmaxKernel):
 
-    pass
+    def __init__(self, compressed: bool = False, dtype: str = 'float'):
+        super().__init__(compressed, dtype)
+        self._lut = SPARTA_SOFTMAX_BACKWARD_LUT
