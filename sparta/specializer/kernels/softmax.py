@@ -214,8 +214,8 @@ class SparTASoftmaxKernel(SparseSoftmaxKernel):
         BW_filter = self._lut['BW'] == BW
         row = self._lut[BH_filter & BW_filter]
         assert len(row) > 0, f'block shape ({BH}, {BW}) not found in LUT'
-        assert row['latency'] < float('inf'), f'block shape ({BH}, {BW}) is invalid'
         row = row.reset_index(drop=True).iloc[0, :]
+        assert float(row['latency']) < float('inf'), f'block shape ({BH}, {BW}) is invalid'
         self.set_parameter('ROW_TILE_VALUE', int(row['RT']))
 
     def blocks_per_grid(self):

@@ -268,8 +268,8 @@ class SparTASparseMatMulKernel(SparseMatMulKernel):
         BN_filter = self._lut['BN'] == BN
         row = self._lut[BM_filter & BK_filter & BN_filter]
         assert len(row) > 0, f'block shape ({BM}, {BK}, {BN}) not found in LUT'
-        assert float(row['latency']) < float('inf'), f'block shape ({BM}, {BK}, {BN}) is invalid'
         row = row.reset_index(drop=True).iloc[0, :]
+        assert float(row['latency']) < float('inf'), f'block shape ({BM}, {BK}, {BN}) is invalid'
         TM, TK, TN = row['TM'], row['TK'], row['TN']
         self.set_parameter('THREAD_SIZE_M_VALUE', int(TM))
         self.set_parameter('THREAD_SIZE_K_VALUE', int(TK))
