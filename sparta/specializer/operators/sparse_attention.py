@@ -8,7 +8,7 @@ import torch
 import numpy as np
 
 from sparta.specializer.operators import OperatorBase, SparseBatchMatMul, SparseSoftmax
-from sparta.specializer.kernels import KernelBase, PortConfig
+from sparta.specializer.kernels import KernelBase
 
 
 class SparseAttention(OperatorBase):

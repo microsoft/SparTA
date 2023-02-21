@@ -45,6 +45,7 @@ __global__ void BLOCK_SPARSE_MATMUL(
     int ty = threadIdx.y;
     int tx = threadIdx.x;
 
+    {% if BATCHED %}
     A += M * K * blockIdx.y;
     B += K * N * blockIdx.y;
     {% if COMPRESSED %}
@@ -54,6 +55,7 @@ __global__ void BLOCK_SPARSE_MATMUL(
     {% endif %}
     {% if BIASED %}
     bias += N * blockIdx.y;
+    {% endif %}
     {% endif %}
 
     __shared__ float As[BM * BK];

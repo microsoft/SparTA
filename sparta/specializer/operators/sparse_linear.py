@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 import torch
 
 from sparta.specializer.operators import OperatorBase
-from sparta.specializer.funtional import SparseBatchMatMulCtx, SparseBatchMatMulFunc
+from sparta.specializer.functional import SparseBatchMatMul
 
 
 class SparseLinear(OperatorBase):
@@ -58,7 +58,7 @@ class SparseLinear(OperatorBase):
     """
 
     __base_class__ = torch.nn.Linear
-    __sparse_func__ = SparseBatchMatMulFunc
+    __sparse_func__ = SparseBatchMatMul
 
     def __init__(
         self,

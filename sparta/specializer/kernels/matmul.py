@@ -2,8 +2,9 @@
 # Licensed under the MIT license.
 
 import io
-from typing import Any, Dict
+import textwrap
 import importlib.resources as res
+from typing import Any, Dict, Tuple
 
 import torch
 import jinja2
@@ -12,21 +13,24 @@ import pandas as pd
 
 from sparta.tuning import TunableItemCfg
 from sparta.specializer.kernels import templates, look_up_tables
-from sparta.specializer.kernels.kernel_base import KernelBase, PortConfig
+from sparta.specializer.kernels.kernel_base import KernelBase
 
 
-def _get_sparta_matmul_lut():
+def _get_matmul_lut(impl: str):
     major, minor = torch.cuda.get_device_capability()
     try:
-        lut_file = f'matmul.sparta.{major}{minor}.csv'
+        lut_file = f'matmul.{impl}.{major}{minor}.csv'
         lut_text = res.read_text(look_up_tables, lut_file)
     except FileNotFoundError:
-        lut_file = f'matmul.sparta.default.csv'
+        lut_file = f'matmul.{impl}.default.csv'
         lut_text = res.read_text(look_up_tables, lut_file)
     return pd.read_csv(io.StringIO(lut_text))
 
 
-SPARTA_MATMUL_LUT = _get_sparta_matmul_lut()
+_MATMUL_LUTS = {
+    'sparta': _get_matmul_lut('sparta'),
+    'openai': _get_matmul_lut('openai'),
+}
 
 
 class SparseMatMulKernel(KernelBase):
@@ -36,114 +40,38 @@ class SparseMatMulKernel(KernelBase):
     def __init__(
         self,
         mode: str,
+        biased: bool, 
+        transpose_A: bool,
+        transpose_B: bool, 
+        compressed: bool,
+        batched: bool,
         dtype: str = 'float',
-        biased: bool = True, 
-        transpose_A: bool = False,
-        transpose_B: bool = True, 
-        compressed: bool = True,
     ):
-        if mode not in ['sdd', 'dsd', 'dds']:
-            raise ValueError(f'invalid sparse type: {mode}')
         self._biased = biased
         self._transpose_A = transpose_A
         self._transpose_B = transpose_B
         self._compressed = compressed
-        self._bcs_mode = ''
+        self._batched = batched
         self._mode = mode
         self._dtype = dtype
-        self._sparse_port = ''
-        self._sparse_block_H = ''
-        self._sparse_block_W = ''
-        self._tesa_vars = []
-        mode_filter = SPARTA_MATMUL_LUT['mode'] == self._mode
-        trans_A_filter = SPARTA_MATMUL_LUT['trans_A'] == self._transpose_A
-        trans_B_filter = SPARTA_MATMUL_LUT['trans_B'] == self._transpose_B
-        self._lut = SPARTA_MATMUL_LUT[mode_filter & trans_A_filter & trans_B_filter]
+
+        lut = _MATMUL_LUTS[self.__algo__]
+        mode_filter = lut['mode'] == self._mode
+        trans_A_filter = lut['trans_A'] == self._transpose_A
+        trans_B_filter = lut['trans_B'] == self._transpose_B
+        self._lut = lut[mode_filter & trans_A_filter & trans_B_filter]
+
         super().__init__()
 
-    def _set_ports(self):
-        self.ports['A'] = PortConfig(name='A', is_input=True)
-        self.ports['B'] = PortConfig(name='B', is_input=True)
-        if self._biased:
-            self.ports['bias'] = PortConfig(name='bias', is_input=True)
-        self.ports['C'] = PortConfig(name='C', is_input=False)
-
-        if self._mode == 'sdd':
-            self._sparse_port = 'A'
-            if self._transpose_A:
-                self._sparse_block_H = 'BLOCK_SIZE_K_VALUE'
-                self._sparse_block_W = 'BLOCK_SIZE_M_VALUE'
-                self._bcs_mode = 'BCSC'
-            else:
-                self._sparse_block_H = 'BLOCK_SIZE_M_VALUE'
-                self._sparse_block_W = 'BLOCK_SIZE_K_VALUE'
-                self._bcs_mode = 'BCSR'
-        elif self._mode == 'dsd':
-            self._sparse_port = 'B'
-            if self._transpose_B:
-                self._sparse_block_H = 'BLOCK_SIZE_N_VALUE'
-                self._sparse_block_W = 'BLOCK_SIZE_K_VALUE'
-                self._bcs_mode = 'BCSR'
-            else:
-                self._sparse_block_H = 'BLOCK_SIZE_K_VALUE'
-                self._sparse_block_W = 'BLOCK_SIZE_N_VALUE'
-                self._bcs_mode = 'BCSC'
-        elif self._mode == 'dds':
-            self._sparse_port = 'C'
-            self._sparse_block_H = 'BLOCK_SIZE_M_VALUE'
-            self._sparse_block_W = 'BLOCK_SIZE_N_VALUE'
-            self._bcs_mode = 'BCSR'
-
-        BCSR = self._bcs_mode == 'BCSR'
-        BCSC = self._bcs_mode == 'BCSC'
-        self.ports[self._sparse_port].set_sparse(BCSR, BCSC)
-
-        if BCSR:
-            self._tesa_vars = ['row_ptr', 'BCSR_idx', 'nnz']
-        elif BCSC:
-            self._tesa_vars = ['col_ptr', 'BCSC_idx', 'nnz']
-        else:
-            raise ValueError('failed to initialize SparseMatMulKernel')
-        if self._mode == 'dds':
-            self._tesa_vars = self._tesa_vars[1:]
-
     def _add_parameters(self):
-        self._add_parameter('BATCH_SIZE')
-        self._add_parameter('GLOBAL_M_VALUE')
-        self._add_parameter('GLOBAL_K_VALUE')
-        self._add_parameter('GLOBAL_N_VALUE')
+        self._add_parameter('MODE', value=self._mode)
         self._add_parameter('BIASED', value=self._biased)
+        self._add_parameter('BATCHED', value=self._batched)
         self._add_parameter('TRANSPOSE_A', value=self._transpose_A)
         self._add_parameter('TRANSPOSE_B', value=self._transpose_B)
         self._add_parameter('COMPRESSED', value=self._compressed)
         self._add_parameter('BCSR')
         self._add_parameter('BCSC')
-
-    def set_parameters(self, params: Dict[str, Any]):
-        super().set_parameters(params)
-        sparse_port = self.ports[self._sparse_port]
-        if self._bcs_mode == 'BCSR':
-            self.set_parameter('BCSR', True)
-            self.set_parameter('BCSC', False)
-        elif self._bcs_mode == 'BCSC':
-            self.set_parameter('BCSR', sparse_port.BCSR)
-            self.set_parameter('BCSC', True)
-        BH = self.get_parameter(self._sparse_block_H)
-        BW = self.get_parameter(self._sparse_block_W)
-        sparse_port.set_block_size(BH, BW)
-
-    def set_shape(self, batch_size: int, M: int, K: int, N: int):
-        self.set_parameter('BATCH_SIZE', batch_size)
-        self.set_parameter('GLOBAL_M_VALUE', M)
-        self.set_parameter('GLOBAL_K_VALUE', K)
-        self.set_parameter('GLOBAL_N_VALUE', N)
-
-    def get_shape(self):
-        batch_size = self.get_parameter('BATCH_SIZE')
-        M = self.get_parameter('GLOBAL_M_VALUE')
-        K = self.get_parameter('GLOBAL_K_VALUE')
-        N = self.get_parameter('GLOBAL_N_VALUE')
-        return batch_size, M, K, N
 
     def get_block_shape(self):
         BM = self.get_parameter('BLOCK_SIZE_M_VALUE')
@@ -151,91 +79,62 @@ class SparseMatMulKernel(KernelBase):
         BN = self.get_parameter('BLOCK_SIZE_N_VALUE')
         return BM, BK, BN
 
-    def blocks_per_grid(self):
-        batch_size, M, K, N = self.get_shape()
-        if self._mode == 'dds':
-            return (self.ports['C'].indexes.block_nnz, batch_size, 1)
-        else:
-            BM, BK, BN = self.get_block_shape()
-            return (N // BN, M // BM, batch_size)
-
-    def update_func(self):
-        batch_size, M, K, N = self.get_shape()
+    def set_kernel_call(self, shape: Tuple[int, int, int, int], sparse_attr: Any):
+        batch, M, K, N = shape
+        M_32, K_32, N_32 = np.int32(M), np.int32(K), np.int32(N)
         BM, BK, BN = self.get_block_shape()
-
-        indexes = self.ports[self._sparse_port].indexes
-        if self._mode == 'dds' and self._compressed:
-            C_shape = (batch_size, indexes.block_nnz * BM * BN)
-        else:
-            C_shape = (batch_size, M, N)
-
-        M_32 = np.int32(M)
-        K_32 = np.int32(K)
-        N_32 = np.int32(N)
-        tesa_vars = [getattr(indexes, x) for x in self._tesa_vars]
+        row_num, col_num = M // BM, N // BN
         block = self.threads_per_block()
-        grid = self.blocks_per_grid()
         raw_func = self._kernel
+        zeros = torch.zeros
+        int32 = np.int32
 
-        if self._biased:
-            def matmul_func(A: torch.Tensor, B: torch.Tensor, bias: torch.Tensor):
-                C = torch.zeros(C_shape, device=A.device)
+        func_code = jinja2.Template(textwrap.dedent('''
+            def matmul_func(A, B{% if BIASED %}, bias{% endif %}):
+                {% if MODE == "sdd" %}
+                {% if BATCHED %}batch, {% endif %}{% if TRANSPOSE_B %}N, _{% else %}_, N{% endif %} = B.shape
+                N_32 = int32(N)
+                col_num = N // BN
+                {% elif MODE == 'dsd' %}
+                {% if BATCHED %}batch, {% endif %}{% if TRANSPOSE_A %}_, M{% else %}M, _{% endif %} = A.shape
+                M_32 = int32(M)
+                row_num = M // BM
+                {% else %}
+                {% if BATCHED %}batch, {% endif %}{% if TRANSPOSE_A %}K, _{% else %}_, K{% endif %} = A.shape
+                K_32 = int32(K)
+                {% endif %}
+                {% if MODE == 'dds' and COMPRESSED %}
+                C = zeros(({% if BATCHED %}batch, {% endif %}sparse_attr.indexes.block_nnz * BM * BN), device=A.device)
+                {% else %}
+                C = zeros(({% if BATCHED %}batch, {% endif %}M, N), device=A.device)
+                {% endif %}
                 raw_func(
-                    A, B, bias, C, *tesa_vars,
+                    A.detach(), B.detach(), {% if BIASED %}bias.detach(), {% endif %}C,
+                    {% if (MODE == "sdd" and TRANSPOSE_A) or (MODE == "dsd" and not TRANSPOSE_B) %}
+                    sparse_attr.indexes.col_ptr, sparse_attr.indexes.BCSC_idx, sparse_attr.indexes.nnz,
+                    {% elif (MODE == "sdd" and not TRANSPOSE_A) or (MODE == "dsd" and TRANSPOSE_B) %}
+                    sparse_attr.indexes.row_ptr, sparse_attr.indexes.BCSR_idx, sparse_attr.indexes.nnz,
+                    {% else %}
+                    sparse_attr.indexes.BCSR_idx, sparse_attr.indexes.nnz,
+                    {% endif %}
                     M_32, K_32, N_32,
-                    block=block, grid=grid
+                    block=block,
+                    {% if MODE == 'dds' %}
+                    grid=(sparse_attr.indexes.block_nnz, {% if BATCHED %}batch{% else %}1{% endif %}, 1),
+                    {% else %}
+                    grid=(col_num, row_num, {% if BATCHED %}batch{% else %}1{% endif %}),
+                    {% endif %}
                 )
                 return C
-        else:
-            def matmul_func(A: torch.Tensor, B: torch.Tensor):
-                C = torch.zeros(C_shape, device=A.device)
-                raw_func(
-                    A, B, C, *tesa_vars,
-                    M_32, K_32, N_32,
-                    block=block, grid=grid
-                )
-                return C
+        ''')).render(self.get_parameters())
 
-        self._func = matmul_func
+        exec(func_code, locals())
+        self._func = locals()['matmul_func']
 
     def get_kernel_code(self):
         template_file = f'{self.__algo__}_sparse_matmul_{self._mode}.cuh.j2'
         kernel_template = res.read_text(templates, template_file)
         return jinja2.Template(kernel_template).render(self.get_parameters())
-
-    def _convert_data(self, inputs, outputs):
-        if self._mode == 'sdd':
-            inputs[0] = inputs[0] * self.ports['A'].mask
-        elif self._mode == 'dsd':
-            inputs[1] = inputs[1] * self.ports['B'].mask
-        for i in range(len(inputs)):
-            inputs[i] = inputs[i].detach()
-        outputs[0] = outputs[0].detach()
-        if self._compressed:
-            if self._sparse_port == 'A':
-                inputs[0] = self.ports['A'].indexes.convert(inputs[0])
-            elif self._sparse_port == 'B':
-                inputs[1] = self.ports['B'].indexes.convert(inputs[1])
-            elif self._sparse_port == 'C':
-                outputs[0] = self.ports['C'].indexes.convert(outputs[0])
-
-    def reference(self, *args):
-        A, B = args[0], args[1]
-        if self._mode == 'sdd':
-            A = A * self.ports['A'].mask
-        elif self._mode == 'dsd':
-            B = B * self.ports['B'].mask
-        A_str = 'bkm' if self._transpose_A else 'bmk'
-        B_str = 'bnk' if self._transpose_B else 'bkn'
-        C: torch.Tensor = torch.einsum(f'{A_str}, {B_str} -> bmn', A, B)
-        if self._biased:
-            C = C + args[2].unsqueeze(1)
-        if self._mode == 'dds':
-            if self.ready:
-                C = C * self.ports['C'].indexes.get_mask()  # DDS known issue
-            else:
-                C = C * self.ports['C'].mask
-        return C
 
 
 class SparTASparseMatMulKernel(SparseMatMulKernel):
@@ -248,32 +147,11 @@ class SparTASparseMatMulKernel(SparseMatMulKernel):
             self._add_parameter(
                 f'BLOCK_SIZE_{dim}_VALUE',
                 is_tunable=True,
-                search_space=TunableItemCfg('choice', [8, 16, 32, 64])
+                search_space=TunableItemCfg('choice', [8, 16, 32, 64]),
             )
             self._add_parameter(
                 f'THREAD_SIZE_{dim}_VALUE',
             )
-
-    def set_parameters(self, params: Dict[str, Any]):
-        super().set_parameters(params)
-        if 'THREAD_SIZE_M_VALUE' in params:
-            if 'THREAD_SIZE_K_VALUE' in params:
-                if 'THREAD_SIZE_N_VALUE' in params:
-                    return
-        BM = params['BLOCK_SIZE_M_VALUE']
-        BK = params['BLOCK_SIZE_K_VALUE']
-        BN = params['BLOCK_SIZE_N_VALUE']
-        BM_filter = self._lut['BM'] == BM
-        BK_filter = self._lut['BK'] == BK
-        BN_filter = self._lut['BN'] == BN
-        row = self._lut[BM_filter & BK_filter & BN_filter]
-        assert len(row) > 0, f'block shape ({BM}, {BK}, {BN}) not found in LUT'
-        row = row.reset_index(drop=True).iloc[0, :]
-        assert float(row['latency']) < float('inf'), f'block shape ({BM}, {BK}, {BN}) is invalid'
-        TM, TK, TN = row['TM'], row['TK'], row['TN']
-        self.set_parameter('THREAD_SIZE_M_VALUE', int(TM))
-        self.set_parameter('THREAD_SIZE_K_VALUE', int(TK))
-        self.set_parameter('THREAD_SIZE_N_VALUE', int(TN))
 
     def get_thread_shape(self):
         TM = self.get_parameter('THREAD_SIZE_M_VALUE')
@@ -315,6 +193,16 @@ class SparTASparseMatMulKernel(SparseMatMulKernel):
             B_tile_row_stride = threads_per_block // B_threads_per_row
             assert A_tile_row_stride <= (BK if self._transpose_A else BM)
             assert B_tile_row_stride <= (BN if self._transpose_B else BK)
+        else:
+            row = self._lut[(self._lut['BM'] == BM) & (self._lut['BK'] == BK) & (self._lut['BN'] == BN)]
+            assert len(row) > 0, f'block shape ({BM}, {BK}, {BN}) not found in LUT'
+            row = row.reset_index(drop=True).iloc[0, :]
+            assert float(row['latency']) < float('inf'), f'block shape ({BM}, {BK}, {BN}) is invalid'
+            TM, TK, TN = row['TM'], row['TK'], row['TN']
+            self.set_parameter('THREAD_SIZE_M_VALUE', int(TM))
+            self.set_parameter('THREAD_SIZE_K_VALUE', int(TK))
+            self.set_parameter('THREAD_SIZE_N_VALUE', int(TN))
+            self.estimated_latency_per_flop = row['latency'] / 4096 / 4096 / 4096
 
 
 class OpenAISparseMatMulKernel(SparseMatMulKernel):
@@ -323,24 +211,13 @@ class OpenAISparseMatMulKernel(SparseMatMulKernel):
 
     def _add_parameters(self):
         super()._add_parameters()
-        self._add_parameter(
-            'BLOCK_SIZE_M_VALUE',
-            value=32,
-            is_tunable=True,
-            search_space=TunableItemCfg('choice', [32]),
-        )
-        self._add_parameter(
-            'BLOCK_SIZE_K_VALUE',
-            value=64,
-            is_tunable=True,
-            search_space=TunableItemCfg('choice', [64]),
-        )
-        self._add_parameter(
-            'BLOCK_SIZE_N_VALUE',
-            value=32,
-            is_tunable=True,
-            search_space=TunableItemCfg('choice', [32]),
-        )
+        for dim, val in zip(['M', 'K', 'N'], [32, 64, 32]):
+            self._add_parameter(
+                f'BLOCK_SIZE_{dim}_VALUE',
+                value=val,
+                is_tunable=True,
+                search_space=TunableItemCfg('choice', [val]),
+            )
 
     def threads_per_block(self):
         return (256, 1, 1)
@@ -352,3 +229,5 @@ class OpenAISparseMatMulKernel(SparseMatMulKernel):
             assert params['BLOCK_SIZE_K_VALUE'] == 64
         if 'BLOCK_SIZE_N_VALUE' in params:
             assert params['BLOCK_SIZE_N_VALUE'] == 32
+        row = self._lut.reset_index(drop=True).iloc[0, :]
+        self.estimated_latency_per_flop = row['latency'] / 32 / 64 / 32

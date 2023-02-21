@@ -7,7 +7,7 @@ from typing import Any, List, Dict, Optional, Type
 
 import torch
 
-from sparta.specializer.funtional import SparseCtxBase
+from sparta.specializer.functional import SparseFunctionBase
 
 
 class OperatorBase(torch.nn.Module):

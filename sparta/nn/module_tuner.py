@@ -76,7 +76,7 @@ def tune_sparse_module(
                 def try_params(lower_idx: int, params: Dict[Any, Any]):
                     try:
                         kernel.build(params)
-                        latency = kernel.test()
+                        latency = kernel.profile()
                     except AssertionError:
                         latency = np.inf
                     _logger.info(f'{impl} #{lower_idx}: {list(params.values())} => {latency} ms')

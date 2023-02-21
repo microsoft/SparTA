@@ -5,7 +5,7 @@ from typing import Optional
 
 import torch
 
-import seqlen_dynamic_sparse_attention_cpp
+# import seqlen_dynamic_sparse_attention_cpp
 
 
 class SeqlenDynamicSparseAttentionFunction(torch.autograd.Function):

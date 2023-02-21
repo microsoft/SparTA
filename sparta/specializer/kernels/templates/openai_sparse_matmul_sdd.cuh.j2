@@ -52,6 +52,7 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
     const int BLOCK_SIZE_N = 32;  //128
     const int THREAD_SIZE_K = 64;
 
+    {% if BATCHED %}
     {% if COMPRESSED %}
     A_val += A_block_nnz*64*32*blockIdx.z;
     {% else %}
@@ -61,6 +62,7 @@ __global__ void BLOCK_SPARSE_MATMUL_32_64_32(
     C += M*N*blockIdx.z;
     {% if BIASED %}
     bias += N*blockIdx.z;
+    {% endif %}
     {% endif %}
 
     assert(blockDim.x % 32 == 0);

@@ -11,8 +11,8 @@ To balance between the flexibility, performance, and developing efficiency, we a
 | Layer | Base Class | Role |
 | :- | :- | :- |
 | Sparse Operator | [`sparta.nn.OperatorBase`](reference/nn.rst) | User interface as `torch.nn.Module` |
-| Sparse Context | `sparta.specializer.funtional.SparseCtxBase` | Function context to interact with `torch.autograd.Function` |
-| Sparse Kernel Placeholder | `sparta.specializer.funtional.KernelPlaceholder` | Collection of multiple kernel implementations |
+| Sparse Context | `sparta.specializer.functional.SparseCtxBase` | Function context to interact with `torch.autograd.Function` |
+| Sparse Kernel Placeholder | `sparta.specializer.functional.KernelPlaceholder` | Collection of multiple kernel implementations |
 | Sparse Kernel | `sparta.specializer.kernels.KernelBase` | Tunable sparse CUDA kernel interface |
 
 ## Generating CUDA Codes

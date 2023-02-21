@@ -6,7 +6,7 @@ from typing import Optional
 import torch
 
 from sparta.specializer.operators import OperatorBase
-from sparta.specializer.funtional import SparseBatchMatMulCtx, SparseBatchMatMulFunc
+from sparta.specializer.functional import SparseBatchMatMul
 
 
 class SparseBatchMatMul(OperatorBase):
@@ -60,7 +60,7 @@ class SparseBatchMatMul(OperatorBase):
 
     """
 
-    __sparse_func__ = SparseBatchMatMulFunc
+    __sparse_func__ = SparseBatchMatMul
 
     def __init__(
         self,

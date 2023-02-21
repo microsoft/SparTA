@@ -5,7 +5,7 @@ from typing import List
 
 import torch
 
-import sparse_moe_cpp
+# import sparse_moe_cpp
 
 
 class DynamicSparseMoE(torch.nn.Module):
