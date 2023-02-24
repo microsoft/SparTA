@@ -63,8 +63,8 @@ setup(
     cmdclass={'build_ext': BuildExtension},
     include_package_data=True,
     package_data={
-        'sparta.specializer.kernels.templates': ['*.j2'],
-        'sparta.specializer.kernels.look_up_tables': ['*.csv'],
+        'sparta.kernels.templates': ['*.j2'],
+        'sparta.kernels.look_up_tables': ['*.csv'],
         'sparta.tesa.templates': ['*.j2'],
     },
 )

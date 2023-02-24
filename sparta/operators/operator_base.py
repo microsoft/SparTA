@@ -4,18 +4,24 @@
 from __future__ import annotations
 
 import abc
-from typing import Any, Dict, List, Callable, Optional
+from typing import Any, Dict, List, Tuple, Callable, Optional
 
 import torch
 
 from sparta.tesa import get_bcs_function, BCSIndexes
-from sparta.specializer.kernels import KernelBase
+from sparta.kernels import KernelBase
 from sparta.testing import profile
 
 
 class SparsityAttr(object):
 
-    def __init__(self, BCSR: bool, BCSC: bool):
+    def __init__(
+        self,
+        operator: SparseOperator,
+        param_map: Dict[str, str],
+        BCSR: bool,
+        BCSC: bool,
+    ):
         self.BCSR = BCSR
         self.BCSC = BCSC
         self.mask: torch.Tensor = None
@@ -47,9 +53,9 @@ class SparsityAttr(object):
 
 class Port(object):
 
-    def __init__(self, func: SparseFunctionBase, name: str, fine_mask: bool = True):
+    def __init__(self, func: SparseOperator, name: str, fine_mask: bool = True):
         self.name = name
-        self.funcs: List[SparseFunctionBase] = [func]
+        self.funcs: List[SparseOperator] = [func]
         self.attr: SparsityAttr = None
         self._sample_data: torch.Tensor = None  # Always dense
         self._fine_mask = fine_mask
@@ -78,25 +84,31 @@ class Port(object):
         for func in other.funcs:
             func.ports[other.name] = self
             self.funcs.append(func)
-        if self.attr is not None and other.attr is not None:
+        if self.attr is None:
+            self.attr = other.attr
+        elif other.attr is not None:
             self.attr.update_axis(other.attr.BCSR, other.attr.BCSC)
 
 
-class SparseFunctionBase(Callable):
+class SparseOperator(torch.nn.Module):
 
     def __init__(self):
-        self.kernels: Dict[str, Dict[str, KernelBase]] = {}
+        super().__init__()
+        self._kernels: Dict[str, Dict[str, KernelBase]] = {}
         self._compiled_kernels: Dict[str, KernelBase] = {}
         self.ports: Dict[str, Port] = {}
         self._sparse_port: str = ''
-        self.forward: Callable = None
-        self.backward: SparseFunctionBase = None
+        self.forward_func = self.reference
+        self.shape: Tuple = None
 
     def get_sparse_attr(self):
         return self.ports[self._sparse_port].attr
 
-    def __call__(self, *inputs):
-        return self.forward(*inputs)
+    def set_mask(self, mask: torch.Tensor):
+        self.get_sparse_attr().set_mask(mask)
+
+    def forward(self, *inputs):
+        return self.forward_func(*inputs)
 
     @abc.abstractmethod
     def _set_forward(self):
@@ -119,8 +131,8 @@ class SparseFunctionBase(Callable):
             self._read_sample_inputs(sample_inputs)
         self._compiled_kernels: Dict[str, KernelBase] = {}
         for kernel_name, params in config.items():
-            if kernel_name in self.kernels:
-                kernel = self.kernels[kernel_name][params['_impl']]
+            if kernel_name in self._kernels:
+                kernel = self._kernels[kernel_name][params['_impl']]
                 self._compile_kernel(kernel_name, kernel, params)
                 self._compiled_kernels[kernel_name] = kernel
         self._set_forward()
@@ -159,15 +171,26 @@ class SparseFunctionBase(Callable):
         return kernel.estimated_latency_per_flop * flops
 
     @abc.abstractmethod
-    def reference_forward(self, sample_inputs: Optional[List[torch.Tensor]] = None):
-        """Read input data from input port(s) and set output data to output port(s)."""
+    def reference(self, *inputs):
+        """Reference forward function. Sync data with ports at the same time."""
+
+    def get_search_space(self, backward: bool = False):
+        """Get search space of the sparse context."""
+        pass
+
+    def get_connections(self, backward: bool = False):
+        """Get cross-kernel connected hyper parameters of the sparse context."""
+        pass
 
 
-class SparseAutoGradFunction(SparseFunctionBase):
+class SparseAutoGrad(SparseOperator):
 
     __static_func__: torch.autograd.Function = None
 
-    def __call__(self, *inputs):
+    def _set_backward(self, backward_op: SparseOperator):
+        self.backward_op = backward_op
+
+    def forward(self, *inputs):
         return self.__static_func__.apply(self, *inputs)
 
     def build(
@@ -176,7 +199,7 @@ class SparseAutoGradFunction(SparseFunctionBase):
         sample_inputs: Optional[List[torch.Tensor]] = None,
     ):
         super().build(config, sample_inputs)
-        self.backward.build(config, sample_inputs)
+        self.backward_op.build(config, sample_inputs)
 
     def profile_kernel(
         self,
@@ -185,17 +208,13 @@ class SparseAutoGradFunction(SparseFunctionBase):
         num_iters: int = 100,
         cuda: bool = False
     ):
-        if kernel_name in self.kernels:
+        if kernel_name in self._kernels:
             return super().profile_kernel(kernel_name, num_warmups, num_iters, cuda)
-        elif self.backward is not None:
-            return self.backward.profile_kernel(kernel_name, num_warmups, num_iters, cuda)
+        else:
+            return self.backward_op.profile_kernel(kernel_name, num_warmups, num_iters, cuda)
 
     def estimate_kernel(self, kernel_name: str):
-        if kernel_name in self.kernels:
+        if kernel_name in self._kernels:
             return super().estimate_kernel(kernel_name)
-        elif self.backward is not None:
-            return self.backward.estimate_kernel(kernel_name)
-
-    @abc.abstractmethod
-    def reference_backward(self, sample_grads: Optional[List[torch.Tensor]] = None):
-        """Read grad data from output port(s) and backward by auto-grad."""
+        else:
+            return self.backward_op.estimate_kernel(kernel_name)

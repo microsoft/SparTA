@@ -12,8 +12,7 @@ import numpy as np
 import pandas as pd
 
 from sparta.tuning import TunableItemCfg
-from sparta.specializer.kernels import templates, look_up_tables
-from sparta.specializer.kernels.kernel_base import KernelBase
+from sparta.kernels import KernelBase, templates, look_up_tables
 
 
 def _get_matmul_lut(impl: str):

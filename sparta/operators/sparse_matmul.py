@@ -6,11 +6,11 @@ from typing import Any, List, Dict, Tuple, Optional
 import torch
 import numpy as np
 
-from sparta.specializer.kernels import KernelBase, SparTASparseMatMulKernel, OpenAISparseMatMulKernel
-from sparta.specializer.functional.function_base import Port, SparsityAttr, SparseFunctionBase, SparseAutoGradFunction
+from sparta.kernels import KernelBase, SparTASparseMatMulKernel, OpenAISparseMatMulKernel
+from sparta.operators import Port, SparsityAttr, SparseOperator, SparseAutoGrad
 
 
-class SparseBatchMatMulForward(SparseFunctionBase):
+class SparseBatchMatMulForward(SparseOperator):
 
     __batched__ = True
 
@@ -59,7 +59,7 @@ class SparseBatchMatMulForward(SparseFunctionBase):
             'compressed': compressed,
             'batched': self.__batched__,
         }
-        self.kernels['forward'] = {
+        self._kernels['forward'] = {
             'sparta': SparTASparseMatMulKernel(**specs),
             'openai': OpenAISparseMatMulKernel(**specs),
         }
@@ -96,7 +96,7 @@ class SparseBatchMatMulForward(SparseFunctionBase):
 
     def _set_forward(self):
         if 'forward' in self._compiled_kernels:
-            self.forward = self._compiled_kernels['forward']
+            self.forward_func = self._compiled_kernels['forward']
 
     def _kernel_func_call(self, kernel_name: str):
         A = self.ports['A'].get_data(compressed=self._compressed)
@@ -116,9 +116,9 @@ class SparseBatchMatMulForward(SparseFunctionBase):
         sparse_rate = indexes.block_nnz / indexes.row_num / indexes.col_num
         return np.prod(self.shape) * sparse_rate
 
-    def reference_forward(self, sample_inputs: Optional[List[torch.Tensor]] = None):
-        if sample_inputs is not None:
-            self._read_sample_inputs(sample_inputs)
+    def reference(self, *inputs):
+        if len(inputs) > 0:
+            self._read_sample_inputs(inputs)
         A = self.ports['A'].get_data(compressed=False)
         B = self.ports['B'].get_data(compressed=False)
         if self._transpose_A:
@@ -130,6 +130,7 @@ class SparseBatchMatMulForward(SparseFunctionBase):
             bias = self.ports['bias'].get_data()
             C += bias.unsqueeze(1) if self.__batched__ else bias
         self.ports['C'].set_data(C)
+        return C
 
 
 class SparseMatMulForward(SparseBatchMatMulForward):
@@ -137,7 +138,7 @@ class SparseMatMulForward(SparseBatchMatMulForward):
     __batched__ = False
 
 
-class SparseBatchMatMulBackward(SparseFunctionBase):
+class SparseBatchMatMulBackward(SparseOperator):
 
     __batched__ = True
 
@@ -195,11 +196,11 @@ class SparseBatchMatMulBackward(SparseFunctionBase):
             'batched': self.__batched__,
         }
 
-        self.kernels['backward:A'] = {
+        self._kernels['backward:A'] = {
             'sparta': SparTASparseMatMulKernel(**A_spec),
             'openai': OpenAISparseMatMulKernel(**A_spec),
         }
-        self.kernels['backward:B'] = {
+        self._kernels['backward:B'] = {
             'sparta': SparTASparseMatMulKernel(**B_spec),
             'openai': OpenAISparseMatMulKernel(**B_spec),
         }
@@ -238,8 +239,8 @@ class SparseBatchMatMulBackward(SparseFunctionBase):
         else:
             backward_B = lambda grad_C, A: kernel_B(A, grad_C)
         if self._mode == 'dds' and self._compressed:
-            C_indexes = self.ports['C'].attr.indexes
-            backward_bias = lambda grad_C: C_indexes.sum(grad_C, axis=-2)
+            C_attr = self.ports['C'].attr
+            backward_bias = lambda grad_C: C_attr.indexes.sum(grad_C, axis=-2)
         else:
             backward_bias = lambda grad_C: grad_C.sum(-2)
 
@@ -253,7 +254,7 @@ class SparseBatchMatMulBackward(SparseFunctionBase):
                 grad_bias = backward_bias(grad)
             return grad_A, grad_B, grad_bias
 
-        self.forward = backward
+        self.forward_func = backward
 
     def _kernel_func_call(self, kernel_name: str):
         grad_C = self.ports['C'].get_data(grad=True, compressed=self._compressed)
@@ -286,7 +287,7 @@ class SparseBatchMatMulBackward(SparseFunctionBase):
         sparse_rate = indexes.block_nnz / indexes.row_num / indexes.col_num
         return np.prod(self.shape) * sparse_rate
 
-    def reference_forward(self, sample_inputs: Optional[List[torch.Tensor]] = None):
+    def reference(self, *inputs):
         pass
 
 
@@ -300,12 +301,12 @@ class _SparseMatMul(torch.autograd.Function):
     @staticmethod
     def forward(
         ctx: torch.autograd.function.FunctionCtx,
-        func: SparseAutoGradFunction,
+        func: SparseAutoGrad,
         *inputs,
     ):
         ctx.save_for_backward(inputs[0], inputs[1])
-        ctx.backward = func.backward
-        return func.forward(*inputs)
+        ctx.backward = func.backward_op
+        return func.forward_func(*inputs)
 
     @staticmethod
     def backward(ctx: torch.autograd.function.FunctionCtx, grad: torch.Tensor):
@@ -313,7 +314,7 @@ class _SparseMatMul(torch.autograd.Function):
         return None, *ctx.backward(grad, A, B, ctx.needs_input_grad)
 
 
-class SparseBatchMatMul(SparseAutoGradFunction, SparseBatchMatMulForward):
+class SparseBatchMatMul(SparseAutoGrad, SparseBatchMatMulForward):
 
     __static_func__ = _SparseMatMul
 
@@ -323,28 +324,24 @@ class SparseBatchMatMul(SparseAutoGradFunction, SparseBatchMatMulForward):
         transpose_A: bool,
         transpose_B: bool,
         biased: bool,
-        compressed: bool,
+        compressed: bool = True,
     ):
         super().__init__(mode, transpose_A, transpose_B, biased, compressed)
-        self.backward = SparseBatchMatMulBackward(
+        self._set_backward(SparseBatchMatMulBackward(
             mode=mode,
             transpose_A=transpose_A,
             transpose_B=transpose_B,
             biased=biased,
             compressed=compressed,
             ports=self.ports,
-        )
+        ))
 
     def _read_sample_inputs(self, sample_inputs: List[torch.Tensor]):
         super()._read_sample_inputs(sample_inputs)
-        self.backward.shape = self.shape
-
-    def reference_backward(self, sample_grads: Optional[List[torch.Tensor]] = None):
-        self.ports['C'].set_data(sample_grads[0], grad=True)
-        self.ports['C'].get_data().backward(sample_grads[0])
+        self.backward_op.shape = self.shape
 
 
-class SparseMatMul(SparseAutoGradFunction, SparseMatMulForward):
+class SparseMatMul(SparseAutoGrad, SparseMatMulForward):
 
     __static_func__ = _SparseMatMul
 
@@ -354,23 +351,63 @@ class SparseMatMul(SparseAutoGradFunction, SparseMatMulForward):
         transpose_A: bool,
         transpose_B: bool,
         biased: bool,
-        compressed: bool,
+        compressed: bool = True,
     ):
         super().__init__(mode, transpose_A, transpose_B, biased, compressed)
-        self.backward = SparseMatMulBackward(
+        self._set_backward(SparseMatMulBackward(
             mode=mode,
             transpose_A=transpose_A,
             transpose_B=transpose_B,
             biased=biased,
             compressed=compressed,
             ports=self.ports,
-        )
+        ))
 
     def _read_sample_inputs(self, sample_inputs: List[torch.Tensor]):
         super()._read_sample_inputs(sample_inputs)
-        self.backward.shape = self.shape
+        self.backward_op.shape = self.shape
 
-    def reference_backward(self, sample_grads: Optional[List[torch.Tensor]] = None):
-        self.ports['C'].set_data(sample_grads[0], grad=True)
-        self.ports['C'].get_data().backward(sample_grads[0])
 
+class SparseLinear(SparseMatMul):
+
+    def __init__(self, raw_module: torch.nn.Linear, mode: str = 'dsd'):
+        self._biased = raw_module.bias is not None
+        self._compressed = mode == 'dsd'
+        super().__init__(mode, False, True, self._biased, self._compressed)
+        self.weight: torch.nn.Parameter = None
+        self.bias = raw_module.bias
+        self.ports['B'].set_data(raw_module.weight)
+        if self._biased:
+            self.ports['bias'].set_data(raw_module.bias)
+            self.forward = self._forward_with_bias
+        else:
+            self.forward = self._forward_without_bias
+
+    def _update_weight(self):
+        if 'forward' in self._compiled_kernels:
+            weight = self.ports['B'].get_data(compressed=self._compressed)
+            self.weight = torch.nn.Parameter(weight, requires_grad=True)
+
+    def set_mask(self, mask: torch.Tensor):
+        super().set_mask(mask)
+        self._update_weight()
+
+    def build(
+        self,
+        config: Dict[str, Dict[str, Any]],
+        sample_inputs: Optional[List[torch.Tensor]] = None,
+    ):
+        super().build(config, sample_inputs)
+        self._update_weight()
+
+    def _read_sample_inputs(self, sample_inputs: List[torch.Tensor]):
+        sample_inputs.append(self.ports['B'].get_data())
+        if self._biased:
+            sample_inputs.append(self.ports['bias'].get_data())
+        super()._read_sample_inputs(sample_inputs)
+
+    def _forward_with_bias(self, x: torch.Tensor) -> torch.Tensor:
+        return super().forward(x, self.weight, self.bias)
+
+    def _forward_without_bias(self, x: torch.Tensor) -> torch.Tensor:
+        return super().forward(x, self.weight)

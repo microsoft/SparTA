@@ -6,20 +6,20 @@ from typing import Any, List, Dict, Tuple, Optional
 import torch
 import numpy as np
 
-from sparta.specializer.kernels import KernelBase, SparTASparseSoftmaxForwardKernel, SparTASparseSoftmaxBackwardKernel
-from sparta.specializer.functional.function_base import Port, SparsityAttr, SparseFunctionBase, SparseAutoGradFunction
+from sparta.kernels import KernelBase, SparTASparseSoftmaxForwardKernel, SparTASparseSoftmaxBackwardKernel
+from sparta.operators.operator_base import Port, SparsityAttr, SparseOperator, SparseAutoGrad
 from sparta.testing import sparse_softmax_forward_reference, sparse_softmax_backward_reference
 
-class SparseBatchSoftmaxForward(SparseFunctionBase):
+class SparseBatchSoftmaxForward(SparseOperator):
 
     __batched__ = True
     __direction__ = 'forward'
 
-    def __init__(self, compressed: bool, temperature: float = 1):
+    def __init__(self, compressed: bool = False, temperature: Optional[float] = 1):
         super().__init__()
 
         self._compressed = compressed
-        self._T = np.float32(1 / temperature)
+        self._T = None if temperature is None else np.float32(1 / temperature)
 
         self._sparse_port = 'y'
         sparse_attr = SparsityAttr(True, False)
@@ -27,7 +27,7 @@ class SparseBatchSoftmaxForward(SparseFunctionBase):
             self.ports[port_name] = Port(self, port_name)
             self.ports[port_name].attr = sparse_attr
 
-        self.kernels[self.__direction__] = {
+        self._kernels[self.__direction__] = {
             'sparta': {
                 'forward': SparTASparseSoftmaxForwardKernel,
                 'backward': SparTASparseSoftmaxBackwardKernel,
@@ -51,6 +51,8 @@ class SparseBatchSoftmaxForward(SparseFunctionBase):
         H, W = x.shape[-2:]
         self.shape = (batch_size, H, W)
         self.ports['x'].set_data(x)
+        if self._T is None:
+            self.set_temperature(np.sqrt(W))
 
     def _compile_kernel(self, kernel_name: str, kernel: KernelBase, params: Dict[str, Any]):
         sparse_attr = self.get_sparse_attr()
@@ -65,7 +67,7 @@ class SparseBatchSoftmaxForward(SparseFunctionBase):
         if self.__direction__ in self._compiled_kernels:
             kernel = self._compiled_kernels[self.__direction__]
             sparse_attr = self.get_sparse_attr()
-            self.forward = lambda *inputs: kernel(*inputs, sparse_attr.mask, self._T)
+            self.forward_func = lambda *inputs: kernel(*inputs, sparse_attr.mask, self._T)
 
     def _kernel_func_call(self, kernel_name: str):
         x = self.ports['x'].get_data(compressed=self._compressed)
@@ -81,13 +83,14 @@ class SparseBatchSoftmaxForward(SparseFunctionBase):
         sparse_rate = indexes.block_nnz / indexes.row_num / indexes.col_num
         return np.prod(self.shape) * sparse_rate
 
-    def reference_forward(self, sample_inputs: Optional[List[torch.Tensor]] = None):
-        if sample_inputs is not None:
-            self._read_sample_inputs(sample_inputs)
+    def reference(self, *inputs):
+        if len(inputs) > 0:
+            self._read_sample_inputs(inputs)
         x = self.ports['x'].get_data(compressed=False)
         mask = self.get_sparse_attr().mask
         y = sparse_softmax_forward_reference(x, mask, 1 / self._T)
         self.ports['y'].set_data(y)
+        return y
 
 
 class SparseSoftmaxForward(SparseBatchSoftmaxForward):
@@ -113,7 +116,7 @@ class SparseBatchSoftmaxBackward(SparseBatchSoftmaxForward):
     def _kernel_reference(self, kernel_name: str):
         return self.ports['x'].get_data(grad=True, compressed=self._compressed)
 
-    def reference_forward(self, sample_inputs: Optional[List[torch.Tensor]] = None):
+    def reference(self, *inputs):
         pass
 
 
@@ -127,11 +130,11 @@ class _SparseSoftmax(torch.autograd.Function):
     @staticmethod
     def forward(
         ctx: torch.autograd.function.FunctionCtx,
-        func: SparseAutoGradFunction,
+        func: SparseAutoGrad,
         x: torch.Tensor,
     ):
-        ctx.backward = func.backward
-        y = func.forward(x)
+        ctx.backward = func.backward_op
+        y = func.forward_func(x)
         ctx.save_for_backward(y)
         return y
 
@@ -144,45 +147,37 @@ class _SparseSoftmax(torch.autograd.Function):
             return None, None
 
 
-class SparseBatchSoftmax(SparseAutoGradFunction, SparseBatchSoftmaxForward):
+class SparseBatchSoftmax(SparseAutoGrad, SparseBatchSoftmaxForward):
 
     __static_func__ = _SparseSoftmax
 
-    def __init__(self, compressed: bool, temperature: float = 1):
+    def __init__(self, compressed: bool = False, temperature: Optional[float] = 1):
         super().__init__(compressed, temperature)
-        self.backward = SparseBatchSoftmaxBackward(compressed, temperature)
-        self.backward.ports = self.ports
+        self._set_backward(SparseBatchSoftmaxBackward(compressed, temperature))
+        self.backward_op.ports = self.ports
 
     def set_temperature(self, temperature: float):
         super().set_temperature(temperature)
-        self.backward.set_temperature(temperature)
+        self.backward_op.set_temperature(temperature)
 
     def _read_sample_inputs(self, sample_inputs: List[torch.Tensor]):
         super()._read_sample_inputs(sample_inputs)
-        self.backward.shape = self.shape
-
-    def reference_backward(self, sample_grads: Optional[List[torch.Tensor]] = None):
-        self.ports['y'].set_data(sample_grads[0], grad=True)
-        self.ports['y'].get_data().backward(sample_grads[0])
+        self.backward_op.shape = self.shape
 
 
-class SparseSoftmax(SparseAutoGradFunction, SparseSoftmaxForward):
+class SparseSoftmax(SparseAutoGrad, SparseSoftmaxForward):
 
     __static_func__ = _SparseSoftmax
 
-    def __init__(self, compressed: bool, temperature: float = 1):
+    def __init__(self, compressed: bool = False, temperature: Optional[float] = 1):
         super().__init__(compressed, temperature)
-        self.backward = SparseSoftmaxBackward(compressed, temperature)
-        self.backward.ports = self.ports
+        self._set_backward(SparseSoftmaxBackward(compressed, temperature))
+        self.backward_op.ports = self.ports
 
     def set_temperature(self, temperature: float):
         super().set_temperature(temperature)
-        self.backward.set_temperature(temperature)
+        self.backward_op.set_temperature(temperature)
 
     def _read_sample_inputs(self, sample_inputs: List[torch.Tensor]):
         super()._read_sample_inputs(sample_inputs)
-        self.backward.shape = self.shape
-
-    def reference_backward(self, sample_grads: Optional[List[torch.Tensor]] = None):
-        self.ports['y'].set_data(sample_grads[0], grad=True)
-        self.ports['y'].get_data().backward(sample_grads[0])
+        self.backward_op.shape = self.shape

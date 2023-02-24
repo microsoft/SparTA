@@ -7,9 +7,8 @@ import torch
 import pytest
 import numpy as np
 
-from sparta.specializer.kernels import SparTASparseSoftmaxForwardKernel, SparTASparseSoftmaxBackwardKernel
-from sparta.specializer.functional import SparsityAttr, SparseSoftmax, SparseBatchSoftmax
-# from sparta.nn import SparseSoftmax
+from sparta.kernels import SparTASparseSoftmaxForwardKernel, SparTASparseSoftmaxBackwardKernel
+from sparta.operators import SparsityAttr, SparseSoftmax, SparseBatchSoftmax
 from sparta.testing import block_mask, sparse_softmax_forward_reference
 
 
@@ -20,6 +19,7 @@ def prepare_data(
     granularity: Tuple[int, int] = (8, 8),
     sparsity: float = 0.9,
     requires_grad: bool = False,
+    mask: Optional[torch.Tensor] = None,
     random_seed: int = 2022,
 ):
     torch.manual_seed(random_seed)
@@ -28,7 +28,8 @@ def prepare_data(
     data['input_x'] = torch.rand(shape, device='cuda')
     temperature = np.sqrt(W)
 
-    mask = block_mask((H, W), block=granularity, sparsity=sparsity, device='cuda')
+    if mask is None:
+        mask = block_mask((H, W), block=granularity, sparsity=sparsity, device='cuda')
 
     data['grad_y'] = torch.rand(shape, device='cuda')
     data['input_x'].requires_grad = True
@@ -72,7 +73,7 @@ def test_sparse_softmax_kernels(
     granularity: Tuple[int, int] = (8, 8),
     sparsity: float = 0,
 ):
-    data, mask = prepare_data(batch, H, W, granularity, sparsity, requires_grad=False)
+    data, mask = prepare_data(batch, H, W, granularity, sparsity, False)
 
     batched = batch is not None
     forward_kernel = SparTASparseSoftmaxForwardKernel(compressed, batched)
@@ -104,7 +105,7 @@ def test_sparse_softmax_kernels(
 
 @pytest.mark.parametrize("compressed", [False, True])
 @pytest.mark.parametrize("batch", [None, 4])
-def test_sparse_softmax_function(
+def test_sparse_softmax_operator(
     compressed: bool,
     batch: Optional[int],
     H: int = 128,
@@ -112,66 +113,36 @@ def test_sparse_softmax_function(
     granularity: Tuple[int, int] = (8, 8),
     sparsity: float = 0.9,
 ):
-    data, mask = prepare_data(batch, H, W, granularity, sparsity, requires_grad=True)
+    data, mask = prepare_data(batch, H, W, granularity, sparsity, True)
 
     if batch is None:
-        func = SparseSoftmax(compressed, np.sqrt(W))
+        sparse_softmax = SparseSoftmax(compressed, np.sqrt(W))
     else:
-        func = SparseBatchSoftmax(compressed, np.sqrt(W))
+        sparse_softmax = SparseBatchSoftmax(compressed, np.sqrt(W))
 
-    sparse_attr = func.get_sparse_attr()
+    sparse_attr = sparse_softmax.get_sparse_attr()
     sparse_attr.set_mask(mask)
 
     kernel_names = ['forward', 'backward']
-    func.build(
+    sparse_softmax.build(
         config={kernel_name: get_params() for kernel_name in kernel_names},
         sample_inputs=[data['input_x']]
     )
 
-    if compressed:
-        for name in data:
-            data[name] = sparse_attr.indexes.convert(data[name].detach())
-        data['input_x'].requires_grad = True
+    def run_test():
+        nonlocal sparse_softmax, data, mask
+        if compressed:
+            for name in data:
+                data[name] = sparse_attr.indexes.convert(data[name].detach())
+            data['input_x'].requires_grad = True
+        data['output_y'] = sparse_softmax(data['input_x'])
+        data['output_y'].backward(data['grad_y'])
+        data['output_grad_x'] = data['input_x'].grad
+        check_results(data)
 
-    data['output_y'] = func(data['input_x'])
-    data['output_y'].backward(data['grad_y'])
-    data['output_grad_x'] = data['input_x'].grad
-    check_results(data)
+    run_test()
 
-
-# @pytest.mark.parametrize("batch", [None, 4])
-# @pytest.mark.parametrize("compressed", [False, True])
-# def test_sparse_softmax_operator(
-#     compressed: bool,
-#     batch: Optional[int],
-#     H: int = 128,
-#     W: int = 256,
-#     granularity: Tuple[int, int] = (8, 8),
-#     sparsity: float = 0.9,
-# ):
-#     data, mask = prepare_data(batch, H, W, granularity, sparsity, requires_grad=True)
-
-#     sparse_softmax = SparseSoftmax(mask, np.sqrt(W), compressed)
-#     sparse_softmax.build(
-#         config={
-#             kernel_name: get_params()
-#             for kernel_name in sparse_softmax.get_kernel_placeholders(backward=True)
-#         },
-#         sample_inputs=[data['input_x']],
-#     )
-
-#     for random_seed in range(3):  # Test dynamic sparse
-#         if compressed:
-#             indexes = sparse_softmax.get_sparse_indexes('y')
-#             for name in data:
-#                 data[name] = indexes.convert(data[name].detach())
-#             data['input_x'].requires_grad = True
-
-#         data['output_y'] = sparse_softmax.forward(data['input_x'])
-#         data['output_y'].backward(data['grad_y'])
-#         data['output_grad_x'] = data['input_x'].grad
-
-#         check_results(data)
-
-#         data, mask = prepare_data(batch, H, W, granularity, sparsity, True, random_seed)
-#         sparse_softmax.update_mask(mask)
+    # Dynamic mask
+    data, mask = prepare_data(batch, H, W, granularity, sparsity, True, random_seed=2023)
+    sparse_softmax.set_mask(mask)
+    run_test()

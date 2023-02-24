@@ -9,7 +9,7 @@ from typing import Dict, Any
 import torch
 import pandas as pd
 
-from sparta.specializer.functional.batch_matmul import SparseBatchMatMulForward
+from sparta.operators.sparse_matmul import SparseBatchMatMulForward
 from sparta.testing import block_mask
 
 
@@ -45,12 +45,12 @@ _logger.addHandler(_handler)
 
 def test_matmul_kernel(
     impl: str,
-    func: SparseBatchMatMulForward,
+    operator: SparseBatchMatMulForward,
     params: Dict[str, Any],
 ):
     try:
-        func.build(config={'forward': {'_impl': impl, **params}})
-        latency = func.profile_kernel('forward', num_warmups=10, num_iters=10, cuda=False)
+        operator.build(config={'forward': {'_impl': impl, **params}})
+        latency = operator.profile_kernel('forward', num_warmups=10, num_iters=10, cuda=False)
     except:
         latency = float('inf')
 
@@ -61,7 +61,6 @@ def make_matmul_lut(impl: str):
     major, minor = torch.cuda.get_device_capability()
     lut_file = os.path.join(
         'sparta',
-        'specializer',
         'kernels',
         'look_up_tables',
         f'matmul.{impl}.{major}{minor}.csv'
@@ -101,17 +100,17 @@ def make_matmul_lut(impl: str):
     iters = 0
     for specs in itertools.product(*spec_values):
         mode, trans_A, trans_B = specs
-        func = SparseBatchMatMulForward(mode, trans_A, trans_B, False, True)
-        func.get_sparse_attr().set_mask(mask)
-        func.reference_forward([A, B])
+        operator = SparseBatchMatMulForward(mode, trans_A, trans_B, False, True)
+        operator.set_mask(mask)
+        operator.reference(A, B)
         for params in itertools.product(*param_values):
             param_dict = {k: v for k, v in zip(param_keys, params)}
-            latency = test_matmul_kernel(impl, func, param_dict)
+            latency = test_matmul_kernel(impl, operator, param_dict)
             with open(log_file, 'a') as f:
                 items = [mode, trans_A, trans_B, *params, latency]
                 f.write(','.join([str(x) for x in items]) + '\n')
             iters += 1
-            _logger.info(f'[{str(iters).zfill(bits)} / {num}] {params} => {latency} ms')
+            _logger.info(f'[{str(iters).rjust(bits)} / {num}] {params} => {latency} ms')
 
     df = pd.read_csv(log_file)
     df = df.loc[df.groupby(HYPER_PARAMS).aggregate({'latency': 'idxmin'})['latency']]

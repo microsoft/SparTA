@@ -10,7 +10,7 @@ import torch
 import numpy as np
 import pandas as pd
 
-from sparta.specializer.functional import SparseBatchSoftmax
+from sparta.operators.sparse_softmax import SparseBatchSoftmax
 from sparta.testing import block_mask
 
 
@@ -31,13 +31,13 @@ _logger.addHandler(_handler)
 
 def test_softmax_kernel(
     impl: str,
-    func: SparseBatchSoftmax,
+    operator: SparseBatchSoftmax,
     direction: str,
     params: Dict[str, Any],
 ):
     try:
-        func.build(config={direction: {'_impl': impl, **params}})
-        latency = func.profile_kernel(direction, num_warmups=10, num_iters=10, cuda=False)
+        operator.build(config={direction: {'_impl': impl, **params}})
+        latency = operator.profile_kernel(direction, num_warmups=10, num_iters=10, cuda=False)
     except:
         latency = float('inf')
 
@@ -48,7 +48,6 @@ def make_softmax_lut(impl: str, direction: str):
     major, minor = torch.cuda.get_device_capability()
     lut_file = os.path.join(
         impl,
-        'specializer',
         'kernels',
         'look_up_tables',
         f'softmax.{direction}.{impl}.{major}{minor}.csv'
@@ -78,19 +77,18 @@ def make_softmax_lut(impl: str, direction: str):
     grad_y = torch.rand(size=(1, SIZE, SIZE), device='cuda')
     mask = block_mask((SIZE, SIZE), sparsity=0, device='cuda')
 
-    func = SparseBatchSoftmax(compressed=True, temperature=np.float32(1 / np.sqrt(SIZE)))
-    func.get_sparse_attr().set_mask(mask)
-    func.reference_forward([x])
-    func.reference_backward([grad_y])
+    operator = SparseBatchSoftmax(compressed=True, temperature=np.float32(1 / np.sqrt(SIZE)))
+    operator.get_sparse_attr().set_mask(mask)
+    operator.reference(x).backward(grad_y)
 
     iters = 0
     for params in itertools.product(*values):
         param_dict = {k: v for k, v in zip(keys, params)}
-        latency = test_softmax_kernel(impl, func, direction, param_dict)
+        latency = test_softmax_kernel(impl, operator, direction, param_dict)
         with open(log_file, 'a') as f:
             f.write(','.join([str(x) for x in params]) + f',{latency}\n')
         iters += 1
-        _logger.info(f'[{str(iters).zfill(bits)} / {num}] {params} => {latency} ms')
+        _logger.info(f'[{str(iters).rjust(bits)} / {num}] {params} => {latency} ms')
 
     df = pd.read_csv(log_file)
     df = df.loc[df.groupby(HYPER_PARAMS).aggregate({'latency': 'idxmin'})['latency']]

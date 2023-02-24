@@ -10,7 +10,7 @@ import torch
 import numpy as np
 
 from sparta.tuning import TunableItemCfg, GridSearchTuner, RandomSearchTuner
-from sparta.specializer import OperatorBase
+from sparta.operators import SparseOperator
 
 
 _logger = logging.Logger(__name__)
@@ -19,7 +19,7 @@ _logger.addHandler(_handler)
 
 
 def tune_sparse_module(
-    module: OperatorBase,
+    module: SparseOperator,
     name: str,
     sample_inputs: List[torch.Tensor],
     sample_grads: Optional[List[torch.Tensor]] = None,
@@ -138,7 +138,7 @@ def tune_combined_module(
     sample_grads_dict = {'root': sample_grads}
     hook_handlers = []
 
-    def register_hooks(op: OperatorBase, name: str):
+    def register_hooks(op: SparseOperator, name: str):
         hook_handlers.append(op.register_forward_hook(get_input_hook(sample_inputs_dict, name)))
         hook_handlers.append(op.register_full_backward_hook(get_grad_hook(sample_grads_dict, name)))
 
@@ -169,7 +169,7 @@ def tune_combined_module(
     else:
         _logger.setLevel(logging.WARNING)
 
-    def tune(op: OperatorBase, name: str):
+    def tune(op: SparseOperator, name: str):
         best_configs[name] = tune_sparse_module(
             module=op,
             name=name,
@@ -203,7 +203,7 @@ def build_combined_module(
     sample_inputs_dict = {'root': sample_inputs}
     hook_handlers = []
 
-    def register_hooks(op: OperatorBase, name: str):
+    def register_hooks(op: SparseOperator, name: str):
         hook_handlers.append(op.register_forward_hook(get_input_hook(sample_inputs_dict, name)))
 
     iter_sparse_modules(module, 'root', register_hooks)
@@ -215,7 +215,7 @@ def build_combined_module(
     for handler in hook_handlers:
         handler.remove()
 
-    def build(op: OperatorBase, name: str):
+    def build(op: SparseOperator, name: str):
         op.build(configs[name], sample_inputs=sample_inputs_dict[name])
 
     iter_sparse_modules(module, 'root', build)
@@ -224,9 +224,9 @@ def build_combined_module(
 def iter_sparse_modules(
     module: torch.nn.Module,
     module_name: str,
-    func: Callable[[OperatorBase, str], None],
+    func: Callable[[SparseOperator, str], None],
 ):
-    if isinstance(module, OperatorBase):
+    if isinstance(module, SparseOperator):
         func(module, module_name)
         return
     for child_name, child_module in module.named_children():
