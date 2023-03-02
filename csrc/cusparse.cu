@@ -6,6 +6,7 @@
 #include "memory"
 #include "cublas_v2.h"
 #include "vector"
+
 using namespace std;
 
 #define checkCudaErrors(func)				\
