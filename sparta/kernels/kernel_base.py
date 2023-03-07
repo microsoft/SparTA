@@ -9,6 +9,7 @@ import dataclasses
 from typing import Any, Dict, List, Tuple, Callable, Optional
 
 import torch
+import numpy as np
 
 from sparta import __env_ready__
 if __env_ready__:
@@ -16,7 +17,9 @@ if __env_ready__:
     import pycuda.autoprimaryctx
     from pycuda.compiler import SourceModule
 
+from sparta.tesa import get_bcs_function, BCSIndexes
 from sparta.tuning import TunableItemCfg
+from sparta.testing import profile
 
 
 @dataclasses.dataclass
@@ -32,19 +35,129 @@ class _Parameter:
             assert self.is_tunable
 
 
+@dataclasses.dataclass
+class _KernelAttrEdge:
+    attr: SparsityAttr
+    kernel: KernelBase
+    block_H: str
+    block_W: str
+
+    def get_block_size(self):
+        BH = self.kernel.get_parameter(self.block_H)
+        BW = self.kernel.get_parameter(self.block_W)
+        return BH, BW
+
+
+class SparsityAttr(object):
+
+    def __init__(
+        self,
+        kernel: KernelBase,
+        block_H: str,
+        block_W: str,
+        BCSR: bool,
+        BCSC: bool,
+    ):
+        self.edges = {kernel.id: _KernelAttrEdge(self, kernel, block_H, block_W)}
+        self.groups: List[KernelGroup] = []
+        self.BCSR = BCSR
+        self.BCSC = BCSC
+        self.mask: torch.Tensor = None
+        self._block_H: int = 0
+        self._block_W: int = 0
+        self.indexes: BCSIndexes = None
+        self.ready = False
+
+    def update_block_size(self, kernel_id: int):
+        block_H, block_W = self.edges[kernel_id].get_block_size()
+        if block_H != self._block_H or block_W != self._block_W:
+            self._block_H = block_H
+            self._block_W = block_W
+            self._update_indexes()
+
+    def set_mask(self, mask: torch.Tensor):
+        self.mask = mask
+        self._update_indexes()
+
+    def _update_indexes(self):
+        if self._block_H > 0 and self._block_W > 0 and self.mask is not None:
+            self.indexes = get_bcs_function(
+                self._block_H, self._block_W,
+                self.BCSR, self.BCSC,
+            ).build_indexes(self.mask)
+            self.ready = True
+
+    def connect(self, other: SparsityAttr):
+        self.BCSR |= other.BCSR
+        self.BCSC |= other.BCSC
+        for kernel_id, kernel_edge in other.edges.items():
+            self.edges[kernel_id] = kernel_edge
+            kernel_edge.kernel.attr = self
+        for kernel_group in other.groups:
+            self.groups.append(kernel_group)
+            kernel_group.attr = self
+
+    def get_search_space(self):
+        pass
+
+
+class KernelGroup(object):
+
+    def __init__(
+        self,
+        kernels: Dict[str, KernelBase],
+        input_getter: Callable[[], List[torch.Tensor]],
+    ):
+        self._kernels = kernels
+        self._get_inputs = input_getter
+        kernel_list = list(kernels.values())
+        self.attr = kernel_list[0].attr
+        self.attr.groups.append(self)
+        for kernel in kernel_list[1:]:
+            self.attr.connect(kernel.attr)
+        self.active_kernel: Callable = kernel_list[0].reference
+        self.ready = False
+
+    def set_sample_shape(self, shape: Tuple):
+        self._shape = shape
+
+    def build(self, params: Dict[str, Any]):
+        self.active_kernel = self._kernels[params['_impl']]
+        self.active_kernel.compile(params, self._shape)
+        self.ready = True
+
+    def get_search_space(self):
+        return {
+            impl: kernel.get_search_space()
+            for impl, kernel in self._kernels.items()
+        }
+
+
+_kernel_num = 0
+def _next_kernel_id():
+    global _kernel_num
+    _kernel_num += 1
+    return _kernel_num
+
+
 class KernelBase(Callable):
 
+    __lut_shape__: Tuple = ()
+
     def __init__(self):
+        self.id = _next_kernel_id()
+        self.attr: SparsityAttr = None
         self._parameters: Dict[str, _Parameter] = {}
         self._kernel: Callable = None
-        self._func: Callable = None
+        self._func: Callable = self.reference
         self.ready = False
         self._add_parameters()
-        self.estimated_latency_per_flop = float('inf')
+        self._lut_latency = float('inf')
+        self.estimate_latency = float('inf')
 
     @abc.abstractmethod
     def _add_parameters(self):
-        """Add kernel-specialized parameters."""
+        """Add kernel-specialized parameters and set sparsity attribute."""
     
     def _add_parameter(
         self,
@@ -110,12 +223,13 @@ class KernelBase(Callable):
         """Raise an error if the input paramater dict is invalid."""
 
     @abc.abstractmethod
-    def set_kernel_call(self, shape: Tuple, sparse_attr: Any):
+    def set_kernel_call(self, shape: Tuple):
         """Convert pycuda kernel (self._kernel) to python function call (self._func)."""
 
-    def compile(self, params: Dict[str, Any], shape: Any, sparse_attr: Any):
+    def compile(self, params: Dict[str, Any], shape: Tuple):
         self._check_parameters(params)
         self.set_parameters(params)
+        self.attr.update_block_size(self.id)
         kernel_code = self.get_kernel_code()
         kernel_name = kernel_code[kernel_code.find('__global__ void') + 15:]
         kernel_name = kernel_name[:kernel_name.find('(')].strip()
@@ -123,11 +237,27 @@ class KernelBase(Callable):
             warnings.simplefilter('ignore')
             source_module = SourceModule(kernel_code, options=['-O3'])
         self._kernel = source_module.get_function(kernel_name)
-        self.set_kernel_call(shape, sparse_attr)
+        self.set_kernel_call(shape)
         self.ready = True
+        # Calc estimated latency
+        indexes = self.attr.indexes
+        sparse_rate = indexes.block_nnz / indexes.row_num / indexes.col_num
+        shape_rate = np.prod(shape) / np.prod(self.__lut_shape__)
+        self.estimate_latency = self._lut_latency * shape_rate * sparse_rate
+
+    @abc.abstractmethod
+    def reference(self, *inputs, sparse: bool = False):
+        """Reference forward function."""
+
+    def profile(
+        self,
+        inputs: List[torch.Tensor],
+        num_warmups: int = 20,
+        num_iters: int = 100,
+        cuda: bool = False
+    ):
+        target_output = self.reference(*inputs, sparse=True)
+        return profile(self, inputs, [target_output], num_warmups, num_iters, cuda)
 
     def __call__(self, *args) -> torch.Tensor:
-        if self.ready:
-            return self._func(*args)
-        else:
-            raise ValueError('The kernel is not compiled.')
+        return self._func(*args)

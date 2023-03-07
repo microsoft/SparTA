@@ -56,12 +56,11 @@ class SparseAttention(torch.nn.Module):
         self._matmul_out = SparseBatchMatMul('sdd', False, False, False, True)
         self._matmul_qk.ports['C'].connect(self._softmax.ports['x'])
         self._softmax.ports['y'].connect(self._matmul_out.ports['A'])
-        self._sparse_attr = self._matmul_qk.get_sparse_attr()
         if mask is not None:
             self.set_mask(mask)
 
     def set_mask(self, mask: torch.Tensor):
-        self._sparse_attr.set_mask(mask)
+        self._softmax.set_mask(mask)
 
     def forward(self, Q: torch.Tensor, K: torch.Tensor, V: torch.Tensor):
         QK = self._matmul_qk(Q, K)

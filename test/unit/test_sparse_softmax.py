@@ -8,7 +8,7 @@ import pytest
 import numpy as np
 
 from sparta.kernels import SparTASparseSoftmaxForwardKernel, SparTASparseSoftmaxBackwardKernel
-from sparta.operators import SparsityAttr, SparseSoftmax, SparseBatchSoftmax
+from sparta.operators import SparseSoftmax, SparseBatchSoftmax
 from sparta.testing import block_mask, sparse_softmax_forward_reference
 
 
@@ -79,24 +79,20 @@ def test_sparse_softmax_kernels(
     forward_kernel = SparTASparseSoftmaxForwardKernel(compressed, batched)
     backward_kernel = SparTASparseSoftmaxBackwardKernel(compressed, batched)
 
-    attr = SparsityAttr(True, False)
-    attr.set_mask(mask)
+    forward_kernel.attr.connect(backward_kernel.attr)
+    forward_kernel.attr.set_mask(mask)
 
-    shape = (batch, H, W)
+    batch = 1 if batch is None else batch
     forward_kernel.set_parameter('MAX_W_VALUE', W)
     backward_kernel.set_parameter('MAX_W_VALUE', W)
-    forward_kernel.compile(get_params(), shape, attr)
-    backward_kernel.compile(get_params(), shape, attr)
+    forward_kernel.compile(get_params(), (batch, H, W))
+    backward_kernel.compile(get_params(), (batch, H, W))
 
-    attr.set_block_size(
-        forward_kernel.get_parameter('BLOCK_SIZE_H_VALUE'),
-        forward_kernel.get_parameter('BLOCK_SIZE_W_VALUE'),
-    )
     temperature = np.float32(1 / np.sqrt(W))
 
     if compressed:
         for name in data:
-            data[name] = attr.indexes.convert(data[name].detach())
+            data[name] = forward_kernel.attr.indexes.convert(data[name].detach())
 
     data['output_y'] = forward_kernel(data['input_x'], mask, temperature)
     data['output_grad_x'] = backward_kernel(data['grad_y'], data['target_y'], mask, temperature)
@@ -120,8 +116,7 @@ def test_sparse_softmax_operator(
     else:
         sparse_softmax = SparseBatchSoftmax(compressed, np.sqrt(W))
 
-    sparse_attr = sparse_softmax.get_sparse_attr()
-    sparse_attr.set_mask(mask)
+    sparse_softmax.set_mask(mask)
 
     kernel_names = ['forward', 'backward']
     sparse_softmax.build(
@@ -132,8 +127,9 @@ def test_sparse_softmax_operator(
     def run_test():
         nonlocal sparse_softmax, data, mask
         if compressed:
+            indexes = sparse_softmax.get_sparse_indexes()
             for name in data:
-                data[name] = sparse_attr.indexes.convert(data[name].detach())
+                data[name] = indexes.convert(data[name].detach())
             data['input_x'].requires_grad = True
         data['output_y'] = sparse_softmax(data['input_x'])
         data['output_y'].backward(data['grad_y'])

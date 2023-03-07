@@ -4,7 +4,7 @@
 import io
 import textwrap
 import importlib.resources as res
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Tuple, Optional
 
 import torch
 import jinja2
@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 from sparta.tuning import TunableItemCfg
-from sparta.kernels import KernelBase, templates, look_up_tables
+from sparta.kernels import KernelBase, SparsityAttr, templates, look_up_tables
 
 
 def _get_matmul_lut(impl: str):
@@ -34,6 +34,7 @@ _MATMUL_LUTS = {
 
 class SparseMatMulKernel(KernelBase):
 
+    __lut_shape__ = (4096, 4096, 4096)
     __algo__: str = ''
 
     def __init__(
@@ -60,6 +61,17 @@ class SparseMatMulKernel(KernelBase):
         trans_B_filter = lut['trans_B'] == self._transpose_B
         self._lut = lut[mode_filter & trans_A_filter & trans_B_filter]
 
+        self._sparse_axis = {
+            'sdd': ['K', 'M'] if transpose_A else ['M', 'K'],
+            'dsd': ['N', 'K'] if transpose_B else ['K', 'N'],
+            'dds': ['M', 'N'],
+        }[mode]
+        self._BCSR = {
+            'sdd': not transpose_A,
+            'dsd': transpose_B,
+            'dds': True,
+        }[mode]
+
         super().__init__()
 
     def _add_parameters(self):
@@ -71,6 +83,8 @@ class SparseMatMulKernel(KernelBase):
         self._add_parameter('COMPRESSED', value=self._compressed)
         self._add_parameter('BCSR')
         self._add_parameter('BCSC')
+        block_H, block_W = [f'BLOCK_SIZE_{axis}_VALUE' for axis in self._sparse_axis]
+        self.attr = SparsityAttr(self, block_H, block_W, self._BCSR, not self._BCSR)
 
     def get_block_shape(self):
         BM = self.get_parameter('BLOCK_SIZE_M_VALUE')
@@ -78,7 +92,7 @@ class SparseMatMulKernel(KernelBase):
         BN = self.get_parameter('BLOCK_SIZE_N_VALUE')
         return BM, BK, BN
 
-    def set_kernel_call(self, shape: Tuple[int, int, int, int], sparse_attr: Any):
+    def set_kernel_call(self, shape: Tuple[int, int, int, int]):
         batch, M, K, N = shape
         M_32, K_32, N_32 = np.int32(M), np.int32(K), np.int32(N)
         BM, BK, BN = self.get_block_shape()
@@ -87,6 +101,7 @@ class SparseMatMulKernel(KernelBase):
         raw_func = self._kernel
         zeros = torch.zeros
         int32 = np.int32
+        sparse_attr = self.attr
 
         func_code = jinja2.Template(textwrap.dedent('''
             def matmul_func(A, B{% if BIASED %}, bias{% endif %}):
@@ -131,9 +146,35 @@ class SparseMatMulKernel(KernelBase):
         self._func = locals()['matmul_func']
 
     def get_kernel_code(self):
+        self.set_parameter('BCSR', self._BCSR or self.attr.BCSR)
+        self.set_parameter('BCSC', not self._BCSR)
         template_file = f'{self.__algo__}_sparse_matmul_{self._mode}.cuh.j2'
         kernel_template = res.read_text(templates, template_file)
         return jinja2.Template(kernel_template).render(self.get_parameters())
+
+    def reference(
+        self,
+        A: torch.Tensor,
+        B: torch.Tensor,
+        bias: Optional[torch.Tensor] = None,
+        sparse: bool = False,
+    ):
+        if sparse and self._compressed:
+            if self._mode == 'sdd':
+                A = self.attr.indexes.inverse(A)
+            elif self._mode == 'dsd':
+                B = self.attr.indexes.inverse(B)
+        if self._transpose_A:
+            A = A.swapaxes(self._batched + 0, self._batched + 1)
+        if self._transpose_B:
+            B = B.swapaxes(self._batched + 0, self._batched + 1)
+        C = torch.bmm(A, B) if self._batched else torch.mm(A, B)
+        if bias is not None:
+            C += bias.unsqueeze(1) if self._batched else bias
+        if sparse and self._compressed:
+            if self._mode == 'dds':
+                C = self.attr.indexes.convert(C)
+        return C
 
 
 class SparTASparseMatMulKernel(SparseMatMulKernel):
@@ -201,7 +242,7 @@ class SparTASparseMatMulKernel(SparseMatMulKernel):
             self.set_parameter('THREAD_SIZE_M_VALUE', int(TM))
             self.set_parameter('THREAD_SIZE_K_VALUE', int(TK))
             self.set_parameter('THREAD_SIZE_N_VALUE', int(TN))
-            self.estimated_latency_per_flop = row['latency'] / 4096 / 4096 / 4096
+            self._lut_latency = row['latency']
 
 
 class OpenAISparseMatMulKernel(SparseMatMulKernel):
@@ -229,4 +270,4 @@ class OpenAISparseMatMulKernel(SparseMatMulKernel):
         if 'BLOCK_SIZE_N_VALUE' in params:
             assert params['BLOCK_SIZE_N_VALUE'] == 32
         row = self._lut.reset_index(drop=True).iloc[0, :]
-        self.estimated_latency_per_flop = row['latency'] / 32 / 64 / 32
+        self._lut_latency = row['latency']

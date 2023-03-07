@@ -7,7 +7,7 @@ import torch
 import pytest
 
 from sparta.kernels import SparseMatMulKernel, SparTASparseMatMulKernel, OpenAISparseMatMulKernel
-from sparta.operators import SparsityAttr, SparseLinear, SparseMatMul, SparseBatchMatMul
+from sparta.operators import SparseLinear, SparseMatMul, SparseBatchMatMul
 from sparta.tesa import BCSIndexes
 from sparta.testing import block_mask
 
@@ -186,34 +186,14 @@ def test_sparse_matmul_kernel(
         compressed=compressed,
         batched=batched,
     )
-    shape = (batch, M, K, N)
-    sparse_port = {'sdd': 'A', 'dsd': 'B', 'dds': 'C'}[mode]
-    BCSR = {
-        'A': not trans_A,
-        'B': trans_B,
-        'C': True,
-    }[sparse_port]
-    BCSC = not BCSR
-    attr = SparsityAttr(BCSR, BCSC)
-    attr.set_mask(mask)
-    kernel.set_parameter('BCSR', BCSR)
-    kernel.set_parameter('BCSC', BCSC)
-    kernel.compile(get_params(impl), shape, attr)
+    kernel.attr.set_mask(mask)
+    batch = 1 if batch is None else batch
+    kernel.compile(get_params(impl), (batch, M, K, N))
 
-    sparse_axis = {
-        'A': ['K', 'M'] if trans_A else ['M', 'K'],
-        'B': ['N', 'K'] if trans_B else ['K', 'N'],
-        'C': ['M', 'N'],
-    }[sparse_port]
-    attr.BCSR = BCSR
-    attr.BCSC = BCSC
-    attr.set_block_size(*[
-        kernel.get_parameter(f'BLOCK_SIZE_{i}_VALUE')
-        for i in sparse_axis
-    ])
+    sparse_port = {'sdd': 'A', 'dsd': 'B', 'dds': 'C'}[mode]
 
     if compressed:
-        data, mask = compress_data(attr.indexes, sparse_port, data, mask, False)
+        data, mask = compress_data(kernel.attr.indexes, sparse_port, data, mask, False)
 
     inputs = ['A', 'B', 'bias'] if biased else ['A', 'B']
     input_data = [data[f'input_{x}'] for x in inputs]
@@ -261,14 +241,13 @@ def test_sparse_matmul_operator(
         config={kernel_name: get_params('sparta') for kernel_name in kernel_names},
         sample_inputs=[data[f'input_{x}'] for x in inputs]
     )
-    sparse_matmul.clear_sample_data()
 
     sparse_port = {'sdd': 'A', 'dsd': 'B', 'dds': 'C'}[mode]
 
     def run_test():
         nonlocal sparse_matmul, data, mask
         if compressed:
-            indexes = sparse_matmul.get_sparse_attr().indexes
+            indexes = sparse_matmul.get_sparse_indexes()
             data, cmask = compress_data(indexes, sparse_port, data, mask, True)
         else:
             cmask = mask
@@ -339,14 +318,13 @@ def test_sparse_linear_operator(
         config={kernel_name: get_params('sparta') for kernel_name in kernel_names},
         sample_inputs=[data['input_A']],
     )
-    sparse_linear.clear_sample_data()
 
     sparse_port = {'sdd': 'A', 'dsd': 'B', 'dds': 'C'}[mode]
 
     def run_test():
         nonlocal sparse_linear, data, mask
         if mode == 'dsd':
-            indexes = sparse_linear.get_sparse_attr().indexes
+            indexes = sparse_linear.get_sparse_indexes()
             data, cmask = compress_data(indexes, sparse_port, data, mask, True)
         else:
             cmask = mask
@@ -368,7 +346,7 @@ def test_sparse_linear_operator(
         mode, False, True, biased,
         True, random_seed=2023
     )
-    sparse_linear.ports['B'].set_data(data['input_B'])
+    sparse_linear.ports['B'].sample_data = data['input_B']
     if biased:
         sparse_linear.bias = torch.nn.Parameter(data['input_bias'])
     sparse_linear.set_mask(mask)
@@ -389,7 +367,7 @@ def test_sparse_linear_operator(
     )
     weight = data['input_B']
     if mode == 'dsd':
-        weight = sparse_linear.get_sparse_attr().indexes.convert(weight.detach())
+        weight = sparse_linear.get_sparse_indexes().convert(weight.detach())
     sparse_linear.weight = torch.nn.Parameter(weight)
     if biased:
         sparse_linear.bias = torch.nn.Parameter(data['input_bias'])

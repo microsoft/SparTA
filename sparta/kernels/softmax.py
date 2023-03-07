@@ -12,7 +12,8 @@ import numpy as np
 import pandas as pd
 
 from sparta.tuning import TunableItemCfg
-from sparta.kernels import KernelBase, templates, look_up_tables
+from sparta.kernels import KernelBase, SparsityAttr, templates, look_up_tables
+from sparta.testing import sparse_softmax_forward_reference, sparse_softmax_backward_reference
 
 
 def _get_softmax_lut(impl: str, direction: str):
@@ -36,6 +37,7 @@ _SOFTMAX_LUTS = {
 
 class SparseSoftmaxKernel(KernelBase):
 
+    __lut_shape__ = (4096, 4096)
     __algo__: str = ''
     __direction__: str = ''
 
@@ -60,10 +62,40 @@ class SparseSoftmaxForwardKernel(SparseSoftmaxKernel):
 
     __direction__ = 'forward'
 
+    def reference(
+        self,
+        x: torch.Tensor,
+        mask: torch.Tensor,
+        T: np.float32,
+        sparse: bool = False,
+    ):
+        if sparse and self._compressed:
+            x = self.attr.indexes.inverse(x)
+        y = sparse_softmax_forward_reference(x, mask, T)
+        if sparse and self._compressed:
+            y = self.attr.indexes.convert(y)
+        return y
+
 
 class SparseSoftmaxBackwardKernel(SparseSoftmaxKernel):
 
     __direction__ = 'backward'
+
+    def reference(
+        self,
+        grad_y: torch.Tensor,
+        y: torch.Tensor,
+        mask: torch.Tensor,
+        T: np.float32,
+        sparse: bool = False,
+    ):
+        if sparse and self._compressed:
+            grad_y = self.attr.indexes.inverse(grad_y)
+            y = self.attr.indexes.inverse(y)
+        grad_x = sparse_softmax_backward_reference(grad_y, y, mask, T)
+        if sparse and self._compressed:
+            grad_x = self.attr.indexes.convert(grad_x)
+        return grad_x
 
 
 class SparTASoftmaxKernel(SparseSoftmaxKernel):
@@ -88,6 +120,7 @@ class SparTASoftmaxKernel(SparseSoftmaxKernel):
         )
         self._add_parameter('ROW_TILE_VALUE')
         self._add_parameter('MAX_W_VALUE', value=1024)
+        self.attr = SparsityAttr(self, 'BLOCK_SIZE_H_VALUE', 'BLOCK_SIZE_W_VALUE', True, False)
 
     def threads_per_block(self) -> Tuple[int]:
         BW = self.get_parameter('BLOCK_SIZE_W_VALUE')
@@ -111,7 +144,7 @@ class SparTASoftmaxKernel(SparseSoftmaxKernel):
             row = row.reset_index(drop=True).iloc[0, :]
             assert float(row['latency']) < float('inf'), f'block shape ({BH}, {BW}) is invalid'
             self.set_parameter('ROW_TILE_VALUE', int(row['RT']))
-            self.estimated_latency_per_flop = row['latency'] / BH / BW
+            self._lut_latency = row['latency']
 
     def get_kernel_code(self):
         template_file = f'{self.__algo__}_sparse_softmax_{self.__direction__}.cuh.j2'
@@ -121,7 +154,7 @@ class SparTASoftmaxKernel(SparseSoftmaxKernel):
 
 class SparTASparseSoftmaxForwardKernel(SparseSoftmaxForwardKernel, SparTASoftmaxKernel):
 
-    def set_kernel_call(self, shape: Tuple[int, int, int], sparse_attr: Any):
+    def set_kernel_call(self, shape: Tuple[int, int, int]):
         batch, H, W = shape
         H_32, W_32 = np.int32(H), np.int32(W)
         BH, BW = self.get_block_shape()
@@ -130,6 +163,7 @@ class SparTASparseSoftmaxForwardKernel(SparseSoftmaxForwardKernel, SparTASoftmax
         row_num = H // RT
         raw_func = self._kernel
         zeros = torch.zeros
+        sparse_attr = self.attr
 
         func_code = jinja2.Template(textwrap.dedent('''
             def softmax_forward_func(x, mask, T):
@@ -163,7 +197,7 @@ class SparTASparseSoftmaxForwardKernel(SparseSoftmaxForwardKernel, SparTASoftmax
 
 class SparTASparseSoftmaxBackwardKernel(SparseSoftmaxBackwardKernel, SparTASoftmaxKernel):
 
-    def set_kernel_call(self, shape: Tuple[int, int, int], sparse_attr: Any):
+    def set_kernel_call(self, shape: Tuple[int, int, int]):
         batch, H, W = shape
         H_32, W_32 = np.int32(H), np.int32(W)
         BH, BW = self.get_block_shape()
@@ -172,6 +206,7 @@ class SparTASparseSoftmaxBackwardKernel(SparseSoftmaxBackwardKernel, SparTASoftm
         row_num = H // RT
         raw_func = self._kernel
         zeros = torch.zeros
+        sparse_attr = self.attr
 
         func_code = jinja2.Template(textwrap.dedent('''
             def softmax_backward_func(gy, y, mask, T):
