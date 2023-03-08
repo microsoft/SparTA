@@ -4,37 +4,21 @@
 #include <algorithm>
 
 #define M_GLOBAL 4096
-#define K_GLOBAL 20480
-#define N_GLOBAL 5120
+#define K_GLOBAL 1024
+#define N_GLOBAL 1024
 
 #define BLOCK_SIZE_M 32
-#define BLOCK_SIZE_N 32
+#define BLOCK_SIZE_N 128
 // BLOCK_SIZE_K should > NUM_BANK
-#define BLOCK_SIZE_K 32
-#define THREAD_SIZE_M 16
-#define THREAD_SIZE_N 1
+#define BLOCK_SIZE_K 128
+#define THREAD_SIZE_M 8
+#define THREAD_SIZE_N 4
 
 #define SPARSITY 0.875
 
-/****** iterleave parameter ******/
-#define INTERLEAVE 1
-#define BLOCK_N_INTERLEAVE (BLOCK_SIZE_N / THREAD_SIZE_N)
+#define ALIGN_N THREAD_SIZE_N
 
-/****** iterleave parameter ******/
-
-/*
-static inline unsigned int
-next_pow_of_2(unsigned int x) {
-	x -= 1;
-	x |= x>>1;
-	x |= x>>2;
-	x |= x>>4;
-	x |= x>>8;
-	x |= x>>16;
-	return x+1;
-}
-*/
-#define BANK_VAL 32;
+#define BANK_VAL 32
 const int NUM_BANK = K_GLOBAL / BANK_VAL;
 
 const int BANK_NUM_PER_BLOCK = BLOCK_SIZE_K / BANK_VAL;
@@ -58,8 +42,7 @@ void checkResult(float *hostRef, float *gpuRef, const int N, const int minibatch
 		}
 		if(should_break) break;
 	}
-	if (match) printf("Pass\n");
-    else printf("Fail\n");
+	if (match) printf("Pass\n\n");
 }
 
 void initialData(float *vec, float *mat_data, int *mat_index, float *mat_data_for_gpu, int *mat_index_for_gpu, int vecNum, int h, float sparse, int minibatch) {
@@ -84,14 +67,15 @@ void initialData(float *vec, float *mat_data, int *mat_index, float *mat_data_fo
 		for (int i=0; i<vecNum/NUM_BANK; ++i)
 			tmp_index[i] = i;
 
-		for (int j=0; j<h; ++j){
+		for (int j=0; j<h; j += ALIGN_N){
 			for (int i=0; i<w; i+=w/NUM_BANK){
 				std::random_shuffle(tmp_index,tmp_index+vecNum/NUM_BANK);
 				std::sort(tmp_index, tmp_index+w/NUM_BANK);
 				for (int k=0; k<w/NUM_BANK; ++k){
-					mat_index[i + k + j * w] = tmp_index[k]+i/sparse; // tmp_index[k] + delta(vecNum/NUM_BANK)
-					mat_index_for_gpu[(i + k)*h + j] = mat_index[i + k + j * w];
-					//if (j==0) printf("ID:%d Index: %d\n", i+k, mat_index[i+k]);
+					for(int j_in = 0; j_in < ALIGN_N; j_in += 1){
+						mat_index[i + k + (j + j_in) * w] = tmp_index[k]+i/sparse; // tmp_index[k] + delta(vecNum/NUM_BANK)
+						mat_index_for_gpu[(i + k)*h + (j + j_in)] = mat_index[i + k + (j + j_in) * w];
+					}
 				}
 			}
 		}
@@ -151,29 +135,36 @@ void CheckSetting(){
 	const int A_STRIDES = THREADS_PER_BLOCK / A_THREADS_PER_ROW;
 	const int B_STRIDES = THREADS_PER_BLOCK / B_THREADS_PER_ROW;
 
-	printf("A_STRIDES: %d, B_STRIDES: %d\n", A_STRIDES, B_STRIDES);
-
 	assert(BLOCK_SIZE_K >= 4 && BLOCK_SIZE_K % 4 == 0);
+	assert(BLOCK_SIZE_N >= 4 && BLOCK_SIZE_N % 4 == 0);
+
 	assert(BLOCK_SIZE_M >= A_STRIDES && BLOCK_SIZE_M % A_STRIDES == 0);
+	assert(BLOCK_SIZE_K_SPARSE >= B_STRIDES && BLOCK_SIZE_K_SPARSE % B_STRIDES == 0);
 }
 
 // dim3 dimBlock((BLOCK_SIZE_M / THREAD_SIZE_M) * (BLOCK_SIZE_N / THREAD_SIZE_N));
 // dim3 dimGrid(M / BLOCK_SIZE_M, N / BLOCK_SIZE_N);
-__global__ void MatMul_TILE_THREAD_GENERAL_NO_SHARED(float *g_vec, float *g_mat_data, int *g_mat_index, float *g_data, int M, int K, int K_sparse, int N) {
+__global__ void MatMul_TILE_THREAD_GENERAL(float *g_vec, float *g_mat_data, int *g_mat_index, float *g_data) {
+	const int K = K_GLOBAL;
+	const int N = N_GLOBAL;
 	int M_BLOCK_START = blockIdx.x * BLOCK_SIZE_M;
 	int N_BLOCK_START = blockIdx.y * BLOCK_SIZE_N;
 
-
 	const int A_THREADS_PER_ROW = BLOCK_SIZE_K / 4;
+	const int B_THREADS_PER_ROW = BLOCK_SIZE_N / 4;
 
 	const int THREADS_PER_BLOCK = (BLOCK_SIZE_M / THREAD_SIZE_M) * (BLOCK_SIZE_N / THREAD_SIZE_N);
 
 	const int A_STRIDES = THREADS_PER_BLOCK / A_THREADS_PER_ROW;
+	const int B_STRIDES = THREADS_PER_BLOCK / B_THREADS_PER_ROW;
 
 	__shared__ float A_shared[BLOCK_SIZE_M * BLOCK_SIZE_K];
+	__shared__ float B_shared[BLOCK_SIZE_N * BLOCK_SIZE_K_SPARSE];
+	__shared__ int B_index_shared[BLOCK_SIZE_N * BLOCK_SIZE_K_SPARSE];
 
+	float A_reg[THREAD_SIZE_M];
 	float B_reg[THREAD_SIZE_N];
-	int B_reg_index[THREAD_SIZE_N];
+	int B_reg_index;
 	float C_reg[THREAD_SIZE_M][THREAD_SIZE_N] = {0};
 
 	int tid = threadIdx.x;
@@ -182,11 +173,15 @@ __global__ void MatMul_TILE_THREAD_GENERAL_NO_SHARED(float *g_vec, float *g_mat_
 	int t_M = tid / (BLOCK_SIZE_N / THREAD_SIZE_N);
 
 	int A_BLOCK_ROW_START = tid / A_THREADS_PER_ROW;
+	int B_BLOCK_ROW_START = tid / B_THREADS_PER_ROW;
 
 	int A_BLOCK_COL_START = tid % A_THREADS_PER_ROW * 4;
+	int B_BLOCK_COL_START = tid % B_THREADS_PER_ROW * 4;
 
 	for(int K_BLOCK_START = 0, K_SPARSE_BLOCK_START = 0; K_BLOCK_START < K; K_BLOCK_START += BLOCK_SIZE_K, K_SPARSE_BLOCK_START += BLOCK_SIZE_K_SPARSE){
 		float *A_global_ptr = g_vec + M_BLOCK_START * K + K_BLOCK_START;
+		float *B_global_ptr = g_mat_data + K_SPARSE_BLOCK_START * N + N_BLOCK_START;
+		int *B_index_global_ptr = g_mat_index + K_SPARSE_BLOCK_START * N + N_BLOCK_START;
 
 		__syncthreads();
 
@@ -196,22 +191,36 @@ __global__ void MatMul_TILE_THREAD_GENERAL_NO_SHARED(float *g_vec, float *g_mat_
 				*(float4 *)(A_global_ptr + (i + A_BLOCK_ROW_START) * K + A_BLOCK_COL_START);
 		}
 
+		#pragma unroll
+		for(int i = 0; i < BLOCK_SIZE_K_SPARSE; i += B_STRIDES){
+			*(float4 *)(B_shared + (i + B_BLOCK_ROW_START) * BLOCK_SIZE_N + B_BLOCK_COL_START) =
+				*(float4 *)(B_global_ptr + (i + B_BLOCK_ROW_START) * N + B_BLOCK_COL_START);
+
+			*(float4 *)(B_index_shared + (i + B_BLOCK_ROW_START) * BLOCK_SIZE_N + B_BLOCK_COL_START) =
+				*(float4 *)(B_index_global_ptr + (i + B_BLOCK_ROW_START) * N + B_BLOCK_COL_START);
+		}
+
 		__syncthreads();
 
 		#pragma unroll
 		for(int i = 0; i < BLOCK_SIZE_K_SPARSE;i += 1){
 			#pragma unroll
 			for(int k = 0; k < THREAD_SIZE_N; k += 1){
-				B_reg[k] = g_mat_data[(K_SPARSE_BLOCK_START + i) * N + N_BLOCK_START + t_N * THREAD_SIZE_N + k];
-				B_reg_index[k] = g_mat_index[(K_SPARSE_BLOCK_START + i) * N + N_BLOCK_START + t_N * THREAD_SIZE_N + k];
+				B_reg[k] = B_shared[i * BLOCK_SIZE_N + t_N * THREAD_SIZE_N + k];
+				//*(float4 *)(B_reg + k) = *(float4 *)(B_shared + i * BLOCK_SIZE_N + t_N * THREAD_SIZE_N + k);
+				//*(float4 *)(B_reg_index + k) = *(float4 *)(B_index_shared + i * BLOCK_SIZE_N + t_N * THREAD_SIZE_N + k);
+			}
+			int bank_idx = i / LEN_OF_BANK_PER_SPARSE_BLOCK;
+			B_reg_index = B_index_shared[i * BLOCK_SIZE_N + t_N * THREAD_SIZE_N] % BANK_VAL+bank_idx * BANK_VAL;
+			#pragma unroll
+			for(int k = 0; k < THREAD_SIZE_M; k += 1){
+				A_reg[k] = A_shared[(t_M * THREAD_SIZE_M+k) * BLOCK_SIZE_K + B_reg_index];
 			}
 			#pragma unroll
 			for(int k = 0; k < THREAD_SIZE_N; k += 1){
-				int bank_idx = i / LEN_OF_BANK_PER_SPARSE_BLOCK;
-				int B_index = B_reg_index[k] % BANK_VAL+bank_idx * BANK_VAL;
 				#pragma unroll
 				for(int j = 0; j < THREAD_SIZE_M; j += 1){
-					C_reg[j][k] += B_reg[k] * A_shared[(t_M * THREAD_SIZE_M+j) * BLOCK_SIZE_K + B_index];
+					C_reg[j][k] += B_reg[k] * A_reg[j];
 				}
 			}
 		}
@@ -286,16 +295,16 @@ int oneKernel_general(int w, const int h, const int vecNum, const int BLOCK_WIDT
 
 	CheckSetting();
 
-	ntimes = 50;
+	ntimes = 1;
 
-	int M = minibatch, N = h, K = vecNum, K_sparse = w;
+	int M = minibatch, N = h;
 	dim3 dimBlock(int((BLOCK_SIZE_M / THREAD_SIZE_M) * (BLOCK_SIZE_N / THREAD_SIZE_N)));
 	dim3 dimGrid(M / BLOCK_SIZE_M, N / BLOCK_SIZE_N);
 	cudaDeviceSynchronize();
 
 	for(int i = 0; i < ntimes; i +=1){
 		//MatMul_TILE_GENERAL<<< dimGrid, dimBlock >>> (g_vec, g_mat_data, g_mat_index, g_result, M, K, K_sparse, N);
-		MatMul_TILE_THREAD_GENERAL_NO_SHARED<<< dimGrid, dimBlock >>> (g_vec, g_mat_data, g_mat_index, g_result, M, K, K_sparse, N);
+		MatMul_TILE_THREAD_GENERAL<<< dimGrid, dimBlock >>> (g_vec, g_mat_data, g_mat_index, g_result);
 	}
 
 	cudaEventRecord(start);
@@ -303,9 +312,9 @@ int oneKernel_general(int w, const int h, const int vecNum, const int BLOCK_WIDT
 	//double iStart = seconds();
 	for(int i = 0; i < ntimes; i += 1)
 		//MatMul_TILE_GENERAL<<< dimGrid, dimBlock >>> (g_vec, g_mat_data, g_mat_index, g_result, M, K, K_sparse, N);
-		MatMul_TILE_THREAD_GENERAL_NO_SHARED<<< dimGrid, dimBlock >>> (g_vec, g_mat_data, g_mat_index, g_result, M, K, K_sparse, N);
+		MatMul_TILE_THREAD_GENERAL<<< dimGrid, dimBlock >>> (g_vec, g_mat_data, g_mat_index, g_result);
 	//CUDA_CHECK(cudaGetLastError());
-	//cudaDeviceSynchronize();
+	cudaDeviceSynchronize();
 	// record stop event on the default stream
 	cudaEventRecord(stop);
 	// wait until the stop event completes

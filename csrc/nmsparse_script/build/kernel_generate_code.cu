@@ -16,8 +16,8 @@ next_pow_of_2(unsigned int x) {
 */
 
 const int M_GLOBAL = 1;
-const int K_GLOBAL = 20480;
-const int N_GLOBAL = 5120;
+const int K_GLOBAL = 4096;
+const int N_GLOBAL = 4096;
 const int BANK_VAL = 32;
 const float SPARSITY_RATIO = 0.875;
 

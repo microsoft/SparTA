@@ -1,5 +1,0 @@
-BLOCK_WIDTH: 320, VEC_WIDTH: 2560
-Matrix size (h=5120,w=2560); Vector size 20480; VEC_WIDTH: 2560, BLOCK_WIDTH: 320
-cal sparse 0.875; cuda: cal Time= 11.516960 msec
-Pass
-

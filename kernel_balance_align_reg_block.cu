@@ -4,8 +4,8 @@
 #include <algorithm>
 
 #define M_GLOBAL 4096
-#define K_GLOBAL 20480
-#define N_GLOBAL 5120
+#define K_GLOBAL 1024
+#define N_GLOBAL 1024
 
 #define BLOCK_SIZE_M 32
 #define BLOCK_SIZE_N 128

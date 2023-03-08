@@ -9,7 +9,8 @@ current_path = Path(__file__).parent
 def kernel_execution(kernel: str) -> Tuple[str, float, bool]:
     # kernel execution process
     file_name_new = "kernel_balance_align_shared.cu"
-    with open(file_name_new, 'w') as f:
+    new_file_path = os.path.join(current_path, "build", file_name_new)
+    with open(new_file_path, 'w') as f:
         f.write(kernel)
     avg_latency, success = run_gpu_kernel(file_name_new)
     # kernel correctness verification failure
@@ -18,23 +19,27 @@ def kernel_execution(kernel: str) -> Tuple[str, float, bool]:
     return kernel, avg_latency, success
 
 def run_gpu_kernel(file_name):
+    file_path = os.path.join(current_path, "build", file_name)
+    executor_path = os.path.splitext(file_path)[0]
     compile_cmd = 'nvcc -gencode arch=compute_80,code=sm_80 \
-    {} -o {}'.format(file_name, Path(file_name).stem)
+    {} -o {}'.format(file_path, executor_path)
     output_file_name = f"output_log.txt"
+    output_file_path = os.path.join(current_path, "build", output_file_name)
     subprocess.check_output(compile_cmd, shell = True, universal_newlines=True, timeout=600)
     latencys = []
     for i in range(2):
-        command = './{} > {}'.format(Path(file_name).stem, output_file_name)
+        command = '{} > {}'.format(executor_path, output_file_path)
         #os.system('nvprof --unified-memory-profiling off ./{} 2> a_{}.txt'.format(Path(file_name).stem, file_name))
         #os.system(command)
         subprocess.check_output(command, shell = True, universal_newlines=True, timeout=600)
 
         if i == 0:
             continue
-        latencys.append(get_kernel_run_time('{}'.format(output_file_name)))
-    success = verify_successful(output_file_name)
+        latencys.append(get_kernel_run_time('{}'.format(output_file_path)))
+    success = verify_successful(output_file_path)
     avg_latency = sum(latencys) / len(latencys)
     return avg_latency, success
+
 
 def get_kernel_run_time(file_name):
     lines = []
@@ -57,7 +62,7 @@ def verify_successful(file_name):
     return True
 
 def run_kernel(config):
-    template_name = os.path.join(current_path, "balance_align_shared.cu")
+    template_name = os.path.join(current_path, "template","balance_align_shared.cu")
     f_template = open(template_name)
     template_str = f_template.read()
     for key, value in config.items():

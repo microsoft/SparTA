@@ -96,10 +96,10 @@ size_t load_from_file(char* ptr, size_t buff_size, std::string filepath){
 // GEMM configuration.
 
 #define M_GLOBAL 1024
-#define N_GLOBAL 4096
+#define N_GLOBAL 1024
 #define K_GLOBAL 1024
 
-#define SPARSITY 0.5
+#define SPARSITY 0.875
 
 #define K_GLOBAL_SPARSE (int(K_GLOBAL * (1-SPARSITY)))
 
@@ -122,7 +122,7 @@ size_t load_from_file(char* ptr, size_t buff_size, std::string filepath){
 
 ////// CHUNK_K * K <= K_GLOBAL //////
 
-#define CHUNK_K 32
+#define CHUNK_K 64
 #define CHUNK_K_SPARSE (int(CHUNK_K * (1-SPARSITY)))
 
 #define BLOCK_SIZE_K (CHUNK_K * K)
