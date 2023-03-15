@@ -3,12 +3,17 @@ from typing import Dict, List, Optional, Tuple
 import subprocess
 import json
 from pathlib import Path
+import argparse
 
 current_path = Path(__file__).parent
 
 def kernel_execution(kernel: str) -> Tuple[str, float, bool]:
     # kernel execution process
     file_name_new = "kernel_generate_code.cu"
+    build_path = os.path.join(current_path, "build")
+    if not os.path.exists(build_path):
+        # create
+        os.mkdir(build_path)
     new_file_path = os.path.join(current_path, "build", file_name_new)
     with open(new_file_path, 'w') as f:
         f.write(kernel)
@@ -76,18 +81,17 @@ def run_kernel(config):
     print(f"M:{M}, K:{K}, N:{N}, sparsity:{sparsity}, success:{success}, time:{avg_latency}")
 
 def main():
-    test_cases_spmv_b1 = [[1, 1024, 1024], [1, 2048, 2048], [1, 4096, 4096],\
-    [1, 8192, 8192], [1, 1024, 4096], [1, 4096, 1024], [1,5120,20480], [1,20480,5120]]
-    # ratios =  [0.5, 0.75, 0.90625]
-    ratios =  [0.875]
-    for i in range(len(test_cases_spmv_b1)):
-        test_case = test_cases_spmv_b1[i]
-        for sparsity in ratios:
-            config = {}
-            config['M_GLOBAL_VAL'] = test_case[0]
-            config['K_GLOBAL_VAL'] = test_case[1]
-            config['N_GLOBAL_VAL'] = test_case[2]
-            config['SPARSITY_RATIO_VAL'] = sparsity
-            run_kernel(config)
+    parser = argparse.ArgumentParser(description='Run kernel')
+    parser.add_argument('--sparsity_ratio', type=float, default=0.875)
+    parser.add_argument('--M', type=int, default=256)
+    parser.add_argument('--K', type=int, default=1024)
+    parser.add_argument('--N', type=int, default=1024)
+    args = parser.parse_args()
+    config = {}
+    config['M_GLOBAL_VAL'] =  args.M
+    config['K_GLOBAL_VAL'] =  args.K
+    config['N_GLOBAL_VAL'] =  args.N
+    config['SPARSITY_RATIO_VAL'] = args.sparsity_ratio
+    run_kernel(config)
 
 main()
