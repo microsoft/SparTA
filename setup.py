@@ -21,6 +21,7 @@ if torch.cuda.is_available():
     os.makedirs(os.path.join('csrc', 'build'), exist_ok=True)
     with open(os.path.join('csrc', 'build', 'moe_sparse_forward_kernel.cu'), 'w') as f:
         f.write(moe_kernel)
+
     moe_ext = CUDAExtension(
         name='sparse_moe_cpp',
         sources=[

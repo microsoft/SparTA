@@ -17,16 +17,17 @@ class Port(object):
         self.name = name
         self.ops: List[SparseOperator] = [operator]
         self.sample_data: torch.Tensor = None  # Dense, not masked
-        self.attr: Optional[SparsityAttr] = None
+        self.get_attr: Callable[[], SparsityAttr] = lambda : None
         self.compressed: bool = False
 
     def get_sample_data(self, grad: bool = False):
         data = self.sample_data.grad if grad else self.sample_data
         data = data.detach()
-        if self.attr is not None:
-            data = data * self.attr.mask
-            if self.compressed and self.attr.ready:
-                data = self.attr.indexes.convert(data)
+        attr = self.get_attr()
+        if attr is not None:
+            data = data * attr.mask
+            if self.compressed and attr.ready:
+                data = attr.indexes.convert(data)
         return data
 
     def clear_data(self):
@@ -36,40 +37,44 @@ class Port(object):
         for operator in other.ops:
             operator.ports[other.name] = self
             self.ops.append(operator)
-        if self.attr is None:
-            self.attr = other.attr
-        elif other.attr is not None:
-            self.attr.connect(other.attr)
-        # TODO: compressed
+        self_attr = self.get_attr()
+        other_attr = other.get_attr()
+        if self_attr is None:
+            self.get_attr = other.get_attr
+        elif other_attr is None:
+            other.get_attr = self.get_attr
+        else:
+            self_attr.connect(other_attr)
 
 
 class SparseOperator(torch.nn.Module):
 
-    def __init__(self):
+    def __init__(self, compressed: bool):
         super().__init__()
+        self._compressed = compressed
         self.kernel_groups: Dict[str, KernelGroup] = {}
         self.ports: Dict[str, Port] = {}
-        self._attr: Optional[SparsityAttr] = None
+        self._sparse_port: Port = None
         self.forward_func: Callable = None
 
     def _set_kernel_group(self, kernel_name: str, kernels: Dict[str, KernelBase]):
         input_getter = lambda : self._get_sample_inputs(kernel_name)
-        self.kernel_groups[kernel_name] = KernelGroup(kernels, input_getter)
+        self.kernel_groups[kernel_name] = KernelGroup(kernel_name, kernels, input_getter)
 
     @abc.abstractmethod
     def _get_sample_inputs(self, kernel_name: str) -> List[torch.Tensor]:
         """Get sample inputs from ports for specified kernel."""
 
     def get_sparse_indexes(self):
-        assert self._attr is not None
-        return self._attr.indexes
+        assert self._compressed, 'only compressed sparse operators can export sparse indexes'
+        return self._sparse_port.get_attr().indexes
 
     def set_mask(self, mask: torch.Tensor):
-        if self._attr is None:
+        if self._compressed:
+            self._sparse_port.get_attr().set_mask(mask)
+        else:
             for kernel_group in self.kernel_groups.values():
                 kernel_group.attr.set_mask(mask)
-        else:
-            self._attr.set_mask(mask)
 
     def forward(self, *inputs):
         return self.forward_func(*inputs)
@@ -115,8 +120,9 @@ class SparseAutoGrad(SparseOperator):
         backward_op.ports = self.ports
         for kernel_name, kernel_group in backward_op.kernel_groups.items():
             self.kernel_groups[kernel_name] = kernel_group
-            if self._attr is not None:
-                self._attr.connect(kernel_group.attr)
+            if self._compressed:
+                self_attr = self._sparse_port.get_attr()
+                self_attr.connect(kernel_group.attr)
         backward_op._set_forward()
 
     def forward(self, *inputs):

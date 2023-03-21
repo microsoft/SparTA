@@ -15,7 +15,7 @@ class SparseBatchSoftmaxForward(SparseOperator):
     __direction__ = 'forward'
 
     def __init__(self, compressed: bool = False, temperature: Optional[float] = 1):
-        super().__init__()
+        super().__init__(compressed)
 
         self._compressed = compressed
         self._T = None if temperature is None else np.float32(1 / temperature)
@@ -30,13 +30,10 @@ class SparseBatchSoftmaxForward(SparseOperator):
             )
         })
 
-        self._sparse_port = 'y'
-        sparse_attr = self.kernel_groups[self.__direction__].attr
         for port_name in ['x', 'y']:
             self.ports[port_name] = Port(self, port_name)
-            self.ports[port_name].attr = sparse_attr
-        if compressed:
-            self._attr = sparse_attr
+            self.ports[port_name].get_attr = lambda : self.kernel_groups[self.__direction__].attr
+        self._sparse_port = self.ports['y']
 
     def set_temperature(self, temperature: float):
         self._T = np.float32(1 / temperature)
@@ -44,7 +41,7 @@ class SparseBatchSoftmaxForward(SparseOperator):
     def _get_sample_inputs(self, kernel_name: str):
         return [
             self.ports['x'].get_sample_data(),
-            self.ports['x'].attr.mask,
+            self.ports['x'].get_attr().mask,
             self._T,
         ]
 
@@ -88,7 +85,7 @@ class SparseBatchSoftmaxBackward(SparseBatchSoftmaxForward):
         return [
             self.ports['y'].get_sample_data(grad=True),
             self.ports['y'].get_sample_data(),
-            self.ports['y'].attr.mask,
+            self.ports['y'].get_attr().mask,
             self._T,
         ]
 

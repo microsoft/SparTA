@@ -52,7 +52,7 @@ def prepare_data(
     if mask is None:
         mask = block_mask(
             shape=shapes[sparse_port],
-            block=granularity,
+            granularity=granularity,
             sparsity=sparsity,
             device='cuda',
         )

@@ -29,7 +29,7 @@ def prepare_data(
     temperature = np.sqrt(W)
 
     if mask is None:
-        mask = block_mask((H, W), block=granularity, sparsity=sparsity, device='cuda')
+        mask = block_mask((H, W), granularity=granularity, sparsity=sparsity, device='cuda')
 
     data['grad_y'] = torch.rand(shape, device='cuda')
     data['input_x'].requires_grad = True

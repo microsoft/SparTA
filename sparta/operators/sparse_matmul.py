@@ -24,7 +24,7 @@ class SparseBatchMatMulForward(SparseOperator):
         if mode not in ['sdd', 'dsd', 'dds']:
             raise ValueError(f'invalid sparse matmul mode: {mode}')
 
-        super().__init__()
+        super().__init__(compressed)
 
         self._transpose_A = transpose_A
         self._transpose_B = transpose_B
@@ -46,11 +46,9 @@ class SparseBatchMatMulForward(SparseOperator):
 
         for p in ['A', 'B', 'C', 'bias'] if biased else ['A', 'B', 'C']:
             self.ports[p] = Port(self, p)
-        sparse_port = self.ports['ABC'[mode.find('s')]]
-        sparse_port.attr = self.kernel_groups['forward'].attr
-        sparse_port.compressed = compressed
-        if compressed:
-            self._attr = sparse_port.attr
+        self._sparse_port = self.ports['ABC'[mode.find('s')]]
+        self._sparse_port.get_attr = lambda : self.kernel_groups['forward'].attr
+        self._sparse_port.compressed = compressed
 
         self._set_forward()
 
@@ -115,7 +113,7 @@ class SparseBatchMatMulBackward(SparseOperator):
         if mode not in ['sdd', 'dsd', 'dds']:
             raise ValueError(f'invalid sparse matmul mode: {mode}')
 
-        super().__init__()
+        super().__init__(compressed)
 
         self._transpose_A = transpose_A
         self._transpose_B = transpose_B
@@ -194,7 +192,7 @@ class SparseBatchMatMulBackward(SparseOperator):
             backward_B = lambda grad_C, A: kg_B.active_kernel(grad_C, A)
         else:
             backward_B = lambda grad_C, A: kg_B.active_kernel(A, grad_C)
-        C_attr = self.ports['C'].attr
+        C_attr = self.ports['C'].get_attr()
         if C_attr is not None and self._compressed:
             backward_bias = lambda grad_C: C_attr.indexes.sum(grad_C, axis=-2)
         else:

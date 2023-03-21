@@ -97,7 +97,7 @@ class SparsityAttr(object):
             self.groups.append(kernel_group)
             kernel_group.attr = self
 
-    def get_search_space(self):
+    def get_search_space(self, backward: bool = False):
         pass
 
 
@@ -105,9 +105,11 @@ class KernelGroup(object):
 
     def __init__(
         self,
+        kernel_name: str,
         kernels: Dict[str, KernelBase],
         input_getter: Callable[[], List[torch.Tensor]],
     ):
+        self.for_backward = kernel_name.startswith('backward')
         self._kernels = kernels
         self._get_inputs = input_getter
         kernel_list = list(kernels.values())
