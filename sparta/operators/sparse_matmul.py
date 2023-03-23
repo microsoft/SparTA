@@ -307,11 +307,23 @@ class SparseLinear(SparseMatMul):
         self.weight: torch.nn.Parameter = None
         self.bias = raw_module.bias
         self.ports['B'].sample_data = raw_module.weight
+        self.out_features, self.in_features = raw_module.weight.shape
         if self._biased:
             self.ports['bias'].sample_data = raw_module.bias
-            self.forward = self._forward_with_bias
+            self._forward_static_shape = self._forward_with_bias
         else:
-            self.forward = self._forward_without_bias
+            self._forward_static_shape = self._forward_without_bias
+        if mode == 'dsd':
+            self.forward = self._forward_dynamic_shape
+        else:
+            self.forward = self._forward_static_shape
+
+    def _forward_dynamic_shape(self, x: torch.Tensor):
+        batch_shape = x.shape[:-1]
+        x = x.reshape(-1, self.in_features)
+        y = self._forward_static_shape(x)
+        y = y.reshape(*batch_shape, -1)
+        return y
 
     def _forward_with_bias(self, x: torch.Tensor) -> torch.Tensor:
         return super().forward(x, self.weight, self.bias)
@@ -332,5 +344,6 @@ class SparseLinear(SparseMatMul):
         return super()._post_build()
 
     def _read_sample_inputs(self, sample_inputs: List[torch.Tensor]):
+        sample_inputs[0] = sample_inputs[0].reshape((-1, self.in_features))
         sample_inputs.append(self.ports['B'].sample_data)
         return super()._read_sample_inputs(sample_inputs)
