@@ -3,15 +3,19 @@ from typing import Dict, List, Optional, Tuple
 import subprocess
 import json
 from pathlib import Path
+import argparse
+
 
 current_path = Path(__file__).parent
 
 def kernel_execution(kernel: str) -> Tuple[str, float, bool]:
     # kernel execution process
     file_name_new = "kernel_balance_align_reg.cu"
+    build_path = os.path.join(current_path, "build")
+    if not os.path.exists(build_path):
+        # create
+        os.mkdir(build_path)
     new_file_path = os.path.join(current_path, "build", file_name_new)
-    if not os.path.exists(os.path.join(current_path, "build")):
-        os.makedirs(os.path.join(current_path, "build")) 
     with open(new_file_path, 'w') as f:
         f.write(kernel)
     avg_latency, success = run_gpu_kernel(file_name_new)
@@ -77,42 +81,21 @@ def run_kernel(config):
     print(f"M:{M}, K:{K}, N:{N}, sparsity:{sparsity}, success:{success}, time:{avg_latency}")
 
 def main():
-    test_cases = [[256,1024,1024],
-                [1024,1024,1024],
-                [4096,1024,1024],
-                [256,2048,2048],
-                [1024,2048,2048],
-                [4096,2048,2048],
-                [256,4096,4096],
-                [1024,4096,4096],
-                [4096,4096,4096],
-                [256,8192,8192],
-                [1024,8192,8192],
-                [4096,8192,8192],
-                [256,1024,4096],
-                [1024,1024,4096],
-                [4096,1024,4096],
-                [256,4096,1024],
-                [1024,4096,1024],
-                [4096,4096,1024],
-                [256,5120,20480],
-                [1024,5120,20480],
-                [4096,5120,20480],
-                [256,20480,5120],
-                [1024,20480,5120],
-                [4096,20480,5120],]
-    for i in range(len(test_cases)):
-        test_case = test_cases[i]
-        for sparsity in [0.875]:
-            config = {}
-            config['M_GLOBAL_VAL'] = test_case[0]
-            config['K_GLOBAL_VAL'] = test_case[1]
-            config['N_GLOBAL_VAL'] = test_case[2]
-            config['SPARSITY_RATIO_VAL'] = sparsity
-            if sparsity == 0.5:
-                config['BLOCK_SIZE_K_VAL'] = 64
-            else:
-                config['BLOCK_SIZE_K_VAL'] = 128
-            run_kernel(config)
+    parser = argparse.ArgumentParser(description='Run kernel')
+    parser.add_argument('--sparsity_ratio', type=float, default=0.875)
+    parser.add_argument('--M', type=int, default=256)
+    parser.add_argument('--K', type=int, default=1024)
+    parser.add_argument('--N', type=int, default=1024)
+    args = parser.parse_args()
+    config = {}
+    config['M_GLOBAL_VAL'] =  args.M
+    config['K_GLOBAL_VAL'] =  args.K
+    config['N_GLOBAL_VAL'] =  args.N
+    config['SPARSITY_RATIO_VAL'] = args.sparsity_ratio
+    if args.sparsity_ratio == 0.5:
+        config['BLOCK_SIZE_K_VAL'] = 64
+    else:
+        config['BLOCK_SIZE_K_VAL'] = 128
+    run_kernel(config)
 
 main()
