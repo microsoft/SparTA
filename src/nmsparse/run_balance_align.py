@@ -10,6 +10,8 @@ def kernel_execution(kernel: str) -> Tuple[str, float, bool]:
     # kernel execution process
     file_name_new = "kernel_balance_align.cu"
     new_file_path = os.path.join(current_path, "build", file_name_new)
+    if not os.path.exists(os.path.join(current_path, "build")):
+        os.makedirs(os.path.join(current_path, "build")) 
     with open(new_file_path, 'w') as f:
         f.write(kernel)
     avg_latency, success = run_gpu_kernel(file_name_new)

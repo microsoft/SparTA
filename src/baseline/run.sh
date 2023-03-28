@@ -1,17 +1,17 @@
-source ~/anaconda/etc/profile.d/conda.sh
-conda activate artifact
+# source ~/anaconda/etc/profile.d/conda.sh
+# conda activate artifact
 
-SPUTNIK_ROOT=/root/sputnik
-CUSPARSELT_ROOT=/root/libcusparse_lt
-nvcc -forward-unknown-to-host-compiler  -I/usr/local/cuda/include -I${SPUTNIK_ROOT} -I${CUSPARSELT_ROOT}/include -I${SPUTNIK_ROOT}/third_party/abseil-cpp -L/usr/local/cuda/lib64  -L${SPUTNIK_ROOT}/build/sputnik -L${CUSPARSELT_ROOT}/lib64  -lcusparse -lcudart -lcusparseLt -lspmm  --generate-code=arch=compute_80,code=sm_80 -std=c++14  sparta.cu -o sparta
-nvcc -forward-unknown-to-host-compiler  -I/usr/local/cuda/include -I${SPUTNIK_ROOT} -I${CUSPARSELT_ROOT}/include -I${SPUTNIK_ROOT}/third_party/abseil-cpp -L/usr/local/cuda/lib64  -L${SPUTNIK_ROOT}/build/sputnik -L${CUSPARSELT_ROOT}/lib64  -lcusparse -lcudart -lcusparseLt -lspmm  --generate-code=arch=compute_80,code=sm_80 -std=c++14  cusparselt.cu -o cusparselt
-nvcc -forward-unknown-to-host-compiler  -I/usr/local/cuda/include -I${SPUTNIK_ROOT} -I${CUSPARSELT_ROOT}/include -I${SPUTNIK_ROOT}/third_party/abseil-cpp -L/usr/local/cuda/lib64  -L${SPUTNIK_ROOT}/build/sputnik -L${CUSPARSELT_ROOT}/lib64  -lcusparse -lcudart -lcusparseLt -lspmm  --generate-code=arch=compute_80,code=sm_80 -std=c++14  cusparselt_int8.cu -o cusparselt_int8
-nvcc -forward-unknown-to-host-compiler  -I/usr/local/cuda/include -I${SPUTNIK_ROOT} -I${CUSPARSELT_ROOT}/include -I${SPUTNIK_ROOT}/third_party/abseil-cpp -L/usr/local/cuda/lib64  -L${SPUTNIK_ROOT}/build/sputnik -L${CUSPARSELT_ROOT}/lib64  -lcusparse -lcudart -lcusparseLt -lspmm  --generate-code=arch=compute_80,code=sm_80 -std=c++14  sputnik.cu -o sputnik
-nvcc -forward-unknown-to-host-compiler  -I/usr/local/cuda/include -I${SPUTNIK_ROOT} -I${CUSPARSELT_ROOT}/include -I${SPUTNIK_ROOT}/third_party/abseil-cpp -L/usr/local/cuda/lib64  -L${SPUTNIK_ROOT}/build/sputnik -L${CUSPARSELT_ROOT}/lib64  -lcusparse -lcudart -lcusparseLt -lspmm  --generate-code=arch=compute_80,code=sm_80 -std=c++14  cusparse_block_ell.cu -o cusparse_block_ell
+# SPUTNIK_ROOT=/root/sputnik
+# CUSPARSELT_ROOT=/root/libcusparse_lt
+# nvcc -forward-unknown-to-host-compiler  -I/usr/local/cuda/include -I${SPUTNIK_ROOT} -I${CUSPARSELT_ROOT}/include -I${SPUTNIK_ROOT}/third_party/abseil-cpp -L/usr/local/cuda/lib64  -L${SPUTNIK_ROOT}/build/sputnik -L${CUSPARSELT_ROOT}/lib64  -lcusparse -lcudart -lcusparseLt -lspmm  --generate-code=arch=compute_80,code=sm_80 -std=c++14  sparta.cu -o sparta
+# nvcc -forward-unknown-to-host-compiler  -I/usr/local/cuda/include -I${SPUTNIK_ROOT} -I${CUSPARSELT_ROOT}/include -I${SPUTNIK_ROOT}/third_party/abseil-cpp -L/usr/local/cuda/lib64  -L${SPUTNIK_ROOT}/build/sputnik -L${CUSPARSELT_ROOT}/lib64  -lcusparse -lcudart -lcusparseLt -lspmm  --generate-code=arch=compute_80,code=sm_80 -std=c++14  cusparselt.cu -o cusparselt
+# nvcc -forward-unknown-to-host-compiler  -I/usr/local/cuda/include -I${SPUTNIK_ROOT} -I${CUSPARSELT_ROOT}/include -I${SPUTNIK_ROOT}/third_party/abseil-cpp -L/usr/local/cuda/lib64  -L${SPUTNIK_ROOT}/build/sputnik -L${CUSPARSELT_ROOT}/lib64  -lcusparse -lcudart -lcusparseLt -lspmm  --generate-code=arch=compute_80,code=sm_80 -std=c++14  cusparselt_int8.cu -o cusparselt_int8
+# nvcc -forward-unknown-to-host-compiler  -I/usr/local/cuda/include -I${SPUTNIK_ROOT} -I${CUSPARSELT_ROOT}/include -I${SPUTNIK_ROOT}/third_party/abseil-cpp -L/usr/local/cuda/lib64  -L${SPUTNIK_ROOT}/build/sputnik -L${CUSPARSELT_ROOT}/lib64  -lcusparse -lcudart -lcusparseLt -lspmm  --generate-code=arch=compute_80,code=sm_80 -std=c++14  sputnik.cu -o sputnik
+# nvcc -forward-unknown-to-host-compiler  -I/usr/local/cuda/include -I${SPUTNIK_ROOT} -I${CUSPARSELT_ROOT}/include -I${SPUTNIK_ROOT}/third_party/abseil-cpp -L/usr/local/cuda/lib64  -L${SPUTNIK_ROOT}/build/sputnik -L${CUSPARSELT_ROOT}/lib64  -lcusparse -lcudart -lcusparseLt -lspmm  --generate-code=arch=compute_80,code=sm_80 -std=c++14  cusparse_block_ell.cu -o cusparse_block_ell
 
-nvcc openai_blocksparse.cu -o openai_blocksparse
-nvcc -lcublas -o cublas cublas.cu
-nvcc -gencode arch=compute_80,code=sm_80 -lcusparse -o cusparse cusparse.cu
+# nvcc openai_blocksparse.cu -o openai_blocksparse
+# nvcc -lcublas -o cublas cublas.cu
+# nvcc -gencode arch=compute_80,code=sm_80 -lcusparse -o cusparse cusparse.cu
 #sparsity_ratio=(0.5 0.6 0.7 0.8 0.9)
 #sparsity_ratio=(0.5 0.75 0.9)
 sparsity_ratio=(0.5)
@@ -31,8 +31,15 @@ do
 	    do
                 echo $m $k $n $sparsity
         		# ./cublas $sparsity $m $k $n > log/cublas_${m}_${k}_${n}_${sparsity}.log
-                #./sputnik $sparsity  $m $k $n > log/sputnik_${m}_${k}_${n}_${sparsity}.log
-                #./cusparse $sparsity  $m $k $n > log/cusparse_${m}_${k}_${n}_${sparsity}.log
+                # ./sputnik $sparsity  $m $k $n > log/sputnik_${m}_${k}_${n}_${sparsity}.log
+                # ./cusparse $sparsity  $m $k $n > log/cusparse_${m}_${k}_${n}_${sparsity}.log
+                python ../nmsparse/run_balance_align_reg_block.py --sparsity_ratio $sparsity --M $m --K $k --N $n > log/nmsparse_run_balance_align_reg_block_${m}_${k}_${n}_${sparsity}.log
+                # python ../nmsparse/run_balance_align_reg.py --sparsity_ratio $sparsity --M $m --K $k --N $n > log/run_balance_align_reg_${m}_${k}_${n}_${sparsity}.log
+                # python ../nmsparse/run_balance_align.py --sparsity_ratio $sparsity --M $m --K $k --N $n > log/run_balance_align_${m}_${k}_${n}_${sparsity}.log
+                # python ../nmsparse/run_mv_one_kernel_block_batch.py --sparsity_ratio $sparsity --M $m --K $k --N $n > log/run_mv_one_kernel_block_batch_${m}_${k}_${n}_${sparsity}.log
+                # python ../nmsparse/run_mv_one_kerrun_balance_align_sharednel_block.py --sparsity_ratio $sparsity --M $m --K $k --N $n > log/run_balance_align_shared_${m}_${k}_${n}_${sparsity}.log
+                # python ../nmsparse/run_mv_one_kerrun_balance_align_sharednel_block_int8.py --sparsity_ratio $sparsity --M $m --K $k --N $n > log/run_balance_align_shared_int8_${m}_${k}_${n}_${sparsity}.log
+
             done
        	done
     done
