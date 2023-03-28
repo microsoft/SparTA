@@ -16,7 +16,7 @@ Documentation: the following document includes detailed guidelines on how to bui
 First, git clone the source code.
 ```
 git clone https://github.com/microsoft/SparTA
-cd nni && git checkout nmsparse_artifact
+cd SparTA && git checkout nmsparse_artifact
 ```
 To make the reproducing easier, we provide a docker image that contains all dependencies and baselines. Build the docker image:
 ```
