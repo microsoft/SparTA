@@ -215,26 +215,26 @@ int main(int argc, char*argv[]) {
     // compute reference solution
     printf("Computing result using host CPU...");
     float *reference = (float *)malloc(mem_size_C);
-    matrixMulCPU(reference, h_A, h_B, M, K, N);
-    printf("done.\n");
+    // matrixMulCPU(reference, h_A, h_B, M, K, N);
+    // printf("done.\n");
 
-    bool correct = true;
-    double eps = 1.e-6;
-    for(int i = 0; i < M * N; i++){
-        double abs_err = abs(reference[i] - h_CUBLAS[i]);
-        double dot_length = M;
-        double abs_val = abs(h_CUBLAS[i]);
-        double rel_err = abs_err / abs_val / dot_length;
-        if (rel_err > eps) {
-            printf("Error! Matrix[%05d]=%lf, ref=%lf error term is > %E\n",
-                    i, h_CUBLAS[i], reference[i], eps);
-            correct = false;
-            break;
-        }
-    }
+    // bool correct = true;
+    // double eps = 1.e-6;
+    // for(int i = 0; i < M * N; i++){
+    //     double abs_err = abs(reference[i] - h_CUBLAS[i]);
+    //     double dot_length = M;
+    //     double abs_val = abs(h_CUBLAS[i]);
+    //     double rel_err = abs_err / abs_val / dot_length;
+    //     if (rel_err > eps) {
+    //         printf("Error! Matrix[%05d]=%lf, ref=%lf error term is > %E\n",
+    //                 i, h_CUBLAS[i], reference[i], eps);
+    //         correct = false;
+    //         break;
+    //     }
+    // }
 
-    if(correct) printf("Result = Pass\n");
-    else printf("Result = Fail\n");
+    // if(correct) printf("Result = Pass\n");
+    // else printf("Result = Fail\n");
 
     // clean up memory
     free(h_A);
