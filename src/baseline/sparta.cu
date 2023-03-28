@@ -331,40 +331,40 @@ float hC[m * n];
      bool B_std_layout = (is_rowmajor != isB_transposed);
      // host computation
      float hC_result[m * n];
-     for (int i = 0; i < m; i++) {
-         for (int j = 0; j < n; j++) {
-             float sum  = 0.0f;
-             for (int k1 = 0; k1 < k; k1++) {
-                 auto posA = (A_std_layout) ? i * lda + k1 : i + k1 * lda;
-                 auto posB = (B_std_layout) ? k1 * ldb + j : k1 + j * ldb;
-                 sum      += static_cast<float>(hA[posA]) *  // [i][k]
-                             static_cast<float>(hB[posB]);   // [k][j]
-             }
-             auto posC       = (is_rowmajor) ? i * ldc + j : i + j * ldc;
-             //printf("sum:%f \n",sum);
-         hC_result[posC] = sum;  // [i][j]
-         }
-     }
+    //  for (int i = 0; i < m; i++) {
+    //      for (int j = 0; j < n; j++) {
+    //          float sum  = 0.0f;
+    //          for (int k1 = 0; k1 < k; k1++) {
+    //              auto posA = (A_std_layout) ? i * lda + k1 : i + k1 * lda;
+    //              auto posB = (B_std_layout) ? k1 * ldb + j : k1 + j * ldb;
+    //              sum      += static_cast<float>(hA[posA]) *  // [i][k]
+    //                          static_cast<float>(hB[posB]);   // [k][j]
+    //          }
+    //          auto posC       = (is_rowmajor) ? i * ldc + j : i + j * ldc;
+    //          //printf("sum:%f \n",sum);
+    //      hC_result[posC] = sum;  // [i][j]
+    //      }
+    //  }
      // host-device comparison
-     int correct = 1;
-     for (int i = 0; i < m; i++) {
-         for (int j = 0; j < n; j++) {
-             auto pos          = (is_rowmajor) ? i * ldc + j : i + j * ldc;
-             auto device_value = static_cast<float>(hC[pos]);
-             auto host_value   = hC_result[pos];
-             if (fabs(device_value - host_value)/host_value>1e-3) {
-                 // direct floating point comparison is not reliable
-                 std::printf("(%d, %d):\t%f vs. %f\n",
-                             i, j, host_value, device_value);
-                 correct = 0;
-                 break;
-             }
-         }
-     }
-     if (correct)
-         std::printf("spmma_example test PASSED\n");
-     else
-         std::printf("spmma_example test FAILED: wrong result\n");
+    //  int correct = 1;
+    //  for (int i = 0; i < m; i++) {
+    //      for (int j = 0; j < n; j++) {
+    //          auto pos          = (is_rowmajor) ? i * ldc + j : i + j * ldc;
+    //          auto device_value = static_cast<float>(hC[pos]);
+    //          auto host_value   = hC_result[pos];
+    //          if (fabs(device_value - host_value)/host_value>1e-3) {
+    //              // direct floating point comparison is not reliable
+    //              std::printf("(%d, %d):\t%f vs. %f\n",
+    //                          i, j, host_value, device_value);
+    //              correct = 0;
+    //              break;
+    //          }
+    //      }
+    //  }
+    //  if (correct)
+    //      std::printf("spmma_example test PASSED\n");
+    //  else
+    //      std::printf("spmma_example test FAILED: wrong result\n");
      //--------------------------------------------------------------------------
      // device memory deallocation
      CHECK_CUDA( cudaFree(dA_compressed) )

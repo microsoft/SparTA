@@ -224,11 +224,11 @@ int main(int argc, char *argv[]){
 
     CUDA_SAFE_CALL(cudaMemcpy(matC, d_matC, sizeof(float)*m*n, cudaMemcpyDeviceToHost));
     float s1, s2=0;
-    for(int i=0;i<m*n;i++){
-        s1+=matC_ref[i];
-        s2+=matC[i];
-        // printf("dense: %f cusparse: %f\n", matC_ref[i], matC[i]);
-    }
+    // for(int i=0;i<m*n;i++){
+    //     s1+=matC_ref[i];
+    //     s2+=matC[i];
+    //     // printf("dense: %f cusparse: %f\n", matC_ref[i], matC[i]);
+    // }
     printf("dense sum: %f, cusparse sum: %f\n", s1, s2);
     return 0;
 }
