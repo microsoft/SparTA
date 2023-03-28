@@ -33,12 +33,12 @@ do
         		# ./cublas $sparsity $m $k $n > log/cublas_${m}_${k}_${n}_${sparsity}.log
                 # ./sputnik $sparsity  $m $k $n > log/sputnik_${m}_${k}_${n}_${sparsity}.log
                 # ./cusparse $sparsity  $m $k $n > log/cusparse_${m}_${k}_${n}_${sparsity}.log
-                # python ./nmsparse_script/run_balance_align_reg_block.py --sparsity_ratio $sparsity --M $m --K $k --N $n > log/nmsparse_run_balance_align_reg_block_${m}_${k}_${n}_${sparsity}.log
-                # python ./nmsparse_script/run_balance_align_reg.py --sparsity_ratio $sparsity --M $m --K $k --N $n > log/run_balance_align_reg_${m}_${k}_${n}_${sparsity}.log
-                # python ./nmsparse_script/run_balance_align.py --sparsity_ratio $sparsity --M $m --K $k --N $n > log/run_balance_align_${m}_${k}_${n}_${sparsity}.log
-                # python ./nmsparse_script/run_mv_one_kernel_block_batch.py --sparsity_ratio $sparsity --M $m --K $k --N $n > log/run_mv_one_kernel_block_batch_${m}_${k}_${n}_${sparsity}.log
-                # python ./nmsparse_script/run_mv_one_kerrun_balance_align_sharednel_block.py --sparsity_ratio $sparsity --M $m --K $k --N $n > log/run_balance_align_shared_${m}_${k}_${n}_${sparsity}.log
-                # python ./nmsparse_script/run_mv_one_kerrun_balance_align_sharednel_block_int8.py --sparsity_ratio $sparsity --M $m --K $k --N $n > log/run_balance_align_shared_int8_${m}_${k}_${n}_${sparsity}.log
+                python ../nmsparse/run_balance_align_reg_block.py --sparsity_ratio $sparsity --M $m --K $k --N $n > log/nmsparse_run_balance_align_reg_block_${m}_${k}_${n}_${sparsity}.log
+                # python ../nmsparse/run_balance_align_reg.py --sparsity_ratio $sparsity --M $m --K $k --N $n > log/run_balance_align_reg_${m}_${k}_${n}_${sparsity}.log
+                # python ../nmsparse/run_balance_align.py --sparsity_ratio $sparsity --M $m --K $k --N $n > log/run_balance_align_${m}_${k}_${n}_${sparsity}.log
+                # python ../nmsparse/run_mv_one_kernel_block_batch.py --sparsity_ratio $sparsity --M $m --K $k --N $n > log/run_mv_one_kernel_block_batch_${m}_${k}_${n}_${sparsity}.log
+                # python ../nmsparse/run_mv_one_kerrun_balance_align_sharednel_block.py --sparsity_ratio $sparsity --M $m --K $k --N $n > log/run_balance_align_shared_${m}_${k}_${n}_${sparsity}.log
+                # python ../nmsparse/run_mv_one_kerrun_balance_align_sharednel_block_int8.py --sparsity_ratio $sparsity --M $m --K $k --N $n > log/run_balance_align_shared_int8_${m}_${k}_${n}_${sparsity}.log
 
             done
        	done

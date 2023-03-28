@@ -1,1 +1,6 @@
-/csrc/nmsparse_script/build
+/workspace/v-leiwang3/SparTA/src/nmsparse/build
+
+!log/.gitkeep
+
+log/
+
