@@ -22,6 +22,12 @@ WORKDIR /root
 RUN wget https://developer.download.nvidia.com/compute/libcusparse-lt/0.2.0/local_installers/libcusparse_lt-linux-x86_64-0.2.0.1.tar.gz && \
     tar xzvf libcusparse_lt-linux-x86_64-0.2.0.1.tar.gz
 
+
+# install nnfusion
+RUN git clone https://github.com/zheng-ningxin/nnfusion.git && cd nnfusion && git checkout hardware_sparse && \
+    ./maint/script/install_dependency.sh && mkdir build && cd build && cmake .. && make -j
+
+
 # install sputnik
 RUN git clone --recurse-submodules https://github.com/zheng-ningxin/sputnik.git && \
     cd sputnik && mkdir build && cd build && \
@@ -34,7 +40,31 @@ RUN wget https://repo.anaconda.com/archive/Anaconda3-2021.11-Linux-x86_64.sh && 
     eval "$(/root/anaconda/bin/conda shell.bash hook)" && conda create -n artifact python=3.8 -y && \
     conda activate artifact && pip install torch==1.7.0 torchvision==0.8.0 matplotlib pandas
 
-RUN echo 'export CUDA_HOME=/usr/local/cuda \n\
-export LD_LIBRARY_PATH=/root/libcusparse_lt/lib64:$LD_LIBRARY_PATH \n\
+
+# install nni
+RUN git clone https://github.com/zheng-ningxin/nni.git && cd nni && git checkout bbp && \
+    eval "$(/root/anaconda/bin/conda shell.bash hook)" && conda activate artifact && pip install -U -r dependencies/setup.txt && \
+    pip install -r dependencies/develop.txt && python setup.py develop && pip install tensorboard transformers==3.5.0 onnxruntime graphviz onnx soundfile datasets==2.0.0 ply matplotlib numpy librosa
+
+
+# install sparta utils
+RUN git clone https://github.com/zheng-ningxin/SparTA.git && cd SparTA && git checkout hardware_sparse && \
+    eval "$(/root/anaconda/bin/conda shell.bash hook)" && conda activate artifact && python setup.py develop
+
+
+# RUN echo 'export CUDA_HOME=/usr/local/cuda \n\
+# export LD_LIBRARY_PATH=/root/libcusparse_lt/lib64:$LD_LIBRARY_PATH \n\
+# source ~/anaconda/etc/profile.d/conda.sh \n\
+# ' >> /root/.bashrc
+
+# install azcopy
+# RUN wget https://aka.ms/downloadazcopy-v10-linux && tar xzvf downloadazcopy-v10-linux && cp azcopy_linux_amd64_10.14.1/azcopy /usr/local/bin
+
+# configure the bashrc
+RUN echo 'export NNFUSION_HOME=/root/nnfusion \n\
+export TACO_HOME=/root/taco \n\
+export PYTHONPATH=/root/tvm/python:$PYTHONPATH \n\
+export PATH=$NNFUSION_HOME/build/src/tools/nnfusion:$PATH \n\
+export CUDA_HOME=/usr/local/cuda \n\
 source ~/anaconda/etc/profile.d/conda.sh \n\
 ' >> /root/.bashrc
