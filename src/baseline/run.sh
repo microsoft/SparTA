@@ -12,46 +12,47 @@ nvcc -forward-unknown-to-host-compiler  -I/usr/local/cuda/include -I${SPUTNIK_RO
 nvcc openai_blocksparse.cu -o openai_blocksparse
 nvcc -lcublas -o cublas cublas.cu
 nvcc -gencode arch=compute_80,code=sm_80 -lcusparse -o cusparse cusparse.cu
-sparsity_ratio=(0.5 0.6 0.7 0.8 0.9)
-#sparsity_ratio=(0.5 0.75 0.9)
-# sparsity_ratio=(0.5)
-#M=(1 16 256 1024 4096)
-#KN=(1024 2048 4096 8192)
-M=(1 16 256 1024 4096)
-K=(1024 2048 4096 5120 8192)
-# K=(1024 2048 4096 5120 8192 20480)
-# N=(1024 2048 4096 5120 8192 20480)
-N=(1024 2048 4096 5120 8192)
-mkdir -p log
-for sparsity in ${sparsity_ratio[@]}
-do
-    for m in ${M[@]}
-    do
-        for k in ${K[@]}
-	do
-	    for n in ${N[@]}
-	    do
-                echo $m $k $n $sparsity
-        		./cublas $sparsity $m $k $n > log/cublas_${m}_${k}_${n}_${sparsity}.log
-                ./sputnik $sparsity  $m $k $n > log/sputnik_${m}_${k}_${n}_${sparsity}.log
-                ./cusparse $sparsity  $m $k $n > log/cusparse_${m}_${k}_${n}_${sparsity}.log
-            done
-       	done
-    done
-done
+python run.py
+# sparsity_ratio=(0.5 0.6 0.7 0.8 0.9)
+# #sparsity_ratio=(0.5 0.75 0.9)
+# # sparsity_ratio=(0.5)
+# #M=(1 16 256 1024 4096)
+# #KN=(1024 2048 4096 8192)
+# M=(1 16 256 1024 4096)
+# K=(1024 2048 4096 5120 8192)
+# # K=(1024 2048 4096 5120 8192 20480)
+# # N=(1024 2048 4096 5120 8192 20480)
+# N=(1024 2048 4096 5120 8192)
+# mkdir -p log
+# for sparsity in ${sparsity_ratio[@]}
+# do
+#     for m in ${M[@]}
+#     do
+#         for k in ${K[@]}
+# 	do
+# 	    for n in ${N[@]}
+# 	    do
+#                 echo $m $k $n $sparsity
+#         		./cublas $sparsity $m $k $n > log/cublas_${m}_${k}_${n}_${sparsity}.log
+#                 ./sputnik $sparsity  $m $k $n > log/sputnik_${m}_${k}_${n}_${sparsity}.log
+#                 ./cusparse $sparsity  $m $k $n > log/cusparse_${m}_${k}_${n}_${sparsity}.log
+#             done
+#        	done
+#     done
+# done
 
 
-for m in ${M[@]}
-do
-    for k in ${K[@]}
-do
-        for n in ${N[@]}
-        do
-            echo $m $k $n
-            ./cusparselt 0 $m $k $n > log/cusparselt_${m}_${k}_${n}_0.5.log
-        done
-    done
-done
+# for m in ${M[@]}
+# do
+#     for k in ${K[@]}
+# do
+#         for n in ${N[@]}
+#         do
+#             echo $m $k $n
+#             ./cusparselt 0 $m $k $n > log/cusparselt_${m}_${k}_${n}_0.5.log
+#         done
+#     done
+# done
 
 #mkdir -p log
 #for sparsity in ${sparsity_ratio[@]}
