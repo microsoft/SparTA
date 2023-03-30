@@ -8,5 +8,5 @@ for shape_id in range(len(shape_list)):
         os.system(f'./cublas {sparsity} {m} {k} {n} > log/cublas_M{shape_id}_${sparsity}.log')
         os.system(f'./cusparse {sparsity} {m} {k} {n} > log/cusparse_M{shape_id}_${sparsity}.log')
         os.system(f'./sputnik {sparsity} {m} {k} {n} > log/sputnik_M{shape_id}_${sparsity}.log')
-    os.ssytem(f'./cusparselt 0 {m} {k} {n} > log/cusparselt_M{shape_id}_0.5.log')
+    os.system(f'./cusparselt 0 {m} {k} {n} > log/cusparselt_M{shape_id}_0.5.log')
     
