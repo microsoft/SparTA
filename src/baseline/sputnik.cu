@@ -182,7 +182,7 @@ int main(int argc, char*argv[]) {
     //--------------------------------------------------------------------------
     
     float ms_total;
-    int n_iter = 1000;
+    int n_iter = 100;
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);

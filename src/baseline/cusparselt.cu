@@ -308,7 +308,7 @@ float *hC;
      //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
      // Perform the matrix multiplication
      float ms_total;
-     int n_iter = 1000;
+     int n_iter = 100;
      cudaEvent_t start, stop;
      cudaEventCreate(&start);
      cudaEventCreate(&stop);
