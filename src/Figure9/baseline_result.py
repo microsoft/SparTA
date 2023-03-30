@@ -28,6 +28,6 @@ for f in file_list:
     baseline, shape_id, sparsity = parse_file_name(f)
     f_path = os.path.join(args.prefix, f)
     time_cost = get_kernel_run_time(f_path)
-    if(time_cost):
-        print('SpMV sparsity ratio={sparsity} shape={shape_id} kernel={baseline} latency={time_cost} ')
+    if time_cost and shape_id in target_shape:
+        print(f'SpMV sparsity ratio={sparsity} shape={shape_id} kernel={baseline} latency={time_cost} ')
 
