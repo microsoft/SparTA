@@ -5,6 +5,7 @@ sparsity_ratio=[0.5, 0.6, 0.7, 0.8, 0.9]
 for shape_id in range(len(shape_list)):
     for sparsity in sparsity_ratio:    
         m, k,  n = shape_list[shape_id]
+        print(f"{m} {k} {n} {sparsity}")
         os.system(f'./cublas {sparsity} {m} {k} {n} > log/cublas_M{shape_id}_{sparsity:.2f}.log')
         os.system(f'./cusparse {sparsity} {m} {k} {n} > log/cusparse_M{shape_id}_{sparsity:.2f}.log')
         os.system(f'./sputnik {sparsity} {m} {k} {n} > log/sputnik_M{shape_id}_{sparsity:.2f}.log')
