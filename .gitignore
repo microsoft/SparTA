@@ -1,6 +1,7 @@
-./src/nmsparse/build
-
 !log/.gitkeep
 
 log/
 
+core
+
+src/nmsparse/build/*
