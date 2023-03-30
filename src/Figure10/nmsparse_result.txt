@@ -1,0 +1,2 @@
+SpMV sparsity ratio=0.5 shape=M9 kernel=nmSPARSE_EW latency=0.092303
+SpMV sparsity ratio=0.5 shape=M9 kernel=nmSPARSE_VW4 latency=0.065536
