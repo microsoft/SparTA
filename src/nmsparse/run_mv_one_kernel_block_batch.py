@@ -66,7 +66,7 @@ def verify_successful(file_name):
         return False
     return True
 
-def run_kernel(config):
+def run_kernel(config, name):
     template_name = os.path.join(current_path, "template","MV_one_kernel_block_batch.cu")
     f_template = open(template_name)
     template_str = f_template.read()
@@ -78,12 +78,13 @@ def run_kernel(config):
     K = config['K_GLOBAL_VAL']
     N = config['N_GLOBAL_VAL']
     sparsity = config['SPARSITY_RATIO_VAL']
-    print(f"M:{M}, K:{K}, N:{N}, sparsity:{sparsity}, success:{success}, time:{avg_latency}")
+    print(f"SpMV sparsity ratio={sparsity} shape={name} kernel=nmSPARSE latency={avg_latency}")
 
 def main():
     parser = argparse.ArgumentParser(description='Run kernel')
     parser.add_argument('--sparsity_ratio', type=float, default=0.875)
-    parser.add_argument('--M', type=int, default=256)
+    parser.add_argument('--name', type=str, default='M1')
+    parser.add_argument('--M', type=int, default=1)
     parser.add_argument('--K', type=int, default=1024)
     parser.add_argument('--N', type=int, default=1024)
     args = parser.parse_args()
@@ -92,6 +93,6 @@ def main():
     config['K_GLOBAL_VAL'] =  args.K
     config['N_GLOBAL_VAL'] =  args.N
     config['SPARSITY_RATIO_VAL'] = args.sparsity_ratio
-    run_kernel(config)
+    run_kernel(config, args.name)
 
 main()
