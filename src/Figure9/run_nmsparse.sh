@@ -1,4 +1,4 @@
-sparsity_ratio=(0.5 0.75 0.9)
+sparsity_ratio=(0.5 0.75 0.90625)
 # M1 M2 M3 M4 M5 M6 M7 M8
 # m 1 1 1 1 1 1 1 1
 # k 1024 2048 4096 8192 1024 4096 5120 20480
@@ -23,6 +23,6 @@ do
         k=`echo $info | awk '{print $3}'`
         n=`echo $info | awk '{print $4}'`
         echo $name $m $k $n $sparsity
-        python ./src/nmsparse/run_mv_one_kernel_block_batch.py --sparsity_ratio $sparsity --name $name --M $m --K $k --N $n >> ./src/Figure9/nmsparse_result.txt
+        python ../nmsparse/run_SPMV_EW.py --sparsity_ratio $sparsity --name $name --M $m --K $k --N $n >> ./nmsparse_result.txt
     done
 done

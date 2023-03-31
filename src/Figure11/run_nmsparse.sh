@@ -1,4 +1,4 @@
-sparsity_ratio=(0.5 0.75 0.9)
+sparsity_ratio=(0.5 0.75 0.90625)
 # M9 M10 M11 M12 M13 M14 M15 M16
 # m 256 1024 4096 256 1024 4096 256 1024
 # k 1024 1024 1024 2048 2048 2048 4096 4096
@@ -48,7 +48,7 @@ do
         k=`echo $info | awk '{print $3}'`
         n=`echo $info | awk '{print $4}'`
         echo $name $m $k $n $sparsity
-        # BW64x64
-        python src/nmsparse/run_balance_align_shared_int8.py --sparsity_ratio $sparsity --name $name --M $m --K $k --N $n >> ./src/Figure11/nmsparse_result.txt
+        # VW64
+        python ../nmsparse/run_SPMM_TC_VW64.py --sparsity_ratio $sparsity --name $name --M $m --K $k --N $n >> ./nmsparse_result.txt
     done
 done

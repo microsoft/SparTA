@@ -10,7 +10,7 @@ current_path = Path(__file__).parent
 
 def kernel_execution(kernel: str) -> Tuple[str, float, bool]:
     # kernel execution process
-    file_name_new = "kernel_balance_align_shared.cu"
+    file_name_new = "kernel_balance_align.cu"
     build_path = os.path.join(current_path, "build")
     if not os.path.exists(build_path):
         # create
@@ -68,7 +68,7 @@ def verify_successful(file_name):
     return True
 
 def run_kernel(config, name):
-    template_name = os.path.join(current_path, "template","balance_align_shared.cu")
+    template_name = os.path.join(current_path, "template","balance_align.cu")
     f_template = open(template_name)
     template_str = f_template.read()
     for key, value in config.items():
@@ -80,8 +80,7 @@ def run_kernel(config, name):
     N = config['N_GLOBAL_VAL']
     sparsity = config['SPARSITY_RATIO_VAL']
     # print(f"M:{M}, K:{K}, N:{N}, sparsity:{sparsity}, success:{success}, time:{avg_latency}")
-    print(f"SpMV sparsity ratio={sparsity} shape={name} kernel=nmSPARSE_VW32 latency={avg_latency}")
-
+    print(f"SpMM on CudaCore sparsity ratio={sparsity} shape={name} kernel=nmSPARSE_EW latency={avg_latency}")
 
 def main():
     parser = argparse.ArgumentParser(description='Run kernel')
@@ -96,10 +95,6 @@ def main():
     config['K_GLOBAL_VAL'] =  args.K
     config['N_GLOBAL_VAL'] =  args.N
     config['SPARSITY_RATIO_VAL'] = args.sparsity_ratio
-    if args.sparsity_ratio == 0.5:
-        config['BLOCK_SIZE_K_VAL'] = 128
-    else:
-        config['BLOCK_SIZE_K_VAL'] = 256
     run_kernel(config, args.name)
 
 main()

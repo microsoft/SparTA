@@ -79,7 +79,7 @@ def run_kernel(config, name):
     N = config['N_GLOBAL_VAL']
     sparsity = config['SPARSITY_RATIO_VAL']
     # print(f"M:{M}, K:{K}, N:{N}, sparsity:{sparsity}, success:{success}, time:{avg_latency}")
-    print(f"SpMV sparsity ratio={sparsity} shape={name} kernel=nmSPARSE_VW4 latency={avg_latency}")
+    print(f"SpMM on CudaCore sparsity ratio={sparsity} shape={name} kernel=nmSPARSE_VW4 latency={avg_latency}")
 
 def main():
     parser = argparse.ArgumentParser(description='Run kernel')

@@ -1,4 +1,4 @@
-sparsity_ratio=(0.5 0.75 0.9)
+sparsity_ratio=(0.5 0.75 0.90625)
 # M9 M10 M11 M12 M13 M14 M15 M16
 # m 256 1024 4096 256 1024 4096 256 1024
 # k 1024 1024 1024 2048 2048 2048 4096 4096
@@ -49,12 +49,12 @@ do
         n=`echo $info | awk '{print $4}'`
         echo $name $m $k $n $sparsity
         # EW
-        python src/nmsparse/run_balance_align.py --sparsity_ratio $sparsity --name $name --M $m --K $k --N $n >> ./src/Figure10/nmsparse_result.txt
+        python ../nmsparse/run_SPMM_SIMT_EW.py --sparsity_ratio $sparsity --name $name --M $m --K $k --N $n >>./nmsparse_result.txt
         # VW4
-        python src/nmsparse/run_balance_align_reg.py --sparsity_ratio $sparsity --name $name --M $m --K $k --N $n >> ./src/Figure10/nmsparse_result.txt
+        python ../nmsparse/run_SPMM_SIMT_VW4.py --sparsity_ratio $sparsity --name $name --M $m --K $k --N $n >>./nmsparse_result.txt
         # VW32
-        python src/nmsparse/run_balance_align_shared.py --sparsity_ratio $sparsity --name $name --M $m --K $k --N $n >> ./src/Figure10/nmsparse_result.txt
+        python ../nmsparse/run_SPMM_SIMT_VW32.py --sparsity_ratio $sparsity --name $name --M $m --K $k --N $n >>./nmsparse_result.txt
         # BW4x4
-        python src/nmsparse/run_balance_align_reg_block.py --sparsity_ratio $sparsity --name $name --M $m --K $k --N $n >> ./src/Figure10/nmsparse_result.txt
+        python ../nmsparse/run_SPMM_SIMT_BW4x4.py --sparsity_ratio $sparsity --name $name --M $m --K $k --N $n >>./nmsparse_result.txt
     done
 done

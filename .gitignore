@@ -4,4 +4,7 @@ log/
 
 core
 
-src/nmsparse/build/*
+/src/nmsparse/build/*
+
+# ignore all .txt files in the root directory and all subdirectories
+**/*.txt
