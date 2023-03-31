@@ -50,5 +50,7 @@ do
         echo $name $m $k $n $sparsity
         # VW64
         python ../nmsparse/run_SPMM_TC_VW64.py --sparsity_ratio $sparsity --name $name --M $m --K $k --N $n >> ./nmsparse_result.txt
+        # BW64x64
+        python ../nmsparse/run_SPMM_TC_BW64x64.py --sparsity_ratio $sparsity --name $name --M $m --K $k --N $n >> ./nmsparse_result.txt
     done
 done

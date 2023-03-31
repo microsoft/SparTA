@@ -583,8 +583,8 @@ int oneKernel(int w, const int h, const int vecNum, const int BLOCK_WIDTH, const
 	free(vec);
 	free(mat_data);
 	free(mat_index);
-	free(mat_data_for_gpu);
-	free(mat_index_for_gpu);
+	// free(mat_data_for_gpu);
+	// free(mat_index_for_gpu);
 	free(hostRef);
 	free(gpuRef);
 	return(0);
