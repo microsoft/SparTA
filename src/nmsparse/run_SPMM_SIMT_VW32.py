@@ -85,7 +85,7 @@ def run_kernel(config, name):
 
 def main():
     parser = argparse.ArgumentParser(description='Run kernel')
-    parser.add_argument('--sparsity_ratio', type=float, default=0.875)
+    parser.add_argument('--sparsity_ratio', type=float, default=0.9)
     parser.add_argument('--name', type=str, default='M9')
     parser.add_argument('--M', type=int, default=256)
     parser.add_argument('--K', type=int, default=1024)
