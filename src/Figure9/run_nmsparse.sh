@@ -23,6 +23,6 @@ do
         k=`echo $info | awk '{print $3}'`
         n=`echo $info | awk '{print $4}'`
         echo $name $m $k $n $sparsity
-        python ../nmsparse/run_mv_one_kernel_block_batch.py --sparsity_ratio $sparsity --name $name --M $m --K $k --N $n >> ./nmsparse_result.txt
+        python ../nmsparse/run_SPMV_EW.py --sparsity_ratio $sparsity --name $name --M $m --K $k --N $n >> ./nmsparse_result.txt
     done
 done

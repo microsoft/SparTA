@@ -49,6 +49,6 @@ do
         n=`echo $info | awk '{print $4}'`
         echo $name $m $k $n $sparsity
         # BW64x64
-        python ../nmsparse/run_balance_align_shared_int8.py --sparsity_ratio $sparsity --name $name --M $m --K $k --N $n >> ./nmsparse_result.txt
+        python ../nmsparse/run_SPMM_TC_BW64x64.py --sparsity_ratio $sparsity --name $name --M $m --K $k --N $n >> ./nmsparse_result.txt
     done
 done
