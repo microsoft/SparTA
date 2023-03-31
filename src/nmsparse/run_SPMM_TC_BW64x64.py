@@ -27,7 +27,7 @@ def kernel_execution(kernel: str, sparsity_ratio) -> Tuple[str, float, bool]:
 def run_gpu_kernel(file_name, sparsity_ratio):
     file_path = os.path.join(current_path, "build", file_name)
     executor_path = os.path.splitext(file_path)[0]
-    compile_cmd = 'nvcc -gencode arch=compute_80,code=sm_80 -I{0}/cutlass/include -I{0}/cutlass/examples/common -I{0}/cutlass/examples/43_gemm_block_sparse  \
+    compile_cmd = 'nvcc -gencode arch=compute_80,code=sm_80 -I{0}/cutlass/include -I{0}/cutlass/examples/common -I{0}/cutlass/examples/43_gemm_block_sparse -I{0}/cutlass/tools/util/include  \
     {1} -o {2}'.format(current_path, file_path, executor_path)
     output_file_name = f"output_log.txt"
     output_file_path = os.path.join(current_path, "build", output_file_name)
