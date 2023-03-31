@@ -49,12 +49,12 @@ do
         n=`echo $info | awk '{print $4}'`
         echo $name $m $k $n $sparsity
         # EW
-        python src/nmsparse/run_balance_align.py --sparsity_ratio $sparsity --name $name --M $m --K $k --N $n >> ./src/Figure10/nmsparse_result.txt
+        python ../nmsparse/run_balance_align.py --sparsity_ratio $sparsity --name $name --M $m --K $k --N $n >>./nmsparse_result.txt
         # VW4
-        python src/nmsparse/run_balance_align_reg.py --sparsity_ratio $sparsity --name $name --M $m --K $k --N $n >> ./src/Figure10/nmsparse_result.txt
+        python ../nmsparse/run_balance_align_reg.py --sparsity_ratio $sparsity --name $name --M $m --K $k --N $n >>./nmsparse_result.txt
         # VW32
-        python src/nmsparse/run_balance_align_shared.py --sparsity_ratio $sparsity --name $name --M $m --K $k --N $n >> ./src/Figure10/nmsparse_result.txt
+        python ../nmsparse/run_balance_align_shared.py --sparsity_ratio $sparsity --name $name --M $m --K $k --N $n >>./nmsparse_result.txt
         # BW4x4
-        python src/nmsparse/run_balance_align_reg_block.py --sparsity_ratio $sparsity --name $name --M $m --K $k --N $n >> ./src/Figure10/nmsparse_result.txt
+        python ../nmsparse/run_balance_align_reg_block.py --sparsity_ratio $sparsity --name $name --M $m --K $k --N $n >>./nmsparse_result.txt
     done
 done
