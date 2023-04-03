@@ -64,6 +64,7 @@ RUN git clone https://github.com/zheng-ningxin/SparTA.git && cd SparTA && git ch
 RUN echo 'export NNFUSION_HOME=/root/nnfusion \n\
 export TACO_HOME=/root/taco \n\
 export PYTHONPATH=/root/tvm/python:$PYTHONPATH \n\
+export LD_LIBRARY_PATH=/root/libcusparse_lt/lib64:$LD_LIBRARY_PATH \n\
 export PATH=$NNFUSION_HOME/build/src/tools/nnfusion:$PATH \n\
 export CUDA_HOME=/usr/local/cuda \n\
 source ~/anaconda/etc/profile.d/conda.sh \n\
