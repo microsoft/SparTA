@@ -30,12 +30,30 @@ Third, start a docker instance
 sudo docker run -it --gpus all --shm-size 16G artifact
 ```
 Following commands are executed in the docker.
-First we also need get the source code and initialize the environment
+First, we also need get the source code and initialize the environment.
 ```
-Run Baselines:
-cd src/baseline
-bash run.sh
-
-Run NMSparse:
+# get source codes and scripts in the docker container
+mkdir workspace && cd workspace
+git clone -b nmsparse_artifact https://github.com/microsoft/SparTA.git
+conda activate artifact
+```
+Then, we can run the artifacts in each folder.
+```
+# navigate to src directory
+cd ./SparTA/src
+# run SpMV experiment in Figure9
+cd Figure9
+bash run_baseline.sh
+bash run_nmsparse.sh
+# run SpMM on CudaCore experiment in Figure10
+cd Figure10
+bash run_baseline.sh
+bash run_nmsparse.sh
+# run SpMM on TensorCore experiment in Figure11
+cd Figure11
+bash run_baseline.sh
+bash run_nmsparse.sh
+# run end2end experiment in Figure12
+cd Figure12
 bash run.sh
 ```
