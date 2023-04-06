@@ -1,6 +1,6 @@
 
 # FROM nvidia/cuda:11.2.0-cudnn8-devel-ubuntu18.04
-FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu18.04
+FROM nvidia/cuda:11.3.0-cudnn8-devel-ubuntu18.04
 # Install tools and dependencies.
 RUN apt-get -y update --fix-missing
 RUN apt-get install -y \
@@ -64,6 +64,9 @@ RUN git clone https://github.com/zheng-ningxin/SparTA.git && cd SparTA && git ch
 RUN echo 'export NNFUSION_HOME=/root/nnfusion \n\
 export TACO_HOME=/root/taco \n\
 export PYTHONPATH=/root/tvm/python:$PYTHONPATH \n\
+export LD_LIBRARY_PATH=$CUDA_HOME/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}} \n\
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CUDA_HOME/extras/CUPTI/lib64 \n\
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib \n\
 export LD_LIBRARY_PATH=/root/libcusparse_lt/lib64:$LD_LIBRARY_PATH \n\
 export PATH=$NNFUSION_HOME/build/src/tools/nnfusion:$PATH \n\
 export CUDA_HOME=/usr/local/cuda \n\
