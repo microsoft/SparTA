@@ -1,15 +1,15 @@
 ## Overview
 
-This branch is for the Mlsys'22 artifact evaluation of paper "EFFICIENT GPU KERNELS FOR N:M-SPARSE WEIGHTS IN DEEP LEARNING". 
+This branch is for the MLSys'23 artifact evaluation of paper "EFFICIENT GPU KERNELS FOR N:M-SPARSE WEIGHTS IN DEEP LEARNING". 
 
 
 ## Evaluation Setup
 
 * Artifacts Available:
-The source code of Sparta is available at: https://github.com/microsoft/SparTA
+The source code of nmSPARSE is available at: https://github.com/microsoft/SparTA/tree/nmsparse_artifact
 
 * Artifacts Functional:
-Documentation: the following document includes detailed guidelines on how to build, install, test NMSparse and the experiments to compare with other baselines.
+Documentation: the following document includes detailed guidelines on how to build, install, test nmSPARSE and the experiments to compare with other baselines.
 
 
 
