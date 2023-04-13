@@ -132,6 +132,8 @@ int main(int argc, char *argv[]){
     const int m = atoi(argv[2]);
     const int k = atoi(argv[3]);
     const int n = atoi(argv[4]);
+    const int nIter = atoi(argv[5]);
+
     //int m=1024, k=1024, n=1024;
     float alpha=1.0, beta=0.0;
     float sparsity = sparsity_ratio;
@@ -142,7 +144,7 @@ int main(int argc, char *argv[]){
     matC_ref = (float*) malloc(sizeof(float)*m*n);
     init(matA, m*k, 0);
     init(matB, k*n, sparsity);
-    calculate_reference(m , k , n , matA, matB, matC_ref);
+    // calculate_reference(m , k , n , matA, matB, matC_ref);
     nnz = convert_csr(matB, k, n, row_idx, col_idx, values);
     int values_size = nnz * sizeof(float);
     int col_idx_size = nnz * sizeof(int);
@@ -193,8 +195,7 @@ int main(int argc, char *argv[]){
     checkCudaErrors(cudaEventCreate(&start));
     checkCudaErrors(cudaEventCreate(&stop));
     float msecTotal = 0;
-    int nIter = 30;
-    
+
     for(int i = 0; i < nIter; i += 1){
         CUSPARSE_SAFE_CALL( cusparseSpMM(cusparse_handle,
             CUSPARSE_OPERATION_TRANSPOSE,
