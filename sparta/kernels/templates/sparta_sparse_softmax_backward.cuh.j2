@@ -2,8 +2,6 @@
 {# Licensed under the MIT license. #}
 
 {% set WARP_SIZE = [32, BLOCK_SIZE_W_VALUE]|min %}
-{% set INI_OFFSET = WARP_SIZE // 2 %}
-#define FULL_MASK 0x{% for _ in range(WARP_SIZE // 4) %}f{% endfor %}
 
 const int block_h = {{ BLOCK_SIZE_H_VALUE }};
 const int block_w = {{ BLOCK_SIZE_W_VALUE }};
@@ -20,6 +18,9 @@ __global__ void SPARSE_SOFTMAX(
     int H,
     int W
 ) {
+    uint WARP_OFFSET = (threadIdx.y % {{ 32 // WARP_SIZE }}) * {{ WARP_SIZE }};
+    uint WARP_MASK = 0x{% for _ in range(WARP_SIZE // 4) %}f{% endfor %} << WARP_OFFSET;
+
     {% if BATCHED %}
     {% if COMPRESSED %}
     int num_nnz = row_ptr[H / block_h];
@@ -64,10 +65,10 @@ __global__ void SPARSE_SOFTMAX(
         regSum += out_val[index] * out_grad[index];
     }
 
-    for (int offset = {{ INI_OFFSET }}; offset > 0; offset >>= 1) {
-        regSum += __shfl_down_sync(FULL_MASK, regSum, offset);
+    #pragma unroll
+    for (int offset = {{ WARP_SIZE // 2 }}; offset > 0; offset >>= 1) {
+        regSum += __shfl_xor_sync(WARP_MASK, regSum, offset);
     }
-    regSum = __shfl_sync(FULL_MASK, regSum, 0);
 
     for (int k = 0; k < val_num; k++) {
         uint index = index_list[k];

@@ -7,8 +7,8 @@ import torch
 
 
 def block_mask(
-    shape: Tuple[int],
-    granularity: Tuple[int] = (1, 1),
+    shape: Tuple[int, int],
+    granularity: Tuple[int, int] = (1, 1),
     sparsity: float = 0.99,
     algo: str = 'rand',
     device: Any = 'cuda',
@@ -32,8 +32,8 @@ def block_mask(
 
 
 def random_block_mask(
-    shape: Tuple[int],
-    granularity: Tuple[int],
+    shape: Tuple[int, int],
+    granularity: Tuple[int, int],
     sparsity: float = 0.99,
     device: Any = 'cuda',
 ):
@@ -50,7 +50,7 @@ def random_block_mask(
     return mask.swapaxes(1, 2).reshape(shape).contiguous()
 
 
-def random_mask(shape: Tuple[int], sparsity: float = 0.99, device: Any = 'cuda'):
+def random_mask(shape: Tuple[int, int], sparsity: float = 0.99, device: Any = 'cuda'):
     """Randomly generate a 2D uint8 tensor as finegrained mask.
 
     Args:

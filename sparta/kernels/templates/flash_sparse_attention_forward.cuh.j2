@@ -1,0 +1,284 @@
+{# Copyright (c) Microsoft Corporation. #}
+{# Licensed under the MIT license. #}
+
+{% set WARP_REDUCE_SIZE = BLOCK_SIZE_S_VALUE // THREAD_SIZE_S_VALUE %}{# WARP_REDUCE_SIZE <= 32 #}
+
+{% set THREADS_PER_BLOCK = WARP_REDUCE_SIZE * BLOCK_SIZE_T_VALUE // THREAD_SIZE_T_VALUE %}
+{% set THREAD_SIZE_D_VALUE = GLOBAL_SIZE_D_VALUE // WARP_REDUCE_SIZE %}
+
+const int BS = {{ BLOCK_SIZE_S_VALUE }};
+const int BT = {{ BLOCK_SIZE_T_VALUE }};
+const int TS = {{ THREAD_SIZE_S_VALUE }};
+const int TT = {{ THREAD_SIZE_T_VALUE }};
+
+const int D = {{ GLOBAL_SIZE_D_VALUE }};
+const int TD = {{ THREAD_SIZE_D_VALUE }};{# D * TS >= BS #}
+
+__global__ void BLOCK_SPARSE_FLASH_ATTENTION(
+    float* Q,
+    float* K,
+    float* V,
+    float* O,
+    float* ML,
+    {# unsigned char* mask, #}
+    uint* block_idx,
+    uint Ns,
+    uint Nt,
+    uint block_nnz
+) {
+    Q += Nt * D * blockIdx.x;
+    K += Ns * D * blockIdx.x;
+    V += Ns * D * blockIdx.x;
+    O += Nt * D * blockIdx.x;
+    ML += Nt * 2 * blockIdx.x;
+
+    uint WARP_OFFSET = (threadIdx.y % {{ 32 // WARP_REDUCE_SIZE }}) * {{ WARP_REDUCE_SIZE }};
+    uint WARP_MASK = 0x{% for _ in range(WARP_REDUCE_SIZE // 4) %}f{% endfor %} << WARP_OFFSET;
+
+    __shared__ float shared_Q[BT * D];
+    __shared__ float shared_K[BS * D];
+    __shared__ float shared_V[BS * D];
+    {# __shared__ float shared_ML[BT * 2]; #}
+    float* shared_ML = shared_Q;
+
+    int SMEM_THREADS_D = D / 4;
+    int SMEM_THREADS_N = {{ THREADS_PER_BLOCK }} / SMEM_THREADS_D;
+
+    int tid = threadIdx.y * blockDim.x + threadIdx.x;
+    int SMEM_TID_N = tid / SMEM_THREADS_D;
+    int SMEM_TID_D = tid % SMEM_THREADS_D * 4;
+
+    float4 tmp_float4;
+    float frag_QO[TT][TD];
+    float frag_KV[TS][TD];
+    float frag_P[TT][TS];
+    float frag_S[TT][TS];
+
+    float temperature = __frsqrt_rn((float)D);
+    float row_max;
+    float row_sum;
+    float row_sum_new;
+    float seg_max;
+    float seg_sum;
+    float row_coef;
+    float seg_coef;
+    int block_row_idx;
+
+    int last_col_idx = -1;
+    {# BCSC #}
+    for (int block = 0; block < block_nnz; block++) {
+        uint idx = block_idx[block];
+        int row_idx = idx & 0xffff;
+        int col_idx = idx >> 16;
+        // if (blockIdx.x == 0 && threadIdx.x == 0 && threadIdx.y == 0)
+        //     printf("#%d: (%d, %d)\n", block, row_idx, col_idx);
+
+        {# Load Q #}
+        #pragma unroll
+        for (int k = SMEM_TID_N; k < BT; k += SMEM_THREADS_N) {
+            *((float4*)(&shared_Q[k * D + SMEM_TID_D])) = *((float4*)(&Q[(row_idx * BT + k) * D + SMEM_TID_D]));
+        }
+        if (col_idx != last_col_idx) {
+            {# Load K #}
+            #pragma unroll
+            for (int k = SMEM_TID_N; k < BS; k += SMEM_THREADS_N) {
+                tmp_float4 = (reinterpret_cast<float4*>(&K[(col_idx * BS + k) * D + SMEM_TID_D]))[0];
+                shared_K[(SMEM_TID_D+0) * BS + k] = tmp_float4.x;
+                shared_K[(SMEM_TID_D+1) * BS + k] = tmp_float4.y;
+                shared_K[(SMEM_TID_D+2) * BS + k] = tmp_float4.z;
+                shared_K[(SMEM_TID_D+3) * BS + k] = tmp_float4.w;
+            }
+            {# Load V #}
+            #pragma unroll
+            for (int k = SMEM_TID_N; k < BS; k += SMEM_THREADS_N) {
+                *((float4*)(&shared_V[k * D + SMEM_TID_D])) = *((float4*)(&V[(col_idx * BS + k) * D + SMEM_TID_D]));
+            }
+            last_col_idx = col_idx;
+        }
+        __syncthreads();
+
+        #pragma unroll
+        for (int js = 0; js < TS; js++) {
+            #pragma unroll
+            for (int jt = 0; jt < TT; jt++) {
+                frag_P[jt][js] = 0;
+            }
+        }
+
+        {# Calc P = Q K^T #}
+        #pragma unroll
+        for (int k = 0; k < D; k += TD) {
+            #pragma unroll
+            for (int i = 0; i < TD; i++) {
+                #pragma unroll
+                for (int jt = 0; jt < TT; jt++) {
+                    frag_QO[jt][i] = shared_Q[(threadIdx.y + blockDim.y * jt) * D + k + i] * temperature;
+                }
+            }
+            #pragma unroll
+            for (int i = 0; i < TD; i++) {
+                #pragma unroll
+                for (int js = 0; js < TS; js++) {
+                    frag_KV[js][i] = shared_K[(k + i) * BS + threadIdx.x + blockDim.x * js];
+                }
+            }
+            #pragma unroll
+            for (int js = 0; js < TS; js++) {
+                #pragma unroll
+                for (int jt = 0; jt < TT; jt++) {
+                    #pragma unroll
+                    for (int i = 0; i < TD; i++) {
+                        frag_P[jt][js] += frag_QO[jt][i] * frag_KV[js][i];
+                    }
+                }
+            }
+        }
+        __syncthreads();
+
+        {# Load M, L #}
+        #pragma unroll
+        for (int jt = tid * 2; jt < BT; jt += {{ THREADS_PER_BLOCK * 2 }}) {
+            *((float4*)(&shared_ML[jt * 2])) = *((float4*)(&ML[(row_idx * BT + jt) * 2]));
+        }
+        __syncthreads();
+        // if (blockIdx.x == 0 && threadIdx.x == 0 && threadIdx.y == 0 && row_idx == 0) {
+        //     printf("P%d[0] = %f\n", col_idx + 1, frag_P[0][0]);
+        //     printf("M = %f, L = %f\n", shared_ML[0], shared_ML[1]);
+        // }
+
+        {# Load O #}
+        #pragma unroll
+        for (int jt = 0; jt < TT; jt++) {
+            {% if THREAD_SIZE_D_VALUE == 1 %}
+            frag_QO[jt] = O[(row_idx * BT + threadIdx.y + blockDim.y * jt) * D + threadIdx.x];
+            {% elif THREAD_SIZE_D_VALUE == 2 %}
+            *((float2*)(&frag_QO[jt][0])) =
+                *((float2*)(&O[(row_idx * BT + threadIdx.y + blockDim.y * jt) * D + threadIdx.x * 2]));
+            {% else %}
+            #pragma unroll
+            for (int i = 0; i < TD; i += 4) {
+                *((float4*)(&frag_QO[jt][i])) =
+                    *((float4*)(&O[(row_idx * BT + threadIdx.y + blockDim.y * jt) * D + threadIdx.x * TD + i]));
+            }
+            {% endif %}
+        }
+
+        #pragma unroll
+        for (int jt = 0; jt < TT; jt++) {
+            {# Calc M~ = max_j(P) #}
+            seg_max = -100000.0;
+            #pragma unroll
+            for (int js = 0; js < TS; js++) {
+                seg_max = max(seg_max, frag_P[jt][js]);
+            }
+            #pragma unroll
+            for (int offset = {{ WARP_REDUCE_SIZE // 2 }}; offset > 0; offset >>= 1) {
+                seg_max = max(seg_max, __shfl_xor_sync(WARP_MASK, seg_max, offset));
+            }
+            {# Calc S = exp(P - M~) #}
+            #pragma unroll
+            for (int js = 0; js < TS; js++) {
+                frag_P[jt][js] = expf(frag_P[jt][js] - seg_max);
+            }
+            {# Calc L~ = sum_j(P) #}
+            seg_sum = 0.0f;
+            #pragma unroll
+            for (int js = 0; js < TS; js++) {
+                seg_sum += frag_P[jt][js];
+            }
+            #pragma unroll
+            for (int offset = {{ WARP_REDUCE_SIZE // 2 }}; offset > 0; offset >>= 1) {
+                seg_sum += __shfl_down_sync(WARP_MASK, seg_sum, offset);
+            }
+            {# Calc M' = max(M, M~), L' = exp(M - M') * L + exp(M~ - M') * L~ #}
+            if (threadIdx.x == 0) {
+                block_row_idx = (threadIdx.y + blockDim.y * jt) * 2;
+                row_max = shared_ML[block_row_idx];
+                row_sum = shared_ML[block_row_idx + 1];
+                if (row_max < seg_max) {
+                    shared_ML[block_row_idx] = seg_max;
+                    row_coef = expf(row_max - seg_max);
+                    row_sum_new = row_coef * row_sum + seg_sum;
+                    row_coef *= row_sum / row_sum_new;
+                    seg_coef = 1.0f / row_sum_new;
+                } else {
+                    seg_coef = expf(seg_max - row_max);
+                    row_sum_new = row_sum + seg_coef * seg_sum;
+                    row_coef = row_sum / row_sum_new;
+                    seg_coef /= row_sum_new;
+                }
+                shared_ML[block_row_idx + 1] = row_sum_new;
+            }
+            row_coef = __shfl_sync(WARP_MASK, row_coef, WARP_OFFSET);
+            seg_coef = __shfl_sync(WARP_MASK, seg_coef, WARP_OFFSET);
+            // if (blockIdx.x == 0 && threadIdx.x == 0 && threadIdx.y == 0 && row_idx == 0 && jt == 0) {
+            //     printf("M%d = %f, L%d = %f\n", col_idx + 1, seg_max, row_idx + 1, seg_sum);
+            //     printf("S%d[0] = %f\n", col_idx + 1, frag_P[0][0]);
+            //     printf("row_coef = %f, seg_coef = %f\n", row_coef, seg_coef);
+            // }
+            {# Calc O' = L / L' * exp(M - M') * O, S' = exp(M~ - M') / L' * S #}
+            #pragma unroll
+            for (int js = 0; js < TS; js++) {
+                frag_P[jt][js] *= seg_coef;
+            }
+            #pragma unroll
+            for (int i = 0; i < TD; i++) {
+                frag_QO[jt][i] *= row_coef;
+            }
+        }
+        __syncthreads();
+
+        {# Calc O = O' + S' V #}
+        #pragma unroll
+        for (int k = 0; k < BS; k += TS) {
+            #pragma unroll
+            for (int js = 0; js < TS; js++) {
+                #pragma unroll
+                for (int jt = 0; jt < TT; jt++) {
+                    frag_S[jt][js] =
+                        __shfl_sync(WARP_MASK, frag_P[jt][(k + js) / blockDim.x], (k + js) % blockDim.x + WARP_OFFSET);
+                }
+            }
+            #pragma unroll
+            for (int js = 0; js < TS; js++) {
+                #pragma unroll
+                for (int i = 0; i < TD; i++) {
+                    frag_KV[js][i] = shared_V[(k + js) * D + threadIdx.x * TD + i];
+                }
+            }
+            #pragma unroll
+            for (int i = 0; i < TD; i++) {
+                #pragma unroll
+                for (int jt = 0; jt < TT; jt++) {
+                    #pragma unroll
+                    for (int js = 0; js < TS; js++) {
+                        frag_QO[jt][i] += frag_S[jt][js] * frag_KV[js][i];
+                    }
+                }
+            }
+        }
+
+        {# Save O #}
+        #pragma unroll
+        for (int jt = 0; jt < TT; jt++) {
+            {% if THREAD_SIZE_D_VALUE == 1 %}
+            O[(row_idx * BT + threadIdx.y + blockDim.y * jt) * D + threadIdx.x] = frag_QO[jt];
+            {% elif THREAD_SIZE_D_VALUE == 2 %}
+            *((float2*)(&O[(row_idx * BT + threadIdx.y + blockDim.y * jt) * D + threadIdx.x * 2])) =
+                *((float2*)(&frag_QO[jt][0]));
+            {% else %}
+            #pragma unroll
+            for (int i = 0; i < TD; i += 4) {
+                *((float4*)(&O[(row_idx * BT + threadIdx.y + blockDim.y * jt) * D + threadIdx.x * TD + i])) =
+                    *((float4*)(&frag_QO[jt][i]));
+            }
+            {% endif %}
+        }
+
+        {# Save M, L #}
+        #pragma unroll
+        for (int jt = tid * 2; jt < BT; jt += {{ THREADS_PER_BLOCK * 2 }}) {
+            *((float4*)(&ML[(row_idx * BT + jt) * 2])) = *((float4*)(&shared_ML[jt * 2]));
+        }
+    }
+}
