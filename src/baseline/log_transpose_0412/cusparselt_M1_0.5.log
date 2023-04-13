@@ -1,0 +1,3 @@
+Sparsity Ratio=0.000000
+values_size: 8388608
+CUSPARSE API failed at line 247 with error: operation not supported (10)

@@ -1,0 +1,11 @@
+Sparsity Ratio=0.750000
+init(matA, m*k, 0); start
+init(matA, m*k, 0); done
+init(matB, m*k, 0); done
+convert_csr; done
+malloc done
+cusparseSpMM_bufferSize done
+init done
+warm up done
+Time= 15.538176 msec
+dense sum: 0.000000, cusparse sum: 0.000000

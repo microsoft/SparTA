@@ -1,0 +1,4 @@
+Sparsity Ratio=0.500000
+values_size: 8156
+fine_nnz: 2039
+Time= 0.125215 ms

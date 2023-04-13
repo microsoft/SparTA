@@ -1,0 +1,4 @@
+Sparsity Ratio=0.750000
+Computing result using CUBLAS...done.
+Time= 0.005905 ms
+Computing result using host CPU...
