@@ -13,4 +13,4 @@ for shape_id in range(1, len(shape_list) + 1):
         os.system(f'./cusparse_block_ell {sparsity} {n} {k} {m} {iterations} > log/cusparseblockELL_M{shape_id}_{sparsity:.2f}.log')
         os.system(f'./sputnik {sparsity} {n} {k} {m} {iterations} > log/sputnik_M{shape_id}_{sparsity:.2f}.log')
     os.system(f'./cusparselt 0 {n} {k} {m} {iterations} > log/cusparselt_M{shape_id}_0.5.log')
-    os.system(f'./cusparselt_int8 {n} {k} {m} {iterations} > log/cusparselt_int8_M{shape_id}_0.5.log')
+    os.system(f'./cusparselt_int8 {n} {k} {m} {iterations} > log/cusparseltint8_M{shape_id}_0.5.log')
