@@ -8,7 +8,7 @@ for shape_id in range(1, len(shape_list) + 1):
     # iterations = 1
     for sparsity in sparsity_ratio:    
         print(f"{m} {k} {n} {sparsity}")
-        os.system(f'./cublas {sparsity} {n} {k} {m} {iterations} > log/cublas_M{shape_id}_{sparsity:.2f}.log')
+        os.system(f'./cublas {sparsity} {m} {k} {n} {iterations} > log/cublas_M{shape_id}_{sparsity:.2f}.log')
         os.system(f'./cusparse {sparsity} {m} {k} {n} {iterations} > log/cusparse_M{shape_id}_{sparsity:.2f}.log')
         os.system(f'./cusparse_block_ell {sparsity} {n} {k} {m} {iterations} > log/cusparseblockELL_M{shape_id}_{sparsity:.2f}.log')
         os.system(f'./sputnik {sparsity} {n} {k} {m} {iterations} > log/sputnik_M{shape_id}_{sparsity:.2f}.log')
