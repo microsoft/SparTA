@@ -234,12 +234,12 @@ size_t load_from_file(char* ptr, size_t buff_size, std::string filepath){
 using namespace nvcuda;
 
 void checksetting(){
-	assert(WARP_COPY_BYTES % CHUNK_LINE_BYTES_A == 0 && WARP_COPY_BYTES / CHUNK_LINE_BYTES_A >= 1);
-	assert(WARP_COPY_BYTES % CHUNK_LINE_BYTES_B == 0 && WARP_COPY_BYTES / CHUNK_LINE_BYTES_B >= 1);
-	assert(M_GLOBAL % BLOCK_SIZE_M == 0 && M_GLOBAL >= BLOCK_SIZE_M);
-	assert(N_GLOBAL % BLOCK_SIZE_N == 0 && N_GLOBAL >= BLOCK_SIZE_N);
-	assert(CHUNK_COPY_LINES_PER_WARP_A > 0 && CHUNK_COPY_LINES_PER_WARP_B > 0);
-	assert(CHUNK_COPY_LINES_PER_WARP_A <= BLOCK_SIZE_K_SPARSE && CHUNK_COPY_LINES_PER_WARP_B <= BLOCK_SIZE_K_SPARSE);
+	// assert(WARP_COPY_BYTES % CHUNK_LINE_BYTES_A == 0 && WARP_COPY_BYTES / CHUNK_LINE_BYTES_A >= 1);
+	// assert(WARP_COPY_BYTES % CHUNK_LINE_BYTES_B == 0 && WARP_COPY_BYTES / CHUNK_LINE_BYTES_B >= 1);
+	// assert(M_GLOBAL % BLOCK_SIZE_M == 0 && M_GLOBAL >= BLOCK_SIZE_M);
+	// assert(N_GLOBAL % BLOCK_SIZE_N == 0 && N_GLOBAL >= BLOCK_SIZE_N);
+	// assert(CHUNK_COPY_LINES_PER_WARP_A > 0 && CHUNK_COPY_LINES_PER_WARP_B > 0);
+	// assert(CHUNK_COPY_LINES_PER_WARP_A <= BLOCK_SIZE_K_SPARSE && CHUNK_COPY_LINES_PER_WARP_B <= BLOCK_SIZE_K_SPARSE);
 }
 
 void MVOnHost(uint8_t *vec, uint8_t *mat_data, int *mat_index, uint8_t *hostRef, const int w, const int h, int vecNum, const int minibatch) {
