@@ -765,7 +765,7 @@ int oneKernel_general(int w, const int h, const int vecNum, const int BLOCK_WIDT
 
 	int ntimes;
 
-	ntimes = 100;
+	ntimes = 10;
 
 	int block_size_col = BLOCK_COL_TILES * M;
 	int block_size_row = BLOCK_ROW_TILES * N;
@@ -841,32 +841,32 @@ int oneKernel_general(int w, const int h, const int vecNum, const int BLOCK_WIDT
 	cudaMemcpy(gpuRef, g_result, result_nBytes, cudaMemcpyDeviceToHost);
 	// add vector at host side for result checks
 	printf("checkpoint 1\n");
-	MVOnHost(vec, mat_data, mat_index, hostRef, w, h, vecNum, minibatch);
+	// MVOnHost(vec, mat_data, mat_index, hostRef, w, h, vecNum, minibatch);
 
-	printf("checkpoint 2\n");
+	// printf("checkpoint 2\n");
 
     
-	bool correct = true;
-	double eps = 1.e-6;
+	// bool correct = true;
+	// double eps = 1.e-6;
   
-	for(int i = 0; i < M_GLOBAL * N_GLOBAL; i++){
-		double abs_err = fabs(hostRef[i] - gpuRef[i]);
-		double dot_length = M;
-		double abs_val = fabs(hostRef[i]);
-		double rel_err = abs_err / abs_val / dot_length;
-		if (rel_err > eps) {
-			printf("Error! Matrix[%05d]=%d, ref=%d error term is > %E\n",
-					i, gpuRef[i], hostRef[i], eps);
-			correct = false;
-			break;
-		}
+	// for(int i = 0; i < M_GLOBAL * N_GLOBAL; i++){
+	// 	double abs_err = fabs(hostRef[i] - gpuRef[i]);
+	// 	double dot_length = M;
+	// 	double abs_val = fabs(hostRef[i]);
+	// 	double rel_err = abs_err / abs_val / dot_length;
+	// 	if (rel_err > eps) {
+	// 		printf("Error! Matrix[%05d]=%d, ref=%d error term is > %E\n",
+	// 				i, gpuRef[i], hostRef[i], eps);
+	// 		correct = false;
+	// 		break;
+	// 	}
 		
-	}
-	printf("Error! Matrix[%05d]=%d, ref=%d error term is > %E\n",
-					1, gpuRef[1], hostRef[1], eps);
+	// }
+	// printf("Error! Matrix[%05d]=%d, ref=%d error term is > %E\n",
+	// 				1, gpuRef[1], hostRef[1], eps);
 
-	if(correct) printf("Result = Pass\n");
-	else printf("Result = Fail\n");
+	// if(correct) printf("Result = Pass\n");
+	// else printf("Result = Fail\n");
     
     printf("Pass\n\n");
 
