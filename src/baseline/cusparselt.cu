@@ -144,6 +144,8 @@ float *hC;
      m = atoi(argv[2]);
      k = atoi(argv[3]);
      n = atoi(argv[4]);
+     const int n_iter = atoi(argv[5]);
+
      hA = (float*) malloc(sizeof(float)*m*k);
      hA1 = (float*) malloc(sizeof(float)*m*k);
      hA2 = (float*) malloc(sizeof(float)*m*k);
@@ -308,7 +310,7 @@ float *hC;
      //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
      // Perform the matrix multiplication
      float ms_total;
-     int n_iter = 100;
+
      cudaEvent_t start, stop;
      cudaEventCreate(&start);
      cudaEventCreate(&stop);

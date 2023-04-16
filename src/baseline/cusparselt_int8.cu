@@ -93,6 +93,8 @@ int main(int argc, char*argv[]) {
     m = atoi(argv[1]);
     k = atoi(argv[2]);
     n = atoi(argv[3]);
+    const int n_iter = atoi(argv[4]);
+    
     auto          order = CUSPARSE_ORDER_ROW;
     auto          opA   = CUSPARSE_OPERATION_NON_TRANSPOSE;
     auto          opB   = CUSPARSE_OPERATION_TRANSPOSE;
@@ -224,7 +226,6 @@ int main(int argc, char*argv[]) {
                                      &beta, dC, dD, d_workspace, streams,
                                      num_streams) )
     float ms_total;
-    int n_iter = 100;
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);

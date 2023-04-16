@@ -420,7 +420,7 @@ int run(float sparsity_ratio)
     checkCudaErrors(cudaEventCreate(&start));
     checkCudaErrors(cudaEventCreate(&stop));
     float msecTotal = 0;
-    int nIter = 100;
+    int nIter = 10;
 
     checkCudaErrors(cudaEventRecord(start));
     for (int i = 0; i < nIter; i += 1)

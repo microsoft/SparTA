@@ -122,6 +122,7 @@ int main(int argc, char*argv[]) {
     const int M = atoi(argv[2]);
     const int K = atoi(argv[3]);
     const int N = atoi(argv[4]);
+    const int nIter = atoi(argv[5]);
 
     int block_size = 32;
 
@@ -155,7 +156,6 @@ int main(int argc, char*argv[]) {
     printf("Computing result using CUBLAS...");
 
     // execute the kernel
-    int nIter = 30;
 
     // CUBLAS version 2.0
     {
@@ -213,8 +213,8 @@ int main(int argc, char*argv[]) {
     }
 
     // compute reference solution
-    printf("Computing result using host CPU...");
-    float *reference = (float *)malloc(mem_size_C);
+    // printf("Computing result using host CPU...");
+    // float *reference = (float *)malloc(mem_size_C);
     // matrixMulCPU(reference, h_A, h_B, M, K, N);
     // printf("done.\n");
 
@@ -240,7 +240,7 @@ int main(int argc, char*argv[]) {
     free(h_A);
     free(h_B);
     free(h_C);
-    free(reference);
+    // free(reference);
     checkCudaErrors(cudaFree(d_A));
     checkCudaErrors(cudaFree(d_B));
     checkCudaErrors(cudaFree(d_C));

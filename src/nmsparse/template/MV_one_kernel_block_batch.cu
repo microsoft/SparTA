@@ -653,7 +653,7 @@ int oneKernel_general(int w, const int h, const int vecNum, const int BLOCK_WIDT
 	dim3 dimGrid(h/NUM_THREADS, w/BLOCK_WIDTH, minibatch/BLOCK_minibatch);
 	cudaDeviceSynchronize();
 
-	int ntimes = 50;
+	int ntimes = 10000;
 	
 	for(int i = 0; i < ntimes; i += 1){
 		MatMulOnGPU_GENERAL<<< dimGrid, dimBlock, BLOCK_minibatch*VEC_WIDTH*sizeof(float)>>>(g_vec, g_mat_data, g_mat_index, g_result, w, h, BLOCK_WIDTH, NUM_THREADS, VEC_WIDTH, minibatch, vecNum);

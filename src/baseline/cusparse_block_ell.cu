@@ -83,6 +83,8 @@ int main(int argc, char *argv[]) {
     const int m = atoi(argv[2]);
     const int k = atoi(argv[3]);
     const int n = atoi(argv[4]);
+    const int n_iter = atoi(argv[5]);
+
     // Host problem definition
     int   A_num_rows      = m;
     int   A_num_cols      = k;
@@ -178,7 +180,7 @@ int main(int argc, char *argv[]) {
 
     // execute SpMM
     float ms_total;
-    int n_iter = 100;
+
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);

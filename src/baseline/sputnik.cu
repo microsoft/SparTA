@@ -140,6 +140,7 @@ int main(int argc, char*argv[]) {
     const int m = atoi(argv[2]);
     const int k = atoi(argv[3]);
     const int n = atoi(argv[4]);
+    const int n_iter = atoi(argv[5]);
     int major_cc, minor_cc;
     // Host problem definition, row-major order
     A_size = m * k * sizeof(float);
@@ -182,7 +183,7 @@ int main(int argc, char*argv[]) {
     //--------------------------------------------------------------------------
     
     float ms_total;
-    int n_iter = 100;
+
     cudaEvent_t start, stop;
     cudaEventCreate(&start);
     cudaEventCreate(&stop);

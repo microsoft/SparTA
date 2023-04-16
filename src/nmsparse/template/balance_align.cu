@@ -286,7 +286,7 @@ int oneKernel_general(int w, const int h, const int vecNum, const int BLOCK_WIDT
 
 	CheckSetting();
 
-	ntimes = 50;
+	ntimes = 100;
 
 	int M = minibatch, N = h, K = vecNum, K_sparse = w;
 	dim3 dimBlock(int((BLOCK_SIZE_M / THREAD_SIZE_M) * (BLOCK_SIZE_N / THREAD_SIZE_N)));
