@@ -13,14 +13,14 @@ import pandas as pd
 
 from sparta.tuning import TunableItemCfg
 from sparta.kernels import KernelBase, SparsityAttr, templates, look_up_tables
-from sparta.testing import sparse_multi_head_attention_reference
+from sparta.testing import sparse_multi_head_attention_forward_reference, sparse_multi_head_attention_backward_reference
 
 
-class FlashSparseAttentionForwardKernel(KernelBase):
+class FlashSparseAttentionKernel(KernelBase):
 
     __lut_shape__ = (64 * 12, 1024, 1024, 64)  # BxH, Nt, Ns, D
     __algo__ = 'flash'
-    __direction__ = 'forward'
+    __direction__ = ''
 
     def __init__(self, buffer: torch.Tensor, dtype: str = 'float'):
         self._buffer = buffer
@@ -28,18 +28,19 @@ class FlashSparseAttentionForwardKernel(KernelBase):
         super().__init__()
 
     def _add_parameters(self):
+        self._add_parameter('GLOBAL_SIZE_D_VALUE')
         self._add_parameter(
-            f'GLOBAL_SIZE_D_VALUE',
+            'BLOCK_SIZE_S_VALUE',
+            is_tunable=True,
+            search_space=TunableItemCfg('choice', [8, 16, 32, 64, 128, 256]),
         )
-        for dim in ['S', 'T']:
-            self._add_parameter(
-                f'BLOCK_SIZE_{dim}_VALUE',
-                is_tunable=True,
-                search_space=TunableItemCfg('choice', [8, 16, 32, 64, 128, 256]),
-            )
-            self._add_parameter(
-                f'THREAD_SIZE_{dim}_VALUE',
-            )
+        self._add_parameter(
+            'BLOCK_SIZE_T_VALUE',
+            is_tunable=True,
+            search_space=TunableItemCfg('choice', [8, 16, 32, 64, 128, 256]),
+        )
+        self._add_parameter('THREAD_SIZE_S_VALUE')
+        self._add_parameter('THREAD_SIZE_T_VALUE')
         self.attr = SparsityAttr(self, 'BLOCK_SIZE_T_VALUE', 'BLOCK_SIZE_S_VALUE', BCSR=False, BCSC=True)
 
     def _check_parameters(self, params: Dict[str, Any]):
@@ -85,6 +86,22 @@ class FlashSparseAttentionForwardKernel(KernelBase):
         Tt, Ts = self.get_thread_shape()
         return (Bs // Ts, Bt // Tt, 1)
 
+    def get_kernel_code(self):
+        template_file = f'{self.__algo__}_sparse_attention_{self.__direction__}.cuh.j2'
+        kernel_template = res.read_text(templates, template_file)
+        with open('tmp.cu', 'w') as f:
+            f.write(jinja2.Template(kernel_template).render(self.get_parameters()))
+        return jinja2.Template(kernel_template).render(self.get_parameters())
+
+    def compile(self, params: Dict[str, Any], shape: Tuple):
+        params['GLOBAL_SIZE_D_VALUE'] = shape[-1]
+        super().compile(params, shape)
+
+
+class FlashSparseAttentionForwardKernel(FlashSparseAttentionKernel):
+
+    __direction__ = 'forward'
+
     def set_kernel_call(self, shape: Tuple[int, int, int, int]):
         batch, Nt, Ns, D = shape
         self._check_shape(Nt, Ns, D)
@@ -106,13 +123,6 @@ class FlashSparseAttentionForwardKernel(KernelBase):
 
         self._func = attn_func
 
-    def get_kernel_code(self):
-        template_file = f'{self.__algo__}_sparse_attention_{self.__direction__}.cuh.j2'
-        kernel_template = res.read_text(templates, template_file)
-        with open('tmp.cu', 'w') as f:
-            f.write(jinja2.Template(kernel_template).render(self.get_parameters()))
-        return jinja2.Template(kernel_template).render(self.get_parameters())
-
     def reference(
         self,
         Q: torch.Tensor,
@@ -120,8 +130,49 @@ class FlashSparseAttentionForwardKernel(KernelBase):
         V: torch.Tensor,
         sparse: bool = False,
     ):
-        return sparse_multi_head_attention_reference(Q, K, V, self.attr.mask)
+        return sparse_multi_head_attention_forward_reference(Q, K, V, self.attr.mask)
+
+
+class FlashSparseAttentionBackwardKernel(FlashSparseAttentionKernel):
+
+    __direction__ = 'backward'
+
+    def set_kernel_call(self, shape: Tuple[int, int, int, int]):
+        batch, Nt, Ns, D = shape
+        self._check_shape(Nt, Ns, D)
+        Ns_32, Nt_32, D_32 = np.int32(Ns), np.int32(Nt), np.int32(D)
+        block = self.threads_per_block()
+
+        def attn_func(grad, O, Q, K, V):
+            grad_Q = torch.zeros_like(Q)
+            grad_K = torch.zeros_like(Q)
+            grad_V = torch.zeros_like(Q)
+            self._kernel(
+                Q, K, V, O, grad_Q, grad_K, grad_V, grad, self._buffer,
+                self.attr.indexes.BCSC_idx,
+                Ns_32, Nt_32,  # D_32,
+                self.attr.indexes.nnz,
+                block=block,
+                grid=(Q.shape[0], 1, 1),
+            )
+            return grad_Q, grad_K, grad_V
+
+        self._func = attn_func
+
+    def reference(
+        self,
+        grad: torch.Tensor,
+        O: torch.Tensor,
+        Q: torch.Tensor,
+        K: torch.Tensor,
+        V: torch.Tensor,
+        sparse: bool = False,
+    ):
+        return sparse_multi_head_attention_backward_reference(grad, O, Q, K, V, self.attr.mask)
 
     def compile(self, params: Dict[str, Any], shape: Tuple):
-        params['GLOBAL_SIZE_D_VALUE'] = shape[-1]
+        Bs = params['BLOCK_SIZE_S_VALUE']
+        Bt = params['BLOCK_SIZE_T_VALUE']
+        Ts = params['THREAD_SIZE_S_VALUE']
+        params['THREAD_SIZE_T_VALUE'] = Ts * Bt // Bs
         super().compile(params, shape)

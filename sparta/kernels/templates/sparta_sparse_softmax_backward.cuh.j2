@@ -7,7 +7,7 @@ const int block_h = {{ BLOCK_SIZE_H_VALUE }};
 const int block_w = {{ BLOCK_SIZE_W_VALUE }};
 const int row_tile = {{ ROW_TILE_VALUE }};
 
-__global__ void SPARSE_SOFTMAX(
+__global__ void SPARSE_SOFTMAX_BACKWARD(
     float* out_grad,
     float* out_val,
     unsigned char* mask,

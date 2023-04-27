@@ -50,7 +50,7 @@ def sparse_softmax_backward_reference(
     return (C_prod - masked_output * C_sum) / temperature
 
 
-def sparse_multi_head_attention_reference(
+def sparse_multi_head_attention_forward_reference(
     query: torch.Tensor,
     key: torch.Tensor,
     value: torch.Tensor,
@@ -66,14 +66,50 @@ def sparse_multi_head_attention_reference(
         key (torch.Tensor): The input key tensor of shape :math:`(B, H, N_{source}, E)`.
         value (torch.Tensor): The input value tensor of shape :math:`(B, H, N_{source}, E)`.
         mask (torch.Tensor): The mask tensor of shape :math:`(N_{target}, N_{source})`.
-        temperature (float): The softmax temperature which is set to :math:`\sqrt{E}` by default.
+        temperature (float): The softmax temperature which is set to :math:`\sqrt{N_{source}}` by default.
 
     Returns:
         torch.Tensor: Sparse multi-head attention output of shape :math:`(B, H, N_{target}, E)`.
     """
     if np.isnan(temperature):
-        temperature = np.sqrt(query.shape[-1])
+        temperature = np.sqrt(mask.shape[-1])
     high_dims = ''.join([chr(ord('a') + i) for i in range(len(query.shape) - 2)])
-    qk = torch.einsum(f'{high_dims}mk, {high_dims}nk -> {high_dims}mn', query, key)
-    sm = sparse_softmax_forward_reference(qk, mask, temperature)
-    return torch.einsum(f'{high_dims}mn, {high_dims}nk -> {high_dims}mk', sm, value)
+    p = torch.einsum(f'{high_dims}mk, {high_dims}nk -> {high_dims}mn', query, key)
+    s = sparse_softmax_forward_reference(p, mask, temperature)
+    return torch.einsum(f'{high_dims}mn, {high_dims}nk -> {high_dims}mk', s, value)
+
+
+def sparse_multi_head_attention_backward_reference(
+    grad: torch.Tensor,
+    output: torch.Tensor,
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    mask: torch.Tensor,
+    temperature: float = np.nan,
+) -> torch.Tensor:
+    r"""Sparse multi-head attention backward reference function.
+
+    Args:
+        grad (torch.Tensor): The gradient of output tensor. Shape: :math:`(B, H, N_{target}, E)`.
+        output (torch.Tensor): The output tensor of forward function. Shape: :math:`(B, H, N_{target}, E)`.
+        query (torch.Tensor): The input query tensor of forward function. Shape: :math:`(B, H, N_{target}, E)`.
+        key (torch.Tensor): The input key tensor of forward function. Shape: :math:`(B, H, N_{source}, E)`.
+        value (torch.Tensor): The input value tensor of forward function. Shape: :math:`(B, H, N_{source}, E)`.
+        mask (torch.Tensor): The mask tensor. Shape :math:`(N_{target}, N_{source})`.
+        temperature (float): The softmax temperature which is set to :math:`\sqrt{N_{source}}` by default.
+
+    Returns:
+        Tuple: The gradient of query, key and value respectively..
+    """
+    if np.isnan(temperature):
+        temperature = np.sqrt(mask.shape[-1])
+    high_dims = ''.join([chr(ord('a') + i) for i in range(len(query.shape) - 2)])
+    p = torch.einsum(f'{high_dims}mk, {high_dims}nk -> {high_dims}mn', query, key)
+    s = sparse_softmax_forward_reference(p, mask, temperature)
+    grad_v = torch.einsum(f'{high_dims}mn, {high_dims}mk -> {high_dims}nk', p, grad)
+    grad_s = torch.einsum(f'{high_dims}nk, {high_dims}mk -> {high_dims}mn', value, grad)
+    grad_p = sparse_softmax_backward_reference(grad_s, s, mask, temperature)
+    grad_q = torch.einsum(f'{high_dims}nk, {high_dims}mn -> {high_dims}mk', key, grad_p)
+    grad_k = torch.einsum(f'{high_dims}mk, {high_dims}mn -> {high_dims}nk', query, grad_p)
+    return grad_q, grad_k, grad_v

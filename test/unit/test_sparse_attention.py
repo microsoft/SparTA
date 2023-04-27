@@ -7,7 +7,7 @@ import torch
 import pytest
 
 from sparta.nn import SparseAttention
-from sparta.testing import block_mask, sparse_multi_head_attention_reference
+from sparta.testing import block_mask, sparse_multi_head_attention_forward_reference
 
 
 def get_params():
@@ -72,7 +72,7 @@ def test_sparse_attention_operator(
 
     for random_seed in range(3):  # Test dynamic sparse
         query.grad, key.grad, value.grad = None, None, None
-        target_out = sparse_multi_head_attention_reference(query, key, value, mask)
+        target_out = sparse_multi_head_attention_forward_reference(query, key, value, mask)
         target_out.backward(grad_out)
 
         target_grad_query = query.grad

@@ -12,7 +12,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from sparta.nn import SparseAttention
-from sparta.testing import block_mask, profile, sparse_multi_head_attention_reference
+from sparta.testing import block_mask, profile, sparse_multi_head_attention_forward_reference
 
 
 Ns, Nt, E = 4096, 3072, 768
@@ -88,7 +88,7 @@ def prepare_data(
     data['key'].requires_grad = True
     data['value'].requires_grad = True
     inputs = [data['query'], data['key'], data['value']]
-    data['out'] = sparse_multi_head_attention_reference(*inputs, mask)
+    data['out'] = sparse_multi_head_attention_forward_reference(*inputs, mask)
     data['out'].backward(data['grad_out'])
     data['grad_query'] = data['query'].grad
     data['grad_key'] = data['key'].grad
@@ -182,7 +182,7 @@ def profile_dense_attention(
         return 0., 0.
 
     def dense_attention(query, key, value):
-        return sparse_multi_head_attention_reference(query, key, value, mask)
+        return sparse_multi_head_attention_forward_reference(query, key, value, mask)
 
     return profile_attention(dense_attention, data)
 

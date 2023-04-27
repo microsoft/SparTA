@@ -5,7 +5,7 @@ import torch
 import pytest
 
 from sparta.nn import SeqlenDynamicSparseAttention
-from sparta.testing import sparse_multi_head_attention_reference
+from sparta.testing import sparse_multi_head_attention_forward_reference
 
 
 def random_seqlens(B: int, N: int):
@@ -38,7 +38,7 @@ def test_seqlen_attention_operator(B: int, H: int, N: int, E: int, global_mode: 
         key = torch.rand(size=(B, H, N, E), dtype=torch.float32, device='cuda')
         value = torch.rand(size=(B, H, N, E), dtype=torch.float32, device='cuda')
 
-        target_out = sparse_multi_head_attention_reference(
+        target_out = sparse_multi_head_attention_forward_reference(
             query=query.reshape((-1, N, E)),
             key=key.reshape((-1, N, E)),
             value=value.reshape((-1, N, E)),
