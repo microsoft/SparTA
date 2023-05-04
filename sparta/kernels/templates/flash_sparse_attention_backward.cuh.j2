@@ -98,7 +98,7 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
 
     float4 tmp_float4;
     float frag_QO[TT][TD];
-    float frag_KV[TS][TD];
+    float frag_KV[TD][TS];
     float frag_P[TT][TS];
     float frag_S[TT][TS];
 
@@ -179,18 +179,30 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
         #pragma unroll
         for (int k = 0; k < D; k += TD) {
             #pragma unroll
-            for (int i = 0; i < TD; i++) {
+            for (int jt = 0; jt < TT; jt++) {
+                {% if THREAD_SIZE_D_VALUE == 1 %}
+                frag_QO[jt][0] = shared_Q[(threadIdx.y * TT + jt) * D + k];
+                {% elif THREAD_SIZE_D_VALUE == 2 %}
+                *((float2*)(&frag_QO[jt][0])) = *((float2*)(&shared_Q[(threadIdx.y * TT + jt) * D + k]));
+                {% else %}
                 #pragma unroll
-                for (int jt = 0; jt < TT; jt++) {
-                    frag_QO[jt][i] = shared_Q[(threadIdx.y + blockDim.y * jt) * D + k + i] * temperature;
+                for (int i = 0; i < TD; i += 4) {
+                    *((float4*)(&frag_QO[jt][i])) = *((float4*)(&shared_Q[(threadIdx.y * TT + jt) * D + k + i]));
                 }
+                {% endif %}
             }
             #pragma unroll
             for (int i = 0; i < TD; i++) {
+                {% if THREAD_SIZE_S_VALUE == 1 %}
+                frag_KV[i][0] = shared_K[(k + i) * BS + threadIdx.x * TS];
+                {% elif THREAD_SIZE_S_VALUE == 2 %}
+                *((float2*)(&frag_KV[i][0])) = *((float2*)(&shared_K[(k + i) * BS + threadIdx.x * TS]));
+                {% else %}
                 #pragma unroll
-                for (int js = 0; js < TS; js++) {
-                    frag_KV[js][i] = shared_K[(k + i) * BS + threadIdx.x + blockDim.x * js];
+                for (int js = 0; js < TS; js += 4) {
+                    *((float4*)(&frag_KV[i][js])) = *((float4*)(&shared_K[(k + i) * BS + threadIdx.x * TS + js]));
                 }
+                {% endif %}
             }
             #pragma unroll
             for (int js = 0; js < TS; js++) {
@@ -198,7 +210,7 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
                 for (int jt = 0; jt < TT; jt++) {
                     #pragma unroll
                     for (int i = 0; i < TD; i++) {
-                        frag_P[jt][js] += frag_QO[jt][i] * frag_KV[js][i];
+                        frag_P[jt][js] += frag_QO[jt][i] * frag_KV[i][js];
                     }
                 }
             }
@@ -215,12 +227,12 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
         {# Calc S = exp(P - M) / L #}
         #pragma unroll
         for (int jt = 0; jt < TT; jt++) {
-            block_row_idx = (threadIdx.y + blockDim.y * jt) * 2;
+            block_row_idx = (threadIdx.y * TT + jt) * 2;
             row_max = shared_ML[block_row_idx];
             row_sum = shared_ML[block_row_idx + 1];
             #pragma unroll
             for (int js = 0; js < TS; js++) {
-                frag_S[jt][js] = expf(frag_P[jt][js] - row_max) / row_sum;
+                frag_S[jt][js] = expf(frag_P[jt][js] * temperature - row_max) / row_sum;
             }
         }
 
@@ -229,49 +241,7 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
         for (int k = SMEM_TID_N; k < BT; k += SMEM_THREADS_N) {
             *((float4*)(&shared_O[k * D + SMEM_TID_D])) = *((float4*)(&dO[(row_idx * BT + k) * D + SMEM_TID_D]));
         }
-
-        {# Calc dV = dV + S^T dO #}
-        #pragma unroll
-        for (int kk = 0, k = threadIdx.y * TD; kk < D; k = (k + TD) % D, kk += TD) {
-            #pragma unroll
-            for (int i = 0; i < TD; i++) {
-                #pragma unroll
-                for (int js = 0; js < TS; js++) {
-                    frag_KV[js][i] = 0;
-                }
-            }
-            #pragma unroll
-            for (int jt = 0; jt < TT; jt++) {
-                {% if THREAD_SIZE_D_VALUE == 1 %}
-                frag_QO[jt][0] = shared_O[(threadIdx.y + blockDim.y * jt) * D + k];
-                {% elif THREAD_SIZE_D_VALUE == 2 %}
-                *((float2*)(&frag_QO[jt][0])) = *((float2*)(&shared_O[(threadIdx.y + blockDim.y * jt) * D + k]));
-                {% else %}
-                #pragma unroll
-                for (int i = 0; i < TD; i += 4) {
-                    *((float4*)(&frag_QO[jt][i])) = *((float4*)(&shared_O[(threadIdx.y + blockDim.y * jt) * D + k + i]));
-                }
-                {% endif %}
-            }
-            #pragma unroll
-            for (int i = 0; i < TD; i++) {
-                #pragma unroll
-                for (int js = 0; js < TS; js++) {
-                    #pragma unroll
-                    for (int jt = 0; jt < TT; jt++) {
-                        frag_KV[js][i] += frag_S[jt][js] * frag_QO[jt][i];
-                    }
-                }
-            }
-            #pragma unroll
-            for (int js = 0; js < TS; js++) {
-                #pragma unroll
-                for (int i = 0; i < TD; i++) {
-                    shared_dV[(k + i) * BS + threadIdx.x + blockDim.x * js] += frag_KV[js][i];
-                }
-            }
-            __syncthreads();
-        }
+        __syncthreads();
 
         {# Initialize dS #}
         #pragma unroll
@@ -282,19 +252,26 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
             }
         }
 
-        {# Calc dS = dO V^T #}
+        {# Calc dV = dV + S^T dO, dS = dO V^T #}
         #pragma unroll
-        for (int k = 0; k < D; k += TD) {
+        for (int kk = 0, k = threadIdx.y * TD; kk < D; k = (k + TD) % D, kk += TD) {
+            #pragma unroll
+            for (int i = 0; i < TD; i++) {
+                #pragma unroll
+                for (int js = 0; js < TS; js++) {
+                    frag_KV[i][js] = 0;
+                }
+            }
             #pragma unroll
             for (int jt = 0; jt < TT; jt++) {
                 {% if THREAD_SIZE_D_VALUE == 1 %}
-                frag_QO[jt][0] = shared_O[(threadIdx.y + blockDim.y * jt) * D + k];
+                frag_QO[jt][0] = shared_O[(threadIdx.y * TT + jt) * D + k];
                 {% elif THREAD_SIZE_D_VALUE == 2 %}
-                *((float2*)(&frag_QO[jt][0])) = *((float2*)(&shared_O[(threadIdx.y + blockDim.y * jt) * D + k]));
+                *((float2*)(&frag_QO[jt][0])) = *((float2*)(&shared_O[(threadIdx.y * TT + jt) * D + k]));
                 {% else %}
                 #pragma unroll
                 for (int i = 0; i < TD; i += 4) {
-                    *((float4*)(&frag_QO[jt][i])) = *((float4*)(&shared_O[(threadIdx.y + blockDim.y * jt) * D + k + i]));
+                    *((float4*)(&frag_QO[jt][i])) = *((float4*)(&shared_O[(threadIdx.y * TT + jt) * D + k + i]));
                 }
                 {% endif %}
             }
@@ -302,8 +279,46 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
             for (int i = 0; i < TD; i++) {
                 #pragma unroll
                 for (int js = 0; js < TS; js++) {
-                    frag_KV[js][i] = shared_V[(k + i) * BS + threadIdx.x + blockDim.x * js];
+                    #pragma unroll
+                    for (int jt = 0; jt < TT; jt++) {
+                        frag_KV[i][js] += frag_S[jt][js] * frag_QO[jt][i];
+                    }
                 }
+            }
+            #pragma unroll
+            for (int i = 0; i < TD; i++) {
+                {% if THREAD_SIZE_S_VALUE == 1 %}
+                shared_dV[(k + i) * BS + threadIdx.x * TS] += frag_KV[i][0];
+                {% elif THREAD_SIZE_S_VALUE == 2 %}
+                ((float2*)(&shared_dV[(k + i) * BS + threadIdx.x * TS]))[0] =
+                    _add_float2(
+                        ((float2*)(&shared_dV[(k + i) * BS + threadIdx.x * TS]))[0],
+                        ((float2*)(&frag_KV[i][0]))[0]
+                    );
+                {% else %}
+                #pragma unroll
+                for (int js = 0; js < TS; js += 4) {
+                    ((float4*)(&shared_dV[(k + i) * BS + threadIdx.x * TS + js]))[0] =
+                        _add_float4(
+                            ((float4*)(&shared_dV[(k + i) * BS + threadIdx.x * TS + js]))[0],
+                            ((float4*)(&frag_KV[i][js]))[0]
+                        );
+                }
+                {% endif %}
+            }
+            __syncthreads();
+            #pragma unroll
+            for (int i = 0; i < TD; i++) {
+                {% if THREAD_SIZE_S_VALUE == 1 %}
+                frag_KV[i][0] = shared_V[(k + i) * BS + threadIdx.x * TS];
+                {% elif THREAD_SIZE_S_VALUE == 2 %}
+                *((float2*)(&frag_KV[i][0])) = *((float2*)(&shared_V[(k + i) * BS + threadIdx.x * TS]));
+                {% else %}
+                #pragma unroll
+                for (int js = 0; js < TS; js += 4) {
+                    *((float4*)(&frag_KV[i][js])) = *((float4*)(&shared_V[(k + i) * BS + threadIdx.x * TS + js]));
+                }
+                {% endif %}
             }
             #pragma unroll
             for (int js = 0; js < TS; js++) {
@@ -311,7 +326,7 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
                 for (int jt = 0; jt < TT; jt++) {
                     #pragma unroll
                     for (int i = 0; i < TD; i++) {
-                        frag_P[jt][js] += frag_QO[jt][i] * frag_KV[js][i];
+                        frag_P[jt][js] += frag_QO[jt][i] * frag_KV[i][js];
                     }
                 }
             }
@@ -327,6 +342,7 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
                     ((float4*)(&O[(row_idx * BT + k) * D + SMEM_TID_D]))[0]
                 );
         }
+        __syncthreads();
 
         {# Calc dP = S (dS - sum_j(dO)) #}
         #pragma unroll
@@ -334,7 +350,7 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
             row_sum = 0.0f;
             #pragma unroll
             for (int i = 0; i < TD; i++) {
-                row_sum += shared_O[(threadIdx.y + blockDim.y * jt) * D + threadIdx.x * TD + i];
+                row_sum += shared_O[(threadIdx.y * TT + jt) * D + threadIdx.x * TD + i];
             }
             #pragma unroll
             for (int offset = {{ WARP_REDUCE_SIZE // 2 }}; offset > 0; offset >>= 1) {
@@ -346,6 +362,13 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
             }
         }
 
+        {# Load dQ #}
+        #pragma unroll
+        for (int k = SMEM_TID_N; k < BT; k += SMEM_THREADS_N) {
+            *((float4*)(&shared_O[k * D + SMEM_TID_D])) = *((float4*)(&dQ[(row_idx * BT + k) * D + SMEM_TID_D]));
+        }
+        __syncthreads();
+
         {# Calc dK = dK + dP^T Q #}
         #pragma unroll
         for (int kk = 0, k = threadIdx.y * TD; kk < D; k = (k + TD) % D, kk += TD) {
@@ -353,21 +376,21 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
             for (int i = 0; i < TD; i++) {
                 #pragma unroll
                 for (int js = 0; js < TS; js++) {
-                    frag_KV[js][i] = 0;
+                    frag_KV[i][js] = 0;
                 }
             }
             #pragma unroll
             for (int jt = 0; jt < TT; jt++) {
                 {% if THREAD_SIZE_D_VALUE == 1 %}
-                frag_QO[jt][0] = shared_Q[(threadIdx.y + blockDim.y * jt) * D + k];
+                frag_QO[jt][0] = shared_Q[(threadIdx.y * TT + jt) * D + k];
                 {% elif THREAD_SIZE_D_VALUE == 2 %}
                 *((float2*)(&frag_QO[jt][0])) =
-                    *((float2*)(&shared_Q[(threadIdx.y + blockDim.y * jt) * D + k]));
+                    *((float2*)(&shared_Q[(threadIdx.y * TT + jt) * D + k]));
                 {% else %}
                 #pragma unroll
                 for (int i = 0; i < TD; i += 4) {
                     *((float4*)(&frag_QO[jt][i])) =
-                        *((float4*)(&shared_Q[(threadIdx.y + blockDim.y * jt) * D + k + i]));
+                        *((float4*)(&shared_Q[(threadIdx.y * TT + jt) * D + k + i]));
                 }
                 {% endif %}
             }
@@ -377,26 +400,33 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
                 for (int js = 0; js < TS; js++) {
                     #pragma unroll
                     for (int jt = 0; jt < TT; jt++) {
-                        frag_KV[js][i] += frag_P[jt][js] * frag_QO[jt][i];
+                        frag_KV[i][js] += frag_P[jt][js] * frag_QO[jt][i];
                     }
                 }
             }
             #pragma unroll
-            for (int js = 0; js < TS; js++) {
+            for (int i = 0; i < TD; i++) {
+                {% if THREAD_SIZE_S_VALUE == 1 %}
+                shared_dK[(k + i) * BS + threadIdx.x * TS] += frag_KV[i][0];
+                {% elif THREAD_SIZE_S_VALUE == 2 %}
+                ((float2*)(&shared_dK[(k + i) * BS + threadIdx.x * TS]))[0] =
+                    _add_float2(
+                        ((float2*)(&shared_dK[(k + i) * BS + threadIdx.x * TS]))[0],
+                        ((float2*)(&frag_KV[i][0]))[0]
+                    );
+                {% else %}
                 #pragma unroll
-                for (int i = 0; i < TD; i++) {
-                    shared_dK[(k + i) * BS + threadIdx.x + blockDim.x * js] += frag_KV[js][i];
+                for (int js = 0; js < TS; js += 4) {
+                    ((float4*)(&shared_dK[(k + i) * BS + threadIdx.x * TS + js]))[0] =
+                        _add_float4(
+                            ((float4*)(&shared_dK[(k + i) * BS + threadIdx.x * TS + js]))[0],
+                            ((float4*)(&frag_KV[i][js]))[0]
+                        );
                 }
+                {% endif %}
             }
             __syncthreads();
         }
-
-        {# Load dQ #}
-        #pragma unroll
-        for (int k = SMEM_TID_N; k < BT; k += SMEM_THREADS_N) {
-            *((float4*)(&shared_Q[k * D + SMEM_TID_D])) = *((float4*)(&dQ[(row_idx * BT + k) * D + SMEM_TID_D]));
-        }
-        __syncthreads();
 
         {# Calc dQ = dQ + dP K #}
         #pragma unroll
@@ -410,10 +440,16 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
             }
             #pragma unroll
             for (int i = 0; i < TD; i++) {
+                {% if THREAD_SIZE_S_VALUE == 1 %}
+                frag_KV[i][0] = shared_K[(k + i) * BS + threadIdx.x * TS];
+                {% elif THREAD_SIZE_S_VALUE == 2 %}
+                *((float2*)(&frag_KV[i][0])) = *((float2*)(&shared_K[(k + i) * BS + threadIdx.x * TS]));
+                {% else %}
                 #pragma unroll
-                for (int js = 0; js < TS; js++) {
-                    frag_KV[js][i] = shared_K[(k + i) * BS + threadIdx.x + blockDim.x * js];
+                for (int js = 0; js < TS; js += 4) {
+                    *((float4*)(&frag_KV[i][js])) = *((float4*)(&shared_K[(k + i) * BS + threadIdx.x * TS + js]));
                 }
+                {% endif %}
             }
             #pragma unroll
             for (int i = 0; i < TD; i++) {
@@ -421,26 +457,26 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
                 for (int jt = 0; jt < TT; jt++) {
                     #pragma unroll
                     for (int js = 0; js < TS; js++) {
-                        frag_QO[jt][i] += frag_P[jt][js] * frag_KV[js][i];
+                        frag_QO[jt][i] += frag_P[jt][js] * frag_KV[i][js];
                     }
                 }
             }
             #pragma unroll
             for (int jt = 0; jt < TT; jt++) {
                 {% if THREAD_SIZE_D_VALUE == 1 %}
-                shared_Q[(threadIdx.y + blockDim.y * jt) * D + k] += frag_QO[jt][0];
+                shared_O[(threadIdx.y * TT + jt) * D + k] += frag_QO[jt][0];
                 {% elif THREAD_SIZE_D_VALUE == 2 %}
-                ((float2*)(&shared_Q[(threadIdx.y + blockDim.y * jt) * D + k]))[0] =
+                ((float2*)(&shared_O[(threadIdx.y * TT + jt) * D + k]))[0] =
                     _add_float2(
-                        ((float2*)(&shared_Q[(threadIdx.y + blockDim.y * jt) * D + k]))[0],
+                        ((float2*)(&shared_O[(threadIdx.y * TT + jt) * D + k]))[0],
                         ((float2*)(&frag_QO[jt][0]))[0]
                     );
                 {% else %}
                 #pragma unroll
                 for (int i = 0; i < TD; i += 4) {
-                    ((float4*)(&shared_Q[(threadIdx.y + blockDim.y * jt) * D + k + i]))[0] =
+                    ((float4*)(&shared_O[(threadIdx.y * TT + jt) * D + k + i]))[0] =
                         _add_float4(
-                            ((float4*)(&shared_Q[(threadIdx.y + blockDim.y * jt) * D + k + i]))[0],
+                            ((float4*)(&shared_O[(threadIdx.y * TT + jt) * D + k + i]))[0],
                             ((float4*)(&frag_QO[jt][i]))[0]
                         );
                 }
@@ -452,7 +488,7 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
         {# Save dQ #}
         #pragma unroll
         for (int k = SMEM_TID_N; k < BT; k += SMEM_THREADS_N) {
-            *((float4*)(&dQ[(row_idx * BT + k) * D + SMEM_TID_D])) = *((float4*)(&shared_Q[k * D + SMEM_TID_D]));
+            *((float4*)(&dQ[(row_idx * BT + k) * D + SMEM_TID_D])) = *((float4*)(&shared_O[k * D + SMEM_TID_D]));
         }
     }
 
