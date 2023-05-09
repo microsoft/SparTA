@@ -1,20 +1,20 @@
 {# Copyright (c) Microsoft Corporation. #}
 {# Licensed under the MIT license. #}
 
-{% set WARP_REDUCE_SIZE = BLOCK_SIZE_S_VALUE // THREAD_SIZE_S_VALUE %}{# WARP_REDUCE_SIZE <= 32 #}
-
-{% set THREAD_SIZE_D_VALUE = GLOBAL_SIZE_D_VALUE // WARP_REDUCE_SIZE %}
-{% set THREAD_SIZE_T_VALUE = BLOCK_SIZE_T_VALUE // WARP_REDUCE_SIZE %}
-
-{% set THREADS_PER_BLOCK = WARP_REDUCE_SIZE * WARP_REDUCE_SIZE %}
+{% set WARP_REDUCE_SIZE = BLOCK_SIZE_S_VALUE // THREAD_SIZE_S_VALUE %}{# WARP_REDUCE_SIZE = Bs / Ts <= 32 #}
+{% set THREADS_PER_BLOCK = WARP_REDUCE_SIZE * BLOCK_SIZE_T_VALUE // THREAD_SIZE_T_VALUE %}
+{% set THREAD_SIZE_S_TO_D = GLOBAL_SIZE_D_VALUE // WARP_REDUCE_SIZE %}
 
 const int BS = {{ BLOCK_SIZE_S_VALUE }};
 const int BT = {{ BLOCK_SIZE_T_VALUE }};
 const int D = {{ GLOBAL_SIZE_D_VALUE }};
 const int TS = {{ THREAD_SIZE_S_VALUE }};
-
 const int TT = {{ THREAD_SIZE_T_VALUE }};
-const int TD = {{ THREAD_SIZE_D_VALUE }};{# D * TS >= BS #}
+const int TD = {{ THREAD_SIZE_D_VALUE }};{# D / Td >= Bs / Ts, D / Td >= Bt / Tt #}
+const int SD = {{ THREAD_SIZE_S_TO_D }};
+
+const int SMEM_THREADS_D = D / 4;
+const int SMEM_THREADS_N = {{ THREADS_PER_BLOCK }} / SMEM_THREADS_D;
 
 __device__ __forceinline__ float2 _add_float2(float2 x, float2 y) \
 {                                                                 \
@@ -88,9 +88,6 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
     __shared__ float shared_dV[BS * D];
     {# __shared__ float shared_ML[BT * 2]; #}
     float* shared_ML = shared_O;
-
-    int SMEM_THREADS_D = D / 4;
-    int SMEM_THREADS_N = {{ THREADS_PER_BLOCK }} / SMEM_THREADS_D;
 
     int tid = threadIdx.y * blockDim.x + threadIdx.x;
     int SMEM_TID_N = tid / SMEM_THREADS_D;
@@ -349,8 +346,8 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
         for (int jt = 0; jt < TT; jt++) {
             row_sum = 0.0f;
             #pragma unroll
-            for (int i = 0; i < TD; i++) {
-                row_sum += shared_O[(threadIdx.y * TT + jt) * D + threadIdx.x * TD + i];
+            for (int i = 0; i < SD; i++) {
+                row_sum += shared_O[(threadIdx.y * TT + jt) * D + threadIdx.x * SD + i];
             }
             #pragma unroll
             for (int offset = {{ WARP_REDUCE_SIZE // 2 }}; offset > 0; offset >>= 1) {

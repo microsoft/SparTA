@@ -1,19 +1,20 @@
 {# Copyright (c) Microsoft Corporation. #}
 {# Licensed under the MIT license. #}
 
-{% set WARP_REDUCE_SIZE = BLOCK_SIZE_S_VALUE // THREAD_SIZE_S_VALUE %}{# WARP_REDUCE_SIZE <= 32 #}
-
-{% set THREAD_SIZE_D_VALUE = GLOBAL_SIZE_D_VALUE // WARP_REDUCE_SIZE %}
-
+{% set WARP_REDUCE_SIZE = BLOCK_SIZE_S_VALUE // THREAD_SIZE_S_VALUE %}{# WARP_REDUCE_SIZE = Bs / Ts <= 32 #}
 {% set THREADS_PER_BLOCK = WARP_REDUCE_SIZE * BLOCK_SIZE_T_VALUE // THREAD_SIZE_T_VALUE %}
+{% set THREAD_SIZE_S_TO_D = GLOBAL_SIZE_D_VALUE // WARP_REDUCE_SIZE %}
 
 const int BS = {{ BLOCK_SIZE_S_VALUE }};
 const int BT = {{ BLOCK_SIZE_T_VALUE }};
 const int D = {{ GLOBAL_SIZE_D_VALUE }};
 const int TS = {{ THREAD_SIZE_S_VALUE }};
 const int TT = {{ THREAD_SIZE_T_VALUE }};
+const int TD = {{ THREAD_SIZE_D_VALUE }};{# D / Td >= Bs / Ts #}
+const int SD = {{ THREAD_SIZE_S_TO_D }};
 
-const int TD = {{ THREAD_SIZE_D_VALUE }};{# D * TS >= BS #}
+const int SMEM_THREADS_D = D / 4;
+const int SMEM_THREADS_N = {{ THREADS_PER_BLOCK }} / SMEM_THREADS_D;
 
 __device__ __forceinline__ float2 _add_float2(float2 x, float2 y) \
 {                                                                 \
@@ -81,9 +82,6 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION(
     __shared__ float shared_V[BS * D];
     {# __shared__ float shared_ML[BT * 2]; #}
     float* shared_ML = shared_Q;
-
-    int SMEM_THREADS_D = D / 4;
-    int SMEM_THREADS_N = {{ THREADS_PER_BLOCK }} / SMEM_THREADS_D;
 
     int tid = threadIdx.y * blockDim.x + threadIdx.x;
     int SMEM_TID_N = tid / SMEM_THREADS_D;
@@ -153,7 +151,7 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION(
             for (int i = 0; i < TD; i++) {
                 #pragma unroll
                 for (int jt = 0; jt < TT; jt++) {
-                    frag_QO[jt][i] = shared_Q[(threadIdx.y + blockDim.y * jt) * D + k + i] * temperature;
+                    frag_QO[jt][i] = shared_Q[(threadIdx.y + blockDim.y * jt) * D + k + i];
                 }
             }
             #pragma unroll
@@ -189,6 +187,10 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION(
 
         #pragma unroll
         for (int jt = 0; jt < TT; jt++) {
+            #pragma unroll
+            for (int js = 0; js < TS; js++) {
+                frag_P[jt][js] *= temperature;
+            }
             {# Calc M~ = max_j(P) #}
             seg_max = -100000.0;
             #pragma unroll
@@ -254,25 +256,26 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION(
         for (int jt = tid * 2; jt < BT; jt += {{ THREADS_PER_BLOCK * 2 }}) {
             *((float4*)(&ML[(row_idx * BT + jt) * 2])) = *((float4*)(&shared_ML[jt * 2]));
         }
+        __syncthreads();
 
         {# Load O #}
         #pragma unroll
         for (int jt = 0; jt < TT; jt++) {
-            {% if THREAD_SIZE_D_VALUE == 1 %}
-            shared_Q[(threadIdx.y + blockDim.y * jt) * D + threadIdx.x * TD] =
-                O[(row_idx * BT + threadIdx.y + blockDim.y * jt) * D + threadIdx.x * TD] * frag_ML[jt];
-            {% elif THREAD_SIZE_D_VALUE == 2 %}
-            ((float2*)(&shared_Q[(threadIdx.y + blockDim.y * jt) * D + threadIdx.x * TD]))[0] =
+            {% if THREAD_SIZE_S_TO_D == 1 %}
+            shared_Q[(threadIdx.y + blockDim.y * jt) * D + threadIdx.x * SD] =
+                O[(row_idx * BT + threadIdx.y + blockDim.y * jt) * D + threadIdx.x * SD] * frag_ML[jt];
+            {% elif THREAD_SIZE_S_TO_D == 2 %}
+            ((float2*)(&shared_Q[(threadIdx.y + blockDim.y * jt) * D + threadIdx.x * SD]))[0] =
                 _scale_float2(
-                    ((float2*)(&O[(row_idx * BT + threadIdx.y + blockDim.y * jt) * D + threadIdx.x * TD]))[0],
+                    ((float2*)(&O[(row_idx * BT + threadIdx.y + blockDim.y * jt) * D + threadIdx.x * SD]))[0],
                     frag_ML[jt]
                 );
             {% else %}
             #pragma unroll
-            for (int i = 0; i < TD; i += 4) {
-                ((float4*)(&shared_Q[(threadIdx.y + blockDim.y * jt) * D + threadIdx.x * TD + i]))[0] =
+            for (int i = 0; i < SD; i += 4) {
+                ((float4*)(&shared_Q[(threadIdx.y + blockDim.y * jt) * D + threadIdx.x * SD + i]))[0] =
                     _scale_float4(
-                        ((float4*)(&O[(row_idx * BT + threadIdx.y + blockDim.y * jt) * D + threadIdx.x * TD + i]))[0],
+                        ((float4*)(&O[(row_idx * BT + threadIdx.y + blockDim.y * jt) * D + threadIdx.x * SD + i]))[0],
                         frag_ML[jt]
                     );
             }

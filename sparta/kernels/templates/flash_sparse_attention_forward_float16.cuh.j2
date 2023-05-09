@@ -1,0 +1,283 @@
+{# Copyright (c) Microsoft Corporation. #}
+{# Licensed under the MIT license. #}
+
+#include <cuda_fp16.h>
+#include <mma.h>
+
+using namespace nvcuda;
+
+{% set WARP_SIZE = 32 %}
+{% set FRAG_SIZE = 256 %}
+{% set QK_WARP_SIZE_N_VALUE = FRAG_SIZE // QK_WARP_SIZE_M_VALUE %}
+{% set SV_WARP_SIZE_N_VALUE = FRAG_SIZE // SV_WARP_SIZE_M_VALUE %}
+{% set BLOCK_SIZE = BLOCK_SIZE_T_VALUE * BLOCK_SIZE_S_VALUE %}
+{% set THREAD_SIZE = BLOCK_SIZE // THREADS_PER_BLOCK %}{# 8 <= THREAD_SIZE <= BLOCK_SIZE_S_VALUE #}
+{% set WARP_REDUCE_SIZE = BLOCK_SIZE_S_VALUE // THREAD_SIZE %}{# WARP_REDUCE_SIZE <= WARP_SIZE #}
+
+const int BS = {{ BLOCK_SIZE_S_VALUE }};
+const int BT = {{ BLOCK_SIZE_T_VALUE }};
+const int D = {{ GLOBAL_SIZE_D_VALUE }};
+const int QK_WARP_M = {{ QK_WARP_SIZE_M_VALUE }};
+const int QK_WARP_N = {{ QK_WARP_SIZE_N_VALUE }};
+const int QK_WARP_K = 16;
+const int SV_WARP_M = {{ SV_WARP_SIZE_M_VALUE }};
+const int SV_WARP_N = {{ SV_WARP_SIZE_N_VALUE }};
+const int SV_WARP_K = 16;
+
+const int B = {{ BLOCK_SIZE }};
+const int T = {{ THREAD_SIZE }};
+const int THREADS = {{ THREADS_PER_BLOCK }};{# THREADS_PER_BLOCK >= WARP_SIZE #}
+const int WARPS = THREADS / {{ WARP_SIZE }};
+const int SD = T * D / BS;
+
+const int SMEM_THREADS_D = D / 8;
+const int SMEM_THREADS_N = THREADS / SMEM_THREADS_D;
+const int QK_WARPS_N = BS / QK_WARP_N;
+const int QK_STRIDE_M = QK_WARP_M * (WARPS / QK_WARPS_N);
+const int SV_WARPS_N = D / SV_WARP_N;
+const int SV_STRIDE_M = SV_WARP_M * (WARPS / SV_WARPS_N);
+
+const int D_PAD = 8;
+const int S_PAD = 8;
+
+__device__ __forceinline__ half max(half x, half y) \
+{                                                   \
+    return x > y ? x : y;                           \
+}
+
+extern "C" {
+
+__global__ void BLOCK_SPARSE_FLASH_ATTENTION_FP16(
+    half* Q,
+    half* K,
+    half* V,
+    half* O,
+    half* ML,
+    {# unsigned char* mask, #}
+    uint* block_idx,
+    uint Ns,
+    uint Nt,
+    uint block_nnz
+) {
+    Q += Nt * D * blockIdx.x;
+    K += Ns * D * blockIdx.x;
+    V += Ns * D * blockIdx.x;
+    O += Nt * D * blockIdx.x;
+    ML += Nt * 2 * blockIdx.x;
+
+    uint WARP_OFFSET = ((threadIdx.x / {{ WARP_REDUCE_SIZE }}) * {{ WARP_REDUCE_SIZE }}) % {{ WARP_SIZE }};
+    uint WARP_MASK = 0b{% for _ in range(WARP_REDUCE_SIZE) %}1{% endfor %} << WARP_OFFSET;
+
+    __shared__ half shared_Q[BT][D + D_PAD];
+    __shared__ half shared_P[BT][BS + S_PAD];
+    __shared__ half shared_K[BS][D + D_PAD];
+    __shared__ half shared_V[BS][D + D_PAD];
+
+    int SMEM_TID_N = threadIdx.x / SMEM_THREADS_D;
+    int SMEM_TID_D = threadIdx.x % SMEM_THREADS_D * 8;
+
+    int wid = threadIdx.x / {{ WARP_SIZE }};
+    int qk_wx = wid % QK_WARPS_N;
+    int qk_wy = wid / QK_WARPS_N;
+    int sv_wx = wid % SV_WARPS_N;
+    int sv_wy = wid / SV_WARPS_N;
+    int tx = threadIdx.x % {{ WARP_REDUCE_SIZE }};
+    int ty = threadIdx.x / {{ WARP_REDUCE_SIZE }};
+
+    wmma::fragment<wmma::matrix_a, QK_WARP_M, QK_WARP_N, QK_WARP_K, half, wmma::row_major> frag_Q;
+    wmma::fragment<wmma::matrix_b, QK_WARP_M, QK_WARP_N, QK_WARP_K, half, wmma::col_major> frag_K;
+    wmma::fragment<wmma::accumulator, QK_WARP_M, QK_WARP_N, QK_WARP_K, half> frag_P;
+    wmma::fragment<wmma::matrix_a, SV_WARP_M, SV_WARP_N, SV_WARP_K, half, wmma::row_major> frag_S;
+    wmma::fragment<wmma::matrix_b, SV_WARP_M, SV_WARP_N, SV_WARP_K, half, wmma::row_major> frag_V;
+    wmma::fragment<wmma::accumulator, SV_WARP_M, SV_WARP_N, SV_WARP_K, half> frag_O;
+    float4 tmp_float4;
+    half frag[T];
+
+    float temperature = __frsqrt_rn((float)Ns);
+    half row_max;
+    half row_sum;
+    half row_sum_new;
+    half seg_max;
+    half seg_sum;
+    half row_coef;
+    half seg_coef;
+    int block_row_idx;
+
+    int last_col_idx = -1;
+    {# BCSC #}
+    for (int block = 0; block < block_nnz; block++) {
+        uint idx = block_idx[block];
+        int row_idx = idx & 0xffff;
+        int col_idx = idx >> 16;
+        // if (blockIdx.x == 0 && threadIdx.x == 0)
+        //     printf("#%d: (%d, %d)\n", block, row_idx, col_idx);
+
+        {# Load Q #}
+        #pragma unroll
+        for (int k = SMEM_TID_N; k < BT; k += SMEM_THREADS_N) {
+            *((float4*)(&shared_Q[k][SMEM_TID_D])) = *((float4*)(&Q[(row_idx * BT + k) * D + SMEM_TID_D]));
+        }
+        if (col_idx != last_col_idx) {
+            {# Load K #}
+            #pragma unroll
+            for (int k = SMEM_TID_N; k < BS; k += SMEM_THREADS_N) {
+                *((float4*)(&shared_K[k][SMEM_TID_D])) = *((float4*)(&K[(col_idx * BS + k) * D + SMEM_TID_D]));
+            }
+            {# Load V #}
+            #pragma unroll
+            for (int k = SMEM_TID_N; k < BS; k += SMEM_THREADS_N) {
+                *((float4*)(&shared_V[k][SMEM_TID_D])) = *((float4*)(&V[(col_idx * BS + k) * D + SMEM_TID_D]));
+            }
+            last_col_idx = col_idx;
+        }
+        __syncthreads();
+
+        {# Calc P = Q K^T #}
+        #pragma unroll
+        for (int jt = 0; jt < BT; jt += QK_STRIDE_M) {
+            wmma::fill_fragment(frag_P, 0.0);
+            #pragma unroll
+            for (int k = 0; k < D; k += QK_WARP_K) {
+                wmma::load_matrix_sync(frag_Q, &shared_Q[jt + qk_wy * QK_WARP_M][k], D + D_PAD);
+                wmma::load_matrix_sync(frag_K, &shared_K[qk_wx * QK_WARP_N][k], D + D_PAD);
+                wmma::mma_sync(frag_P, frag_Q, frag_K, frag_P);
+            }
+            for(int i = 0; i < {{ FRAG_SIZE }}; i++) {
+                frag_P.x[i] *= temperature;
+            }
+            wmma::store_matrix_sync(
+                &shared_P[jt + qk_wy * QK_WARP_M][qk_wx * QK_WARP_N], frag_P, BS + S_PAD, wmma::mem_row_major);
+        }
+        __syncthreads();
+        /*if (blockIdx.x == 0 && threadIdx.x == 0 && row_idx == 0 && col_idx == 0) {
+            printf("P[0][0] = %f\n", (float)(shared_P[0][0]));
+            printf("P[0][1] = %f\n", (float)(shared_P[0][1]));
+            printf("P[1][0] = %f\n", (float)(shared_P[1][0]));
+            printf("P[1][1] = %f\n", (float)(shared_P[1][1]));
+        }*/
+
+        {# Load M, L, P #}
+        #pragma unroll
+        for (int jt = threadIdx.x * 4; jt < BT; jt += {{ THREADS_PER_BLOCK * 4 }}) {
+            tmp_float4 = ((float4*)(&ML[(row_idx * BT + jt) * 2]))[0];
+            ((float*)(&shared_Q[jt + 0][0]))[0] = tmp_float4.x;
+            ((float*)(&shared_Q[jt + 1][0]))[0] = tmp_float4.y;
+            ((float*)(&shared_Q[jt + 2][0]))[0] = tmp_float4.z;
+            ((float*)(&shared_Q[jt + 3][0]))[0] = tmp_float4.w;
+        }
+        __syncthreads();
+        #pragma unroll
+        for (int i = 0; i < T; i += 8) {
+            *((float4*)(&frag[i])) = *((float4*)(&shared_P[ty][tx * T + i]));
+        }
+
+        {# Calc M~ = max_j(P) #}
+        seg_max = (half)(-1000.0);
+        #pragma unroll
+        for (int i = 0; i < T; i++) {
+            seg_max = max(seg_max, frag[i]);
+        }
+        #pragma unroll
+        for (int offset = {{ WARP_REDUCE_SIZE // 2 }}; offset > 0; offset >>= 1) {
+            seg_max = max(seg_max, __shfl_xor_sync(WARP_MASK, seg_max, offset));
+        }
+        {# Calc S = exp(P - M~) #}
+        #pragma unroll
+        for (int i = 0; i < T; i++) {
+            frag[i] = hexp(frag[i] - seg_max);
+        }
+        {# Calc L~ = sum_j(P) #}
+        seg_sum = (half)(0.0f);
+        #pragma unroll
+        for (int i = 0; i < T; i++) {
+            seg_sum += frag[i];
+        }
+        #pragma unroll
+        for (int offset = {{ WARP_REDUCE_SIZE // 2 }}; offset > 0; offset >>= 1) {
+            seg_sum += __shfl_down_sync(WARP_MASK, seg_sum, offset);
+        }
+        {# Calc M' = max(M, M~), L' = exp(M - M') * L + exp(M~ - M') * L~ #}
+        if (tx == 0) {
+            row_max = shared_Q[ty][0];
+            row_sum = shared_Q[ty][1];
+            if (row_max < seg_max) {
+                shared_Q[ty][0] = seg_max;
+                row_coef = hexp(row_max - seg_max);
+                row_sum_new = row_coef * row_sum + seg_sum;
+                row_coef *= row_sum / row_sum_new;
+                seg_coef = (half)(1.0f) / row_sum_new;
+            } else {
+                seg_coef = hexp(seg_max - row_max);
+                row_sum_new = row_sum + seg_coef * seg_sum;
+                row_coef = row_sum / row_sum_new;
+                seg_coef /= row_sum_new;
+            }
+            shared_Q[ty][1] = row_sum_new;
+        }
+        row_coef = __shfl_sync(WARP_MASK, row_coef, WARP_OFFSET);
+        seg_coef = __shfl_sync(WARP_MASK, seg_coef, WARP_OFFSET);
+        {# Calc O' = L / L' * exp(M - M') * O, S' = exp(M~ - M') / L' * S #}
+        #pragma unroll
+        for (int i = 0; i < T; i++) {
+            frag[i] *= seg_coef;
+        }
+        __syncthreads();
+
+        {# Save M, L, S #}
+        #pragma unroll
+        for (int jt = threadIdx.x * 4; jt < BT; jt += {{ THREADS_PER_BLOCK * 4 }}) {
+            tmp_float4.x = ((float*)(&shared_Q[jt + 0][0]))[0];
+            tmp_float4.y = ((float*)(&shared_Q[jt + 1][0]))[0];
+            tmp_float4.z = ((float*)(&shared_Q[jt + 2][0]))[0];
+            tmp_float4.w = ((float*)(&shared_Q[jt + 3][0]))[0];
+            ((float4*)(&ML[(row_idx * BT + jt) * 2]))[0] = tmp_float4;
+        }
+        #pragma unroll
+        for (int i = 0; i < T; i += 8) {
+            *((float4*)(&shared_P[ty][tx * T + i])) = *((float4*)(&frag[i]));
+        }
+        __syncthreads();
+        /*if (blockIdx.x == 0 && threadIdx.x == 0 && row_idx == 0 && col_idx == 0) {
+            printf("S[0][0] = %f\n", (float)(shared_P[0][0]));
+            printf("S[0][1] = %f\n", (float)(shared_P[0][1]));
+            printf("S[1][0] = %f\n", (float)(shared_P[1][0]));
+            printf("S[1][1] = %f\n", (float)(shared_P[1][1]));
+        }*/
+
+        {# Load O #}
+        #pragma unroll
+        for (int i = 0; i < SD; i += 8) {
+            *((float4*)(&frag[0])) = *((float4*)(&O[(row_idx * BT + ty) * D + tx * SD + i]));
+            #pragma unroll
+            for (int j = 0; j < 8; j++) {
+                frag[j] *= row_coef;
+            }
+            *((float4*)(&shared_Q[ty][tx * SD + i])) = *((float4*)(&frag[0]));
+        }
+        __syncthreads();
+
+        {# Calc O = O' + S' V #}
+        #pragma unroll
+        for (int jt = 0; jt < BT; jt += SV_STRIDE_M) {
+            wmma::load_matrix_sync(
+                frag_O, &shared_Q[jt + sv_wy * SV_WARP_M][sv_wx * SV_WARP_N], D + D_PAD, wmma::mem_row_major);
+            #pragma unroll
+            for (int k = 0; k < BS; k += SV_WARP_K) {
+                wmma::load_matrix_sync(frag_S, &shared_P[jt + sv_wy * SV_WARP_M][k], BS + S_PAD);
+                wmma::load_matrix_sync(frag_V, &shared_V[k][sv_wx * SV_WARP_N], D + D_PAD);
+                wmma::mma_sync(frag_O, frag_S, frag_V, frag_O);
+            }
+            wmma::store_matrix_sync(
+                &shared_Q[jt + sv_wy * SV_WARP_M][sv_wx * SV_WARP_N], frag_O, D + D_PAD, wmma::mem_row_major);
+        }
+        __syncthreads();
+
+        {# Save O #}
+        #pragma unroll
+        for (int k = SMEM_TID_N; k < BT; k += SMEM_THREADS_N) {
+            *((float4*)(&O[(row_idx * BT + k) * D + SMEM_TID_D])) = *((float4*)(&shared_Q[k][SMEM_TID_D]));
+        }
+    }
+}
+
+} // extern "C"
