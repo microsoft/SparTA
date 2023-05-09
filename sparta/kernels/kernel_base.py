@@ -228,17 +228,19 @@ class KernelBase(Callable):
     def set_kernel_call(self, shape: Tuple):
         """Convert pycuda kernel (self._kernel) to python function call (self._func)."""
 
-    def compile(self, params: Dict[str, Any], shape: Tuple):
-        self._check_parameters(params)
-        self.set_parameters(params)
-        self.attr.update_block_size(self.id)
-        kernel_code = self.get_kernel_code()
+    def _build_kernel(self, kernel_code: str):
         kernel_name = kernel_code[kernel_code.find('__global__ void') + 15:]
         kernel_name = kernel_name[:kernel_name.find('(')].strip()
         with warnings.catch_warnings():
             warnings.simplefilter('ignore')
             source_module = SourceModule(kernel_code, options=['-O3'])
-        self._kernel = source_module.get_function(kernel_name)
+        return source_module.get_function(kernel_name)
+
+    def compile(self, params: Dict[str, Any], shape: Tuple):
+        self._check_parameters(params)
+        self.set_parameters(params)
+        self.attr.update_block_size(self.id)
+        self._kernel = self._build_kernel(self.get_kernel_code())
         self.set_kernel_call(shape)
         self.ready = True
         # Calc estimated latency

@@ -40,11 +40,6 @@ const int SV_STRIDE_M = SV_WARP_M * (WARPS / SV_WARPS_N);
 const int D_PAD = 8;
 const int S_PAD = 8;
 
-__device__ __forceinline__ half max(half x, half y) \
-{                                                   \
-    return x > y ? x : y;                           \
-}
-
 extern "C" {
 
 __global__ void BLOCK_SPARSE_FLASH_ATTENTION_FP16(
@@ -52,7 +47,7 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_FP16(
     half* K,
     half* V,
     half* O,
-    half* ML,
+    float* ML,
     {# unsigned char* mask, #}
     uint* block_idx,
     uint Ns,
@@ -90,18 +85,17 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_FP16(
     wmma::fragment<wmma::matrix_a, SV_WARP_M, SV_WARP_N, SV_WARP_K, half, wmma::row_major> frag_S;
     wmma::fragment<wmma::matrix_b, SV_WARP_M, SV_WARP_N, SV_WARP_K, half, wmma::row_major> frag_V;
     wmma::fragment<wmma::accumulator, SV_WARP_M, SV_WARP_N, SV_WARP_K, half> frag_O;
-    float4 tmp_float4;
-    half frag[T];
+    float2 tmp_float2;
+    half tmp_half8[8];
+    float frag[T];
 
     float temperature = __frsqrt_rn((float)Ns);
-    half row_max;
-    half row_sum;
-    half row_sum_new;
-    half seg_max;
-    half seg_sum;
-    half row_coef;
-    half seg_coef;
-    int block_row_idx;
+    float row_max;
+    float row_sum;
+    float seg_max;
+    float seg_sum;
+    float row_coef;
+    float seg_coef;
 
     int last_col_idx = -1;
     {# BCSC #}
@@ -149,30 +143,25 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_FP16(
                 &shared_P[jt + qk_wy * QK_WARP_M][qk_wx * QK_WARP_N], frag_P, BS + S_PAD, wmma::mem_row_major);
         }
         __syncthreads();
-        /*if (blockIdx.x == 0 && threadIdx.x == 0 && row_idx == 0 && col_idx == 0) {
-            printf("P[0][0] = %f\n", (float)(shared_P[0][0]));
-            printf("P[0][1] = %f\n", (float)(shared_P[0][1]));
-            printf("P[1][0] = %f\n", (float)(shared_P[1][0]));
-            printf("P[1][1] = %f\n", (float)(shared_P[1][1]));
-        }*/
+        // if (blockIdx.x == 0 && threadIdx.x == 0 && row_idx == 0 && col_idx == 0) {
+        //     printf("P[0][0] = %f\n", (float)(shared_P[0][0]));
+        //     printf("P[0][1] = %f\n", (float)(shared_P[0][1]));
+        //     printf("P[1][0] = %f\n", (float)(shared_P[1][0]));
+        //     printf("P[1][1] = %f\n", (float)(shared_P[1][1]));
+        // }
 
-        {# Load M, L, P #}
-        #pragma unroll
-        for (int jt = threadIdx.x * 4; jt < BT; jt += {{ THREADS_PER_BLOCK * 4 }}) {
-            tmp_float4 = ((float4*)(&ML[(row_idx * BT + jt) * 2]))[0];
-            ((float*)(&shared_Q[jt + 0][0]))[0] = tmp_float4.x;
-            ((float*)(&shared_Q[jt + 1][0]))[0] = tmp_float4.y;
-            ((float*)(&shared_Q[jt + 2][0]))[0] = tmp_float4.z;
-            ((float*)(&shared_Q[jt + 3][0]))[0] = tmp_float4.w;
-        }
-        __syncthreads();
+        {# Load P #}
         #pragma unroll
         for (int i = 0; i < T; i += 8) {
-            *((float4*)(&frag[i])) = *((float4*)(&shared_P[ty][tx * T + i]));
+            *((float4*)(&tmp_half8[0])) = *((float4*)(&shared_P[ty][tx * T + i]));
+            #pragma unroll
+            for (int j = 0; j < 8; j++) {
+                frag[i + j] = __half2float(tmp_half8[j]);
+            }
         }
 
         {# Calc M~ = max_j(P) #}
-        seg_max = (half)(-1000.0);
+        seg_max = -100000.0;
         #pragma unroll
         for (int i = 0; i < T; i++) {
             seg_max = max(seg_max, frag[i]);
@@ -184,10 +173,10 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_FP16(
         {# Calc S = exp(P - M~) #}
         #pragma unroll
         for (int i = 0; i < T; i++) {
-            frag[i] = hexp(frag[i] - seg_max);
+            frag[i] = expf(frag[i] - seg_max);
         }
         {# Calc L~ = sum_j(P) #}
-        seg_sum = (half)(0.0f);
+        seg_sum = 0.0f;
         #pragma unroll
         for (int i = 0; i < T; i++) {
             seg_sum += frag[i];
@@ -198,21 +187,22 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_FP16(
         }
         {# Calc M' = max(M, M~), L' = exp(M - M') * L + exp(M~ - M') * L~ #}
         if (tx == 0) {
-            row_max = shared_Q[ty][0];
-            row_sum = shared_Q[ty][1];
+            tmp_float2 = ((float2*)(&ML[(row_idx * BT + ty) * 2]))[0];
+            row_max = tmp_float2.x;
+            row_sum = tmp_float2.y;
             if (row_max < seg_max) {
-                shared_Q[ty][0] = seg_max;
-                row_coef = hexp(row_max - seg_max);
-                row_sum_new = row_coef * row_sum + seg_sum;
-                row_coef *= row_sum / row_sum_new;
-                seg_coef = (half)(1.0f) / row_sum_new;
+                tmp_float2.x = seg_max;
+                row_coef = expf(row_max - seg_max);
+                tmp_float2.y = row_coef * row_sum + seg_sum;
+                row_coef *= row_sum / tmp_float2.y;
+                seg_coef = 1.0f / tmp_float2.y;
             } else {
-                seg_coef = hexp(seg_max - row_max);
-                row_sum_new = row_sum + seg_coef * seg_sum;
-                row_coef = row_sum / row_sum_new;
-                seg_coef /= row_sum_new;
+                seg_coef = expf(seg_max - row_max);
+                tmp_float2.y = row_sum + seg_coef * seg_sum;
+                row_coef = row_sum / tmp_float2.y;
+                seg_coef /= tmp_float2.y;
             }
-            shared_Q[ty][1] = row_sum_new;
+            ((float2*)(&ML[(row_idx * BT + ty) * 2]))[0] = tmp_float2;
         }
         row_coef = __shfl_sync(WARP_MASK, row_coef, WARP_OFFSET);
         seg_coef = __shfl_sync(WARP_MASK, seg_coef, WARP_OFFSET);
@@ -223,36 +213,32 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_FP16(
         }
         __syncthreads();
 
-        {# Save M, L, S #}
-        #pragma unroll
-        for (int jt = threadIdx.x * 4; jt < BT; jt += {{ THREADS_PER_BLOCK * 4 }}) {
-            tmp_float4.x = ((float*)(&shared_Q[jt + 0][0]))[0];
-            tmp_float4.y = ((float*)(&shared_Q[jt + 1][0]))[0];
-            tmp_float4.z = ((float*)(&shared_Q[jt + 2][0]))[0];
-            tmp_float4.w = ((float*)(&shared_Q[jt + 3][0]))[0];
-            ((float4*)(&ML[(row_idx * BT + jt) * 2]))[0] = tmp_float4;
-        }
+        {# Save S #}
         #pragma unroll
         for (int i = 0; i < T; i += 8) {
-            *((float4*)(&shared_P[ty][tx * T + i])) = *((float4*)(&frag[i]));
+            #pragma unroll
+            for (int j = 0; j < 8; j++) {
+                tmp_half8[j] = __float2half(frag[i + j]);
+            }
+            *((float4*)(&shared_P[ty][tx * T + i])) = *((float4*)(&tmp_half8[0]));
         }
         __syncthreads();
-        /*if (blockIdx.x == 0 && threadIdx.x == 0 && row_idx == 0 && col_idx == 0) {
-            printf("S[0][0] = %f\n", (float)(shared_P[0][0]));
-            printf("S[0][1] = %f\n", (float)(shared_P[0][1]));
-            printf("S[1][0] = %f\n", (float)(shared_P[1][0]));
-            printf("S[1][1] = %f\n", (float)(shared_P[1][1]));
-        }*/
+        // if (blockIdx.x == 0 && threadIdx.x == 0 && row_idx == 0 && col_idx == 0) {
+        //     printf("S[0][0] = %f\n", (float)(shared_P[0][0]));
+        //     printf("S[0][1] = %f\n", (float)(shared_P[0][1]));
+        //     printf("S[1][0] = %f\n", (float)(shared_P[1][0]));
+        //     printf("S[1][1] = %f\n", (float)(shared_P[1][1]));
+        // }
 
         {# Load O #}
         #pragma unroll
         for (int i = 0; i < SD; i += 8) {
-            *((float4*)(&frag[0])) = *((float4*)(&O[(row_idx * BT + ty) * D + tx * SD + i]));
+            *((float4*)(&tmp_half8[0])) = *((float4*)(&O[(row_idx * BT + ty) * D + tx * SD + i]));
             #pragma unroll
             for (int j = 0; j < 8; j++) {
-                frag[j] *= row_coef;
+                tmp_half8[j] = __float2half(__half2float(tmp_half8[j]) * row_coef);
             }
-            *((float4*)(&shared_Q[ty][tx * SD + i])) = *((float4*)(&frag[0]));
+            *((float4*)(&shared_Q[ty][tx * SD + i])) = *((float4*)(&tmp_half8[0]));
         }
         __syncthreads();
 
