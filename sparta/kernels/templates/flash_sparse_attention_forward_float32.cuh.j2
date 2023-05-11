@@ -73,10 +73,10 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION(
     uint WARP_OFFSET = (threadIdx.y % {{ 32 // WARP_REDUCE_SIZE }}) * {{ WARP_REDUCE_SIZE }};
     uint WARP_MASK = 0x{% for _ in range(WARP_REDUCE_SIZE // 4) %}f{% endfor %} << WARP_OFFSET;
 
-    {# extern __shared__ float buffer[];
-    float* shared_Q = &buffer[0];
-    float* shared_K = &buffer[BT * D];
-    float* shared_V = &buffer[BT * D + BS * D]; #}
+    {# extern __shared__ float shared[];
+    float* shared_Q = &shared[0];
+    float* shared_K = &shared[BT * D];
+    float* shared_V = &shared[BT * D + BS * D]; #}
     __shared__ float shared_Q[BT * D];
     __shared__ float shared_K[BS * D];
     __shared__ float shared_V[BS * D];

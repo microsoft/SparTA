@@ -127,8 +127,10 @@ class FlashSparseAttentionFP16Kernel(FlashSparseAttentionKernel):
     def _add_parameters(self):
         super()._add_parameters()
         self._add_parameter('THREADS_PER_BLOCK')
-        self._add_parameter('QK_WARP_SIZE_M_VALUE')
-        self._add_parameter('SV_WARP_SIZE_M_VALUE')
+        self._add_parameter('TS_WARP_SIZE_M_VALUE')
+        self._add_parameter('TD_WARP_SIZE_M_VALUE')
+        if self.__direction__ == 'backward':
+            self._add_parameter('SD_WARP_SIZE_M_VALUE')
 
     def _check_parameters(self, params: Dict[str, Any]):
         Bs = params['BLOCK_SIZE_S_VALUE']
@@ -139,10 +141,13 @@ class FlashSparseAttentionFP16Kernel(FlashSparseAttentionKernel):
         assert Bt >= 16
         threads_per_block = params['THREADS_PER_BLOCK']
         assert threads_per_block in [32, 64, 128, 256]
-        Wn1 = params['QK_WARP_SIZE_M_VALUE']
+        Wn1 = params['TS_WARP_SIZE_M_VALUE']
         assert Wn1 in [8, 16, 32]
-        Wn2 = params['SV_WARP_SIZE_M_VALUE']
+        Wn2 = params['TD_WARP_SIZE_M_VALUE']
         assert Wn2 in [8, 16, 32]
+        if self.__direction__ == 'backward':
+            Wn3 = params['SD_WARP_SIZE_M_VALUE']
+            assert Wn3 in [8, 16, 32]
 
     def _check_shape(self, Nt: int, Ns: int, D: int):
         Bt, Bs = self.get_block_shape()
