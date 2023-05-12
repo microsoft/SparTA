@@ -72,7 +72,7 @@ def sparse_multi_head_attention_forward_reference(
         torch.Tensor: Sparse multi-head attention output of shape :math:`(B, H, N_{target}, E)`.
     """
     if np.isnan(temperature):
-        temperature = np.sqrt(mask.shape[-1])
+        temperature = np.sqrt(key.shape[-1])
     high_dims = ''.join([chr(ord('a') + i) for i in range(len(query.shape) - 2)])
     p = torch.einsum(f'{high_dims}mk, {high_dims}nk -> {high_dims}mn', query, key)
     s = sparse_softmax_forward_reference(p, mask, temperature)
@@ -103,7 +103,7 @@ def sparse_multi_head_attention_backward_reference(
         Tuple: The gradient of query, key and value respectively..
     """
     if np.isnan(temperature):
-        temperature = np.sqrt(mask.shape[-1])
+        temperature = np.sqrt(key.shape[-1])
     high_dims = ''.join([chr(ord('a') + i) for i in range(len(query.shape) - 2)])
     p = torch.einsum(f'{high_dims}mk, {high_dims}nk -> {high_dims}mn', query, key)
     s = sparse_softmax_forward_reference(p, mask, temperature)

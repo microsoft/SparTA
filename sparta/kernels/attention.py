@@ -14,6 +14,7 @@ import pandas as pd
 
 from sparta import __env_ready__
 if __env_ready__:
+    from pycuda.driver import function_attribute
     from pycuda.compiler import SourceModule
 
 from sparta.tuning import TunableItemCfg
@@ -48,12 +49,16 @@ class FlashSparseAttentionKernel(KernelBase):
 
     @abc.abstractmethod
     def _check_shape(self, Nt: int, Ns: int, D: int):
-        '''Check if input shape is valid.'''
+        """Check if input shape is valid."""
 
     def get_block_shape(self):
         Bt = self.get_parameter('BLOCK_SIZE_T_VALUE')
         Bs = self.get_parameter('BLOCK_SIZE_S_VALUE')
         return Bt, Bs
+
+    @abc.abstractmethod
+    def _calc_shared_mem_size(self, Bs: int, Bt: int, D: int):
+        """Calc shared memory size in bytes."""
 
     def get_kernel_code(self):
         self._buffer.to()
@@ -194,7 +199,8 @@ class FlashSparseAttentionForwardKernel(FlashSparseAttentionKernel):
         Ns_32, Nt_32, D_32 = np.int32(Ns), np.int32(Nt), np.int32(D)
         block = self.threads_per_block()
         Bt, Bs = self.get_block_shape()
-        # shared = 4 * (Bt * D + 2 * Bs * D)
+        shared = self._calc_shared_mem_size(Bs, Bt, D)
+        self._kernel.set_attribute(function_attribute.MAX_DYNAMIC_SHARED_SIZE_BYTES, shared)
 
         def attn_func(Q, K, V):
             O = torch.zeros_like(Q)
@@ -206,7 +212,7 @@ class FlashSparseAttentionForwardKernel(FlashSparseAttentionKernel):
                 self.attr.indexes.nnz,
                 block=block,
                 grid=(Q.shape[0], 1, 1),
-                # shared=shared,
+                shared=shared,
             )
             return O
 
@@ -232,7 +238,8 @@ class FlashSparseAttentionBackwardKernel(FlashSparseAttentionKernel):
         Ns_32, Nt_32, D_32 = np.int32(Ns), np.int32(Nt), np.int32(D)
         block = self.threads_per_block()
         Bt, Bs = self.get_block_shape()
-        # shared = 4 * (2 * Bt * D + 4 * Bs * D)
+        shared = self._calc_shared_mem_size(Bs, Bt, D)
+        self._kernel.set_attribute(function_attribute.MAX_DYNAMIC_SHARED_SIZE_BYTES, shared)
 
         def attn_func(grad, O, Q, K, V):
             grad_Q = torch.zeros_like(Q)
@@ -245,7 +252,7 @@ class FlashSparseAttentionBackwardKernel(FlashSparseAttentionKernel):
                 self.attr.indexes.nnz,
                 block=block,
                 grid=(Q.shape[0], 1, 1),
-                # shared=shared,
+                shared=shared,
             )
             return grad_Q, grad_K, grad_V
 
@@ -265,19 +272,27 @@ class FlashSparseAttentionBackwardKernel(FlashSparseAttentionKernel):
 
 class FlashSparseAttentionFP32ForwardKernel(FlashSparseAttentionFP32Kernel, FlashSparseAttentionForwardKernel):
 
-    pass
+    def _calc_shared_mem_size(self, Bs: int, Bt: int, D: int):
+        shared = 4 * (Bt * D + 2 * Bs * D)
+        return shared
 
 
 class FlashSparseAttentionFP32BackwardKernel(FlashSparseAttentionFP32Kernel, FlashSparseAttentionBackwardKernel):
 
-    pass
+    def _calc_shared_mem_size(self, Bs: int, Bt: int, D: int):
+        shared = 4 * (2 * Bt * D + 4 * Bs * D)
+        return shared
 
 
 class FlashSparseAttentionFP16ForwardKernel(FlashSparseAttentionFP16Kernel, FlashSparseAttentionForwardKernel):
 
-    pass
+    def _calc_shared_mem_size(self, Bs: int, Bt: int, D: int):
+        shared = 2 * (Bt * (D + 8) + 2 * (Bs * (D + 8)) + Bt * (Bs + 8))
+        return shared
 
 
 class FlashSparseAttentionFP16BackwardKernel(FlashSparseAttentionFP16Kernel, FlashSparseAttentionBackwardKernel):
 
-    pass
+    def _calc_shared_mem_size(self, Bs: int, Bt: int, D: int):
+        shared = 2 * (2 * Bt * (D + 8) + 4 * (Bs * (D + 8)) + 2 * Bt * (Bs + 8))
+        return shared

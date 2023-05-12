@@ -77,14 +77,23 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
     uint WARP_OFFSET = ((threadIdx.x / {{ WARP_REDUCE_SIZE }}) * {{ WARP_REDUCE_SIZE }}) % {{ WARP_SIZE }};
     uint WARP_MASK = 0b{% for _ in range(WARP_REDUCE_SIZE) %}1{% endfor %} << WARP_OFFSET;
 
-    __shared__ half shared_Q[BT * (D + D_PAD)];
+    extern __shared__ half shared[];
+    half* shared_Q = &shared[0];
+    half* shared_P = &shared_Q[BT * (D + D_PAD)];
+    half* shared_S = &shared_P[BT * (BS + S_PAD)];
+    half* shared_K = &shared_S[BT * (BS + S_PAD)];
+    half* shared_V = &shared_K[BS * (D + D_PAD)];
+    half* shared_O = &shared_V[BS * (D + D_PAD)];
+    half* shared_dK = &shared_O[BT * (D + D_PAD)];
+    half* shared_dV = &shared_dK[BS * (D + D_PAD)];
+    {# __shared__ half shared_Q[BT * (D + D_PAD)];
     __shared__ half shared_P[BT * (BS + S_PAD)];
     __shared__ half shared_S[BT * (BS + S_PAD)];
     __shared__ half shared_K[BS * (D + D_PAD)];
     __shared__ half shared_V[BS * (D + D_PAD)];
     __shared__ half shared_O[BT * (D + D_PAD)];
     __shared__ half shared_dK[BS * (D + D_PAD)];
-    __shared__ half shared_dV[BS * (D + D_PAD)];
+    __shared__ half shared_dV[BS * (D + D_PAD)]; #}
 
     int tid = threadIdx.y * blockDim.x + threadIdx.x;
     int SMEM_TID_N = tid / SMEM_THREADS_D;
@@ -115,7 +124,7 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
     float frag_P[T];
     float frag_S[T];
 
-    float temperature = __frsqrt_rn((float)Ns);
+    float temperature = __frsqrt_rn((float)D);
     float row_sum;
 
     int last_col_idx = -1;
