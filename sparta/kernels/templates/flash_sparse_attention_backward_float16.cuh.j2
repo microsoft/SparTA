@@ -80,15 +80,13 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
     extern __shared__ half shared[];
     half* shared_Q = &shared[0];
     half* shared_P = &shared_Q[BT * (D + D_PAD)];
-    half* shared_S = &shared_P[BT * (BS + S_PAD)];
-    half* shared_K = &shared_S[BT * (BS + S_PAD)];
+    half* shared_K = &shared_P[BT * (BS + S_PAD)];
     half* shared_V = &shared_K[BS * (D + D_PAD)];
     half* shared_O = &shared_V[BS * (D + D_PAD)];
     half* shared_dK = &shared_O[BT * (D + D_PAD)];
     half* shared_dV = &shared_dK[BS * (D + D_PAD)];
     {# __shared__ half shared_Q[BT * (D + D_PAD)];
     __shared__ half shared_P[BT * (BS + S_PAD)];
-    __shared__ half shared_S[BT * (BS + S_PAD)];
     __shared__ half shared_K[BS * (D + D_PAD)];
     __shared__ half shared_V[BS * (D + D_PAD)];
     __shared__ half shared_O[BT * (D + D_PAD)];
@@ -263,7 +261,7 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
                 wmma::mma_sync(frag_ts_c, frag_ts_a, frag_ts_b, frag_ts_c);
             }
             wmma::store_matrix_sync(
-                &shared_S[(j + ts_wy * TS_WARP_M) * (BS + S_PAD) + ts_wx * TS_WARP_N],
+                &shared_P[(j + ts_wy * TS_WARP_M) * (BS + S_PAD) + ts_wx * TS_WARP_N],
                 frag_ts_c,
                 BS + S_PAD,
                 wmma::mem_row_major
@@ -272,16 +270,16 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
         __syncthreads();
 
         // if (blockIdx.x == 0 && threadIdx.x == 0 && row_idx == 0 && col_idx == 0) {
-        //     printf("dS[0][0] = %f\n", (float)(shared_S[0 * (BS + S_PAD) + 0]));
-        //     printf("dS[0][1] = %f\n", (float)(shared_S[0 * (BS + S_PAD) + 1]));
-        //     printf("dS[1][0] = %f\n", (float)(shared_S[1 * (BS + S_PAD) + 0]));
-        //     printf("dS[1][1] = %f\n", (float)(shared_S[1 * (BS + S_PAD) + 1]));
+        //     printf("dS[0][0] = %f\n", (float)(shared_P[0 * (BS + S_PAD) + 0]));
+        //     printf("dS[0][1] = %f\n", (float)(shared_P[0 * (BS + S_PAD) + 1]));
+        //     printf("dS[1][0] = %f\n", (float)(shared_P[1 * (BS + S_PAD) + 0]));
+        //     printf("dS[1][1] = %f\n", (float)(shared_P[1 * (BS + S_PAD) + 1]));
         // }
 
         {# Load dS #}
         #pragma unroll
         for (int i = 0; i < T; i += 8) {
-            *((float4*)(&tmp_half8[0])) = *((float4*)(&shared_S[ty * (BS + S_PAD) + tx * T + i]));
+            *((float4*)(&tmp_half8[0])) = *((float4*)(&shared_P[ty * (BS + S_PAD) + tx * T + i]));
             #pragma unroll
             for (int j = 0; j < 8; j++) {
                 frag_P[i + j] = __half2float(tmp_half8[j]);
@@ -320,10 +318,10 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
         }
 
         // if (blockIdx.x == 0 && threadIdx.x == 0 && row_idx == 0 && col_idx == 0) {
-        //     printf("dP[0][0] = %f\n", (float)(shared_S[0 * (BS + S_PAD) + 0]));
-        //     printf("dP[0][1] = %f\n", (float)(shared_S[0 * (BS + S_PAD) + 1]));
-        //     printf("dP[1][0] = %f\n", (float)(shared_S[1 * (BS + S_PAD) + 0]));
-        //     printf("dP[1][1] = %f\n", (float)(shared_S[1 * (BS + S_PAD) + 1]));
+        //     printf("dP[0][0] = %f\n", (float)(shared_P[0 * (BS + S_PAD) + 0]));
+        //     printf("dP[0][1] = %f\n", (float)(shared_P[0 * (BS + S_PAD) + 1]));
+        //     printf("dP[1][0] = %f\n", (float)(shared_P[1 * (BS + S_PAD) + 0]));
+        //     printf("dP[1][1] = %f\n", (float)(shared_P[1 * (BS + S_PAD) + 1]));
         // }
 
         {# Load dQ #}

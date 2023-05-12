@@ -294,5 +294,5 @@ class FlashSparseAttentionFP16ForwardKernel(FlashSparseAttentionFP16Kernel, Flas
 class FlashSparseAttentionFP16BackwardKernel(FlashSparseAttentionFP16Kernel, FlashSparseAttentionBackwardKernel):
 
     def _calc_shared_mem_size(self, Bs: int, Bt: int, D: int):
-        shared = 2 * (2 * Bt * (D + 8) + 4 * (Bs * (D + 8)) + 2 * Bt * (Bs + 8))
+        shared = 2 * (2 * Bt * (D + 8) + 4 * (Bs * (D + 8)) + Bt * (Bs + 8))
         return shared
