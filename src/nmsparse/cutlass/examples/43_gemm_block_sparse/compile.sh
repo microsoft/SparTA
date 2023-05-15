@@ -1,1 +1,0 @@
-nvcc -I/workspace/v-leiwang3/cutlass_linbinskn/cutlass/include -I/workspace/v-leiwang3/cutlass/examples/common -I/workspace/v-leiwang3/cutlass_linbinskn/43_gemm_block_sparse ./turing_tensorop_gemm.cu -o run.out
