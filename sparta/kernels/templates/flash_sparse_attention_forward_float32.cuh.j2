@@ -64,11 +64,22 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION(
     uint Nt,
     uint block_nnz
 ) {
-    Q += Nt * D * blockIdx.x;
-    K += Ns * D * blockIdx.x;
-    V += Ns * D * blockIdx.x;
-    O += Nt * D * blockIdx.x;
-    ML += Nt * 2 * blockIdx.x;
+    int H = gridDim.x;
+    int HEAD_IDX = (blockIdx.y * H + blockIdx.x);
+    {% if TRANSPOSED %}
+    Q += HEAD_IDX * Nt * D;
+    K += HEAD_IDX * Ns * D;
+    V += HEAD_IDX * Ns * D;
+    O += HEAD_IDX * Nt * D;
+    int stride = D;
+    {% else %}
+    Q += blockIdx.y * Nt * H * D + blockIdx.x * D;
+    K += blockIdx.y * Ns * H * D + blockIdx.x * D;
+    V += blockIdx.y * Ns * H * D + blockIdx.x * D;
+    O += blockIdx.y * Nt * H * D + blockIdx.x * D;
+    int stride = H * D;
+    {% endif %}
+    ML += Nt * 2 * HEAD_IDX;
 
     uint WARP_OFFSET = (threadIdx.y % {{ 32 // WARP_REDUCE_SIZE }}) * {{ WARP_REDUCE_SIZE }};
     uint WARP_MASK = 0x{% for _ in range(WARP_REDUCE_SIZE // 4) %}f{% endfor %} << WARP_OFFSET;
@@ -115,13 +126,14 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION(
         {# Load Q #}
         #pragma unroll
         for (int k = SMEM_TID_N; k < BT; k += SMEM_THREADS_N) {
-            *((float4*)(&shared_Q[k * D + SMEM_TID_D])) = *((float4*)(&Q[(row_idx * BT + k) * D + SMEM_TID_D]));
+            *((float4*)(&shared_Q[k * D + SMEM_TID_D])) =
+                *((float4*)(&Q[(row_idx * BT + k) * stride + SMEM_TID_D]));
         }
         if (col_idx != last_col_idx) {
             {# Load K #}
             #pragma unroll
             for (int k = SMEM_TID_N; k < BS; k += SMEM_THREADS_N) {
-                tmp_float4 = ((float4*)(&K[(col_idx * BS + k) * D + SMEM_TID_D]))[0];
+                tmp_float4 = ((float4*)(&K[(col_idx * BS + k) * stride + SMEM_TID_D]))[0];
                 shared_K[(SMEM_TID_D+0) * BS + k] = tmp_float4.x;
                 shared_K[(SMEM_TID_D+1) * BS + k] = tmp_float4.y;
                 shared_K[(SMEM_TID_D+2) * BS + k] = tmp_float4.z;
@@ -130,7 +142,8 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION(
             {# Load V #}
             #pragma unroll
             for (int k = SMEM_TID_N; k < BS; k += SMEM_THREADS_N) {
-                *((float4*)(&shared_V[k * D + SMEM_TID_D])) = *((float4*)(&V[(col_idx * BS + k) * D + SMEM_TID_D]));
+                *((float4*)(&shared_V[k * D + SMEM_TID_D])) =
+                    *((float4*)(&V[(col_idx * BS + k) * stride + SMEM_TID_D]));
             }
             last_col_idx = col_idx;
         }
@@ -263,11 +276,11 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION(
         for (int jt = 0; jt < TT; jt++) {
             {% if THREAD_SIZE_S_TO_D == 1 %}
             shared_Q[(threadIdx.y + blockDim.y * jt) * D + threadIdx.x * SD] =
-                O[(row_idx * BT + threadIdx.y + blockDim.y * jt) * D + threadIdx.x * SD] * frag_ML[jt];
+                O[(row_idx * BT + threadIdx.y + blockDim.y * jt) * stride + threadIdx.x * SD] * frag_ML[jt];
             {% elif THREAD_SIZE_S_TO_D == 2 %}
             ((float2*)(&shared_Q[(threadIdx.y + blockDim.y * jt) * D + threadIdx.x * SD]))[0] =
                 _scale_float2(
-                    ((float2*)(&O[(row_idx * BT + threadIdx.y + blockDim.y * jt) * D + threadIdx.x * SD]))[0],
+                    ((float2*)(&O[(row_idx * BT + threadIdx.y + blockDim.y * jt) * stride + threadIdx.x * SD]))[0],
                     frag_ML[jt]
                 );
             {% else %}
@@ -275,7 +288,7 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION(
             for (int i = 0; i < SD; i += 4) {
                 ((float4*)(&shared_Q[(threadIdx.y + blockDim.y * jt) * D + threadIdx.x * SD + i]))[0] =
                     _scale_float4(
-                        ((float4*)(&O[(row_idx * BT + threadIdx.y + blockDim.y * jt) * D + threadIdx.x * SD + i]))[0],
+                        ((float4*)(&O[(row_idx * BT + threadIdx.y + blockDim.y * jt) * stride + threadIdx.x * SD + i]))[0],
                         frag_ML[jt]
                     );
             }
@@ -343,7 +356,8 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION(
         {# Save O #}
         #pragma unroll
         for (int k = SMEM_TID_N; k < BT; k += SMEM_THREADS_N) {
-            *((float4*)(&O[(row_idx * BT + k) * D + SMEM_TID_D])) = *((float4*)(&shared_Q[k * D + SMEM_TID_D]));
+            *((float4*)(&O[(row_idx * BT + k) * stride + SMEM_TID_D])) =
+                *((float4*)(&shared_Q[k * D + SMEM_TID_D]));
         }
     }
 }
