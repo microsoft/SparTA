@@ -28,7 +28,6 @@ const int SD_WARP_M = {{ SD_WARP_SIZE_M_VALUE }};
 const int SD_WARP_N = {{ SD_WARP_SIZE_N_VALUE }};
 const int SD_WARP_K = 16;
 
-const int B = {{ BLOCK_SIZE }};
 const int T = {{ THREAD_SIZE }};
 const int THREADS = {{ THREADS_PER_BLOCK }};{# THREADS_PER_BLOCK >= WARP_SIZE #}
 const int WARPS = THREADS / {{ WARP_SIZE }};
@@ -64,15 +63,30 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
     uint Nt,
     uint block_nnz
 ) {
-    Q += Nt * D * blockIdx.x;
-    K += Ns * D * blockIdx.x;
-    V += Ns * D * blockIdx.x;
-    O += Nt * D * blockIdx.x;
-    dQ += Nt * D * blockIdx.x;
-    dK += Ns * D * blockIdx.x;
-    dV += Ns * D * blockIdx.x;
-    dO += Nt * D * blockIdx.x;
-    ML += Nt * 2 * blockIdx.x;
+    int H = gridDim.x;
+    int HEAD_IDX = (blockIdx.y * H + blockIdx.x);
+    {% if TRANSPOSED %}
+    Q += HEAD_IDX * Nt * D;
+    K += HEAD_IDX * Ns * D;
+    V += HEAD_IDX * Ns * D;
+    O += HEAD_IDX * Nt * D;
+    dQ += HEAD_IDX * Nt * D;
+    dK += HEAD_IDX * Ns * D;
+    dV += HEAD_IDX * Ns * D;
+    dO += HEAD_IDX * Nt * D;
+    int stride = D;
+    {% else %}
+    Q += blockIdx.y * Nt * H * D + blockIdx.x * D;
+    K += blockIdx.y * Ns * H * D + blockIdx.x * D;
+    V += blockIdx.y * Ns * H * D + blockIdx.x * D;
+    O += blockIdx.y * Nt * H * D + blockIdx.x * D;
+    dQ += blockIdx.y * Nt * H * D + blockIdx.x * D;
+    dK += blockIdx.y * Ns * H * D + blockIdx.x * D;
+    dV += blockIdx.y * Ns * H * D + blockIdx.x * D;
+    dO += blockIdx.y * Nt * H * D + blockIdx.x * D;
+    int stride = H * D;
+    {% endif %}
+    ML += Nt * 2 * HEAD_IDX;
 
     uint WARP_OFFSET = ((threadIdx.x / {{ WARP_REDUCE_SIZE }}) * {{ WARP_REDUCE_SIZE }}) % {{ WARP_SIZE }};
     uint WARP_MASK = 0b{% for _ in range(WARP_REDUCE_SIZE) %}1{% endfor %} << WARP_OFFSET;
@@ -138,16 +152,16 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
         #pragma unroll
         for (int k = SMEM_TID_N; k < BT; k += SMEM_THREADS_N) {
             *((float4*)(&shared_Q[k * (D + D_PAD) + SMEM_TID_D])) =
-                *((float4*)(&Q[(row_idx * BT + k) * D + SMEM_TID_D]));
+                *((float4*)(&Q[(row_idx * BT + k) * stride + SMEM_TID_D]));
         }
         if (col_idx != last_col_idx) {
             if (last_col_idx >= 0) {
                 {# Save dK, dV #}
                 #pragma unroll
                 for (int k = SMEM_TID_N; k < BS; k += SMEM_THREADS_N) {
-                    *((float4*)(&dK[(last_col_idx * BS + k) * D + SMEM_TID_D])) =
+                    *((float4*)(&dK[(last_col_idx * BS + k) * stride + SMEM_TID_D])) =
                         *((float4*)(&shared_dK[k * (D + D_PAD) + SMEM_TID_D]));
-                    *((float4*)(&dV[(last_col_idx * BS + k) * D + SMEM_TID_D])) =
+                    *((float4*)(&dV[(last_col_idx * BS + k) * stride + SMEM_TID_D])) =
                         *((float4*)(&shared_dV[k * (D + D_PAD) + SMEM_TID_D]));
                 }
             }
@@ -155,13 +169,13 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
             #pragma unroll
             for (int k = SMEM_TID_N; k < BS; k += SMEM_THREADS_N) {
                 *((float4*)(&shared_dK[k * (D + D_PAD) + SMEM_TID_D])) =
-                    *((float4*)(&dK[(col_idx * BS + k) * D + SMEM_TID_D]));
+                    *((float4*)(&dK[(col_idx * BS + k) * stride + SMEM_TID_D]));
                 *((float4*)(&shared_dV[k * (D + D_PAD) + SMEM_TID_D])) =
-                    *((float4*)(&dV[(col_idx * BS + k) * D + SMEM_TID_D]));
+                    *((float4*)(&dV[(col_idx * BS + k) * stride + SMEM_TID_D]));
                 *((float4*)(&shared_K[k * (D + D_PAD) + SMEM_TID_D])) =
-                    *((float4*)(&K[(col_idx * BS + k) * D + SMEM_TID_D]));
+                    *((float4*)(&K[(col_idx * BS + k) * stride + SMEM_TID_D]));
                 *((float4*)(&shared_V[k * (D + D_PAD) + SMEM_TID_D])) =
-                    *((float4*)(&V[(col_idx * BS + k) * D + SMEM_TID_D]));
+                    *((float4*)(&V[(col_idx * BS + k) * stride + SMEM_TID_D]));
             }
             last_col_idx = col_idx;
         }
@@ -222,7 +236,7 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
         #pragma unroll
         for (int k = SMEM_TID_N; k < BT; k += SMEM_THREADS_N) {
             *((float4*)(&shared_O[k * (D + D_PAD) + SMEM_TID_D])) =
-                *((float4*)(&dO[(row_idx * BT + k) * D + SMEM_TID_D]));
+                *((float4*)(&dO[(row_idx * BT + k) * stride + SMEM_TID_D]));
         }
         __syncthreads();
 
@@ -290,7 +304,7 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
         row_sum = 0.0f;
         #pragma unroll
         for (int i = 0; i < SD; i += 8) {
-            *((float4*)(&tmp_half8[0])) = *((float4*)(&O[(row_idx * BT + ty) * D + tx * SD + i]));
+            *((float4*)(&tmp_half8[0])) = *((float4*)(&O[(row_idx * BT + ty) * stride + tx * SD + i]));
             *((float4*)(&tmp_half8_2[0])) = *((float4*)(&shared_O[ty * (D + D_PAD) + tx * SD + i]));
             #pragma unroll
             for (int j = 0; j < 8; j++) {
@@ -328,7 +342,7 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
         #pragma unroll
         for (int k = SMEM_TID_N; k < BT; k += SMEM_THREADS_N) {
             *((float4*)(&shared_O[k * (D + D_PAD) + SMEM_TID_D])) =
-                *((float4*)(&dQ[(row_idx * BT + k) * D + SMEM_TID_D]));
+                *((float4*)(&dQ[(row_idx * BT + k) * stride + SMEM_TID_D]));
         }
         __syncthreads();
 
@@ -383,7 +397,7 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
         {# Save dQ #}
         #pragma unroll
         for (int k = SMEM_TID_N; k < BT; k += SMEM_THREADS_N) {
-            *((float4*)(&dQ[(row_idx * BT + k) * D + SMEM_TID_D])) =
+            *((float4*)(&dQ[(row_idx * BT + k) * stride + SMEM_TID_D])) =
                 *((float4*)(&shared_O[k * (D + D_PAD) + SMEM_TID_D]));
         }
     }
@@ -391,9 +405,9 @@ __global__ void BLOCK_SPARSE_FLASH_ATTENTION_BACKWARD(
     {# Save dK, dV for the last column #}
     #pragma unroll
     for (int k = SMEM_TID_N; k < BS; k += SMEM_THREADS_N) {
-        *((float4*)(&dK[(last_col_idx * BS + k) * D + SMEM_TID_D])) =
+        *((float4*)(&dK[(last_col_idx * BS + k) * stride + SMEM_TID_D])) =
             *((float4*)(&shared_dK[k * (D + D_PAD) + SMEM_TID_D]));
-        *((float4*)(&dV[(last_col_idx * BS + k) * D + SMEM_TID_D])) =
+        *((float4*)(&dV[(last_col_idx * BS + k) * stride + SMEM_TID_D])) =
             *((float4*)(&shared_dV[k * (D + D_PAD) + SMEM_TID_D]));
     }
 }

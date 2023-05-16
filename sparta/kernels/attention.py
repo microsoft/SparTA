@@ -24,17 +24,19 @@ from sparta.testing import sparse_multi_head_attention_forward_reference, sparse
 
 class FlashSparseAttentionKernel(KernelBase):
 
-    __lut_shape__ = (64 * 12, 1024, 1024, 64)  # BxH, Nt, Ns, D
+    __lut_shape__ = (64, 1024, 1024, 12, 64)  # B, Nt, Ns, H, D
     __algo__ = 'flash'
     __dtype__ = ''
     __direction__ = ''
 
-    def __init__(self, buffer: torch.Tensor):
+    def __init__(self, buffer: torch.Tensor, transposed: bool = False):
         self._buffer = buffer
+        self._transposed = transposed
         super().__init__()
 
     def _add_parameters(self):
         self._add_parameter('GLOBAL_SIZE_D_VALUE')
+        self._add_parameter('TRANSPOSED', value=self._transposed)
         self._add_parameter(
             'BLOCK_SIZE_S_VALUE',
             is_tunable=True,
@@ -193,8 +195,8 @@ class FlashSparseAttentionForwardKernel(FlashSparseAttentionKernel):
 
     __direction__ = 'forward'
 
-    def set_kernel_call(self, shape: Tuple[int, int, int, int]):
-        batch, Nt, Ns, D = shape
+    def set_kernel_call(self, shape: Tuple[int, int, int, int, int]):
+        batch, Nt, Ns, heads, D = shape
         self._check_shape(Nt, Ns, D)
         Ns_32, Nt_32, D_32 = np.int32(Ns), np.int32(Nt), np.int32(D)
         block = self.threads_per_block()
@@ -211,7 +213,7 @@ class FlashSparseAttentionForwardKernel(FlashSparseAttentionKernel):
                 Ns_32, Nt_32,  # D_32,
                 self.attr.indexes.nnz,
                 block=block,
-                grid=(Q.shape[0], 1, 1),
+                grid=(heads, Q.shape[0], 1),
                 shared=shared,
             )
             return O
@@ -232,8 +234,8 @@ class FlashSparseAttentionBackwardKernel(FlashSparseAttentionKernel):
 
     __direction__ = 'backward'
 
-    def set_kernel_call(self, shape: Tuple[int, int, int, int]):
-        batch, Nt, Ns, D = shape
+    def set_kernel_call(self, shape: Tuple[int, int, int, int, int]):
+        batch, Nt, Ns, heads, D = shape
         self._check_shape(Nt, Ns, D)
         Ns_32, Nt_32, D_32 = np.int32(Ns), np.int32(Nt), np.int32(D)
         block = self.threads_per_block()
@@ -251,7 +253,7 @@ class FlashSparseAttentionBackwardKernel(FlashSparseAttentionKernel):
                 Ns_32, Nt_32,  # D_32,
                 self.attr.indexes.nnz,
                 block=block,
-                grid=(Q.shape[0], 1, 1),
+                grid=(heads, Q.shape[0], 1),
                 shared=shared,
             )
             return grad_Q, grad_K, grad_V

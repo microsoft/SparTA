@@ -56,27 +56,36 @@ def sparse_multi_head_attention_forward_reference(
     value: torch.Tensor,
     mask: torch.Tensor,
     temperature: float = np.nan,
+    transposed: bool = False,
 ) -> torch.Tensor:
     r"""Sparse multi-head attention reference function with batch size :math:`B`,
     head number :math:`H`, sourse sequence length :math:`N_{source}`,
     target sequence length :math:`N_{target}` and embed dimention :math:`E`.
 
     Args:
-        query (torch.Tensor): The input query tensor of shape :math:`(B, H, N_{target}, E)`.
-        key (torch.Tensor): The input key tensor of shape :math:`(B, H, N_{source}, E)`.
-        value (torch.Tensor): The input value tensor of shape :math:`(B, H, N_{source}, E)`.
+        query (torch.Tensor): The input query tensor of shape :math:`(B, N_{target}, H, E)`.
+        key (torch.Tensor): The input key tensor of shape :math:`(B, N_{source}, H, E)`.
+        value (torch.Tensor): The input value tensor of shape :math:`(B, N_{source}, H, E)`.
         mask (torch.Tensor): The mask tensor of shape :math:`(N_{target}, N_{source})`.
         temperature (float): The softmax temperature which is set to :math:`\sqrt{N_{source}}` by default.
+        transposed (bool): If true, the head dimension and the sequence length dimension are transposed.
 
     Returns:
-        torch.Tensor: Sparse multi-head attention output of shape :math:`(B, H, N_{target}, E)`.
+        torch.Tensor: Sparse multi-head attention output of shape :math:`(B, N_{target}, H, E)`.
     """
     if np.isnan(temperature):
         temperature = np.sqrt(key.shape[-1])
+    if not transposed:
+        query = query.swapaxes(-2, -3)
+        key = key.swapaxes(-2, -3)
+        value = value.swapaxes(-2, -3)
     high_dims = ''.join([chr(ord('a') + i) for i in range(len(query.shape) - 2)])
     p = torch.einsum(f'{high_dims}mk, {high_dims}nk -> {high_dims}mn', query, key)
     s = sparse_softmax_forward_reference(p, mask, temperature)
-    return torch.einsum(f'{high_dims}mn, {high_dims}nk -> {high_dims}mk', s, value)
+    out = torch.einsum(f'{high_dims}mn, {high_dims}nk -> {high_dims}mk', s, value)
+    if not transposed:
+        out = out.swapaxes(-2, -3)
+    return out
 
 
 def sparse_multi_head_attention_backward_reference(
@@ -87,23 +96,30 @@ def sparse_multi_head_attention_backward_reference(
     value: torch.Tensor,
     mask: torch.Tensor,
     temperature: float = np.nan,
+    transposed: bool = False,
 ) -> torch.Tensor:
     r"""Sparse multi-head attention backward reference function.
 
     Args:
-        grad (torch.Tensor): The gradient of output tensor. Shape: :math:`(B, H, N_{target}, E)`.
-        output (torch.Tensor): The output tensor of forward function. Shape: :math:`(B, H, N_{target}, E)`.
-        query (torch.Tensor): The input query tensor of forward function. Shape: :math:`(B, H, N_{target}, E)`.
-        key (torch.Tensor): The input key tensor of forward function. Shape: :math:`(B, H, N_{source}, E)`.
-        value (torch.Tensor): The input value tensor of forward function. Shape: :math:`(B, H, N_{source}, E)`.
+        grad (torch.Tensor): The gradient of output tensor. Shape: :math:`(B, N_{target}, H, E)`.
+        output (torch.Tensor): The output tensor of forward function. Shape: :math:`(B, N_{target}, H, E)`.
+        query (torch.Tensor): The input query tensor of forward function. Shape: :math:`(B, N_{target}, H, E)`.
+        key (torch.Tensor): The input key tensor of forward function. Shape: :math:`(B, N_{source}, H, E)`.
+        value (torch.Tensor): The input value tensor of forward function. Shape: :math:`(B, N_{source}, H, E)`.
         mask (torch.Tensor): The mask tensor. Shape :math:`(N_{target}, N_{source})`.
         temperature (float): The softmax temperature which is set to :math:`\sqrt{N_{source}}` by default.
+        transposed (bool): If true, the head dimension and the sequence length dimension are transposed.
 
     Returns:
         Tuple: The gradient of query, key and value respectively..
     """
     if np.isnan(temperature):
         temperature = np.sqrt(key.shape[-1])
+    if not transposed:
+        grad = grad.swapaxes(-2, -3)
+        query = query.swapaxes(-2, -3)
+        key = key.swapaxes(-2, -3)
+        value = value.swapaxes(-2, -3)
     high_dims = ''.join([chr(ord('a') + i) for i in range(len(query.shape) - 2)])
     p = torch.einsum(f'{high_dims}mk, {high_dims}nk -> {high_dims}mn', query, key)
     s = sparse_softmax_forward_reference(p, mask, temperature)
@@ -112,4 +128,8 @@ def sparse_multi_head_attention_backward_reference(
     grad_p = sparse_softmax_backward_reference(grad_s, s, mask, temperature)
     grad_q = torch.einsum(f'{high_dims}nk, {high_dims}mn -> {high_dims}mk', key, grad_p)
     grad_k = torch.einsum(f'{high_dims}mk, {high_dims}mn -> {high_dims}nk', query, grad_p)
+    if not transposed:
+        grad_q = grad_q.swapaxes(-2, -3)
+        grad_k = grad_k.swapaxes(-2, -3)
+        grad_v = grad_v.swapaxes(-2, -3)
     return grad_q, grad_k, grad_v

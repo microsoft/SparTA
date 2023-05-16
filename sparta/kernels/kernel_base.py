@@ -242,8 +242,10 @@ class KernelBase(Callable):
         self.attr.update_block_size(self.id)
         self._kernel = self._build_kernel(self.get_kernel_code())
         self.set_kernel_call(shape)
+        self._estimate_latency(shape)
         self.ready = True
-        # Calc estimated latency
+
+    def _estimate_latency(self, shape: Tuple):
         indexes = self.attr.indexes
         sparse_rate = indexes.block_nnz / indexes.row_num / indexes.col_num
         shape_rate = np.prod(shape) / np.prod(self.__lut_shape__)
