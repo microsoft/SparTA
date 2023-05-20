@@ -1,4 +1,4 @@
-file(GLOB TMP *.cpp)
+file(GLOB TMP *.cu)
 list(APPEND DIR_SRCS ${TMP})
 
 add_library(nmsparse SHARED ${DIR_SRCS})

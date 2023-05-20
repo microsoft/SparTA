@@ -1,0 +1,189 @@
+#include "nmsparse.h"
+
+using namespace nmsparse;
+
+// from MV_one_kernel_block_batch.cu
+__global__ void nmsparse_ew_gemv_simt_fp32_fp32_fp32_32x32x32(float *g_vec, float *g_mat_data, int *g_mat_index, float *g_odata, int w, int h, int BLOCK_WIDTH, int NUM_THREADS, int VEC_WIDTH, const int minibatch, const int vecNum)
+{
+    const int BANK_VAL = 32;
+    int blockxInd;
+    int vecInd;
+    int blockElt; // holds the current block width
+
+    // Run this only 1 time
+    if ((blockIdx.y + 1) * BLOCK_WIDTH <= w)
+    {
+        blockElt = BLOCK_WIDTH;
+    }
+    else
+    {
+        blockElt = w % BLOCK_WIDTH;
+    }
+    blockxInd = blockIdx.y * BLOCK_WIDTH;
+    vecInd = blockIdx.y * VEC_WIDTH;
+
+    unsigned int threadyInd = blockIdx.x * NUM_THREADS + threadIdx.x;
+
+    // if (blockIdx.x < 1 && threadIdx.x == 0) printf("griddim.y %d\n", blockIdx.y);
+    // for (unsigned int h_id = blockIdx.x; h_id < h; h_id += gridDim.x) {
+    //  each thread loads one element from global to shared mem
+    extern __shared__ float vec_data[];
+
+
+#pragma unroll
+    for (int batch = 0; batch < BLOCK_minibatch; ++batch)
+    {
+#pragma unroll
+        for (int i = 4 * threadIdx.x; i < VEC_WIDTH; i += 4 * NUM_THREADS)
+        {
+            *(float4 *)(vec_data + i + batch * VEC_WIDTH) = *(float4 *)(g_vec + vecInd + i + (batch + blockIdx.z * BLOCK_minibatch) * vecNum);
+        }
+    }
+
+    __syncthreads();
+
+    /*
+    float sdata_tmp;
+    for (int batch = 0; batch < minibatch; ++batch) {
+        sdata_tmp = 0;
+        for(int index = 0; index < blockElt; ++index) {
+            sdata_tmp += g_mat_data[threadyInd + (index + blockxInd) * h] * vec_data[g_mat_index[threadyInd + (index + blockxInd) * h] - vecInd+batch*VEC_WIDTH];
+            //if (blockIdx.x < 1) printf("%d:%f %f %f\n", sdata[tid],g_mat_data[i] * g_vec[g_mat_index[i]], g_mat_data[i + tid_count] * g_vec[g_mat_index[i + tid_count]]);
+        }
+        atomicAdd(g_odata + batch * h + threadyInd, sdata_tmp);
+    }*/
+
+    float sdata[BLOCK_minibatch] = {0};
+
+    float data_tmp = 0;
+    int index_tmp = 0;
+
+#pragma unroll
+    for (int index = 0; index < blockElt; ++index)
+    {
+        data_tmp = g_mat_data[threadyInd + (index + blockxInd) * h];
+        index_tmp = g_mat_index[threadyInd + (index + blockxInd) * h] - vecInd;
+
+#pragma unroll
+        for (int batch = 0; batch < BLOCK_minibatch; batch += 1)
+        {
+            sdata[batch] += data_tmp * vec_data[index_tmp + batch * VEC_WIDTH];
+        }
+        // if (blockIdx.x < 1) printf("%d:%f %f %f\n", sdata[tid],g_mat_data[i] * g_vec[g_mat_index[i]], g_mat_data[i + tid_count] * g_vec[g_mat_index[i + tid_count]]);
+    }
+
+#pragma unroll
+    for (int batch = 0; batch < BLOCK_minibatch; batch += 1)
+    {
+        atomicAdd(g_odata + h * (batch + blockIdx.z * BLOCK_minibatch) + threadyInd, sdata[batch]);
+    }
+}
+
+// from balance_align.cu
+__global__ void nmsparse_ew_gemm_simt_fp32_fp32_fp32_32x32x32(float *g_vec, float *g_mat_data, int *g_mat_index, float *g_data, int M, int K, int N, float sparsity)
+{
+    const int BLOCK_SIZE_M = 32;
+    const int BLOCK_SIZE_N = 32;
+    const int BLOCK_SIZE_K = 32;
+    const int THREAD_SIZE_M = 16;
+    const int THREAD_SIZE_N = 1;
+    const int BANK_VAL = 32;
+    const int NUM_BANK = K / BANK_VAL;
+
+    const int BANK_NUM_PER_BLOCK = BLOCK_SIZE_K / BANK_VAL;
+    const int BLOCK_SIZE_K_SPARSE = int(BLOCK_SIZE_K * (1 - sparsity));
+    const int LEN_OF_BANK_PER_SPARSE_BLOCK = BLOCK_SIZE_K_SPARSE / BANK_NUM_PER_BLOCK;
+    
+    int M_BLOCK_START = blockIdx.x * BLOCK_SIZE_M;
+    int N_BLOCK_START = blockIdx.y * BLOCK_SIZE_N;
+
+    const int A_THREADS_PER_ROW = BLOCK_SIZE_K / 4;
+
+    const int THREADS_PER_BLOCK = (BLOCK_SIZE_M / THREAD_SIZE_M) * (BLOCK_SIZE_N / THREAD_SIZE_N);
+
+    const int A_STRIDES = THREADS_PER_BLOCK / A_THREADS_PER_ROW;
+
+    __shared__ float A_shared[BLOCK_SIZE_M * BLOCK_SIZE_K];
+
+    float B_reg[THREAD_SIZE_N];
+    int B_reg_index[THREAD_SIZE_N];
+    float C_reg[THREAD_SIZE_M][THREAD_SIZE_N] = {0};
+
+    int tid = threadIdx.x;
+
+    int t_N = tid % (BLOCK_SIZE_N / THREAD_SIZE_N);
+    int t_M = tid / (BLOCK_SIZE_N / THREAD_SIZE_N);
+
+    int A_BLOCK_ROW_START = tid / A_THREADS_PER_ROW;
+
+    int A_BLOCK_COL_START = tid % A_THREADS_PER_ROW * 4;
+
+    for (int K_BLOCK_START = 0, K_SPARSE_BLOCK_START = 0; K_BLOCK_START < K; K_BLOCK_START += BLOCK_SIZE_K, K_SPARSE_BLOCK_START += BLOCK_SIZE_K_SPARSE)
+    {
+        float *A_global_ptr = g_vec + M_BLOCK_START * K + K_BLOCK_START;
+
+        __syncthreads();
+
+#pragma unroll
+        for (int i = 0; i < BLOCK_SIZE_M; i += A_STRIDES)
+        {
+            *(float4 *)(A_shared + (i + A_BLOCK_ROW_START) * BLOCK_SIZE_K + A_BLOCK_COL_START) =
+                *(float4 *)(A_global_ptr + (i + A_BLOCK_ROW_START) * K + A_BLOCK_COL_START);
+        }
+
+        __syncthreads();
+
+#pragma unroll
+        for (int i = 0; i < BLOCK_SIZE_K_SPARSE; i += 1)
+        {
+#pragma unroll
+            for (int k = 0; k < THREAD_SIZE_N; k += 1)
+            {
+                B_reg[k] = g_mat_data[(K_SPARSE_BLOCK_START + i) * N + N_BLOCK_START + t_N * THREAD_SIZE_N + k];
+                B_reg_index[k] = g_mat_index[(K_SPARSE_BLOCK_START + i) * N + N_BLOCK_START + t_N * THREAD_SIZE_N + k];
+            }
+#pragma unroll
+            for (int k = 0; k < THREAD_SIZE_N; k += 1)
+            {
+                int bank_idx = i / LEN_OF_BANK_PER_SPARSE_BLOCK;
+                int B_index = B_reg_index[k] % BANK_VAL + bank_idx * BANK_VAL;
+#pragma unroll
+                for (int j = 0; j < THREAD_SIZE_M; j += 1)
+                {
+                    C_reg[j][k] += B_reg[k] * A_shared[(t_M * THREAD_SIZE_M + j) * BLOCK_SIZE_K + B_index];
+                }
+            }
+        }
+    }
+
+#pragma unroll
+    for (int i = 0; i < THREAD_SIZE_M; i += 1)
+    {
+#pragma unroll
+        for (int j = 0; j < THREAD_SIZE_N; j += 1)
+        {
+            g_data[(BLOCK_SIZE_M * blockIdx.x + THREAD_SIZE_M * t_M + i) * N + BLOCK_SIZE_N * blockIdx.y + THREAD_SIZE_N * t_N + j] = C_reg[i][j];
+        }
+    }
+}
+
+cudaError_t CudaSpmmEW(float *g_vec, float *g_mat_data, int *g_mat_index, float *g_odata, int M, int K, int N, float sparsity){
+    assert(M == 1 || M % 32 == 0);
+    if (M == 1){
+        int w = int((1 - sparsity) * K);
+        const int h = N;
+        const int vecNum = K;
+        const int minibatch = M;
+        const int BANK_VAL = 32;
+        const int NUM_THREADS = 128;
+        const int NUM_BANK = K / BANK_VAL;
+        const int BLOCK_WIDTH = w / NUM_BANK;
+        const int BLOCK_minibatch = M;
+        const int VEC_WIDTH = vecNum * BLOCK_WIDTH / w;
+        dim3 dimBlock(NUM_THREADS);
+        dim3 dimGrid(h / NUM_THREADS, w / BLOCK_WIDTH, M / BLOCK_minibatch);
+        nmsparse_ew_gemv_simt_fp32_fp32_fp32_32x32x32<<<dimGrid, dimBlock, BLOCK_minibatch * VEC_WIDTH * sizeof(float)>>>(g_vec, g_mat_data, g_mat_index, g_odata, w, h, BLOCK_WIDTH, NUM_THREADS, VEC_WIDTH, minibatch, vecNum);
+    }else {
+
+    }
+}
