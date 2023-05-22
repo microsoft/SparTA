@@ -2,6 +2,16 @@
 
 using namespace nmsparse;
 
+bool is_one(const int x)
+{
+    return 1 == x;
+}
+
+bool is_divisible(const int x, const int be_devide)
+{
+    return 0 == (x % be_devide);
+}
+
 // from MV_one_kernel_block_batch.cu
 __global__ void nmsparse_ew_gemv_simt_fp32_fp32_fp32_32x32x32(float *g_vec, float *g_mat_data, int *g_mat_index, float *g_odata, int w, int h, int BLOCK_WIDTH, int NUM_THREADS, int VEC_WIDTH, const int minibatch, const int vecNum)
 {
@@ -28,7 +38,6 @@ __global__ void nmsparse_ew_gemv_simt_fp32_fp32_fp32_32x32x32(float *g_vec, floa
     // for (unsigned int h_id = blockIdx.x; h_id < h; h_id += gridDim.x) {
     //  each thread loads one element from global to shared mem
     extern __shared__ float vec_data[];
-
 
 #pragma unroll
     for (int batch = 0; batch < BLOCK_minibatch; ++batch)
@@ -93,7 +102,7 @@ __global__ void nmsparse_ew_gemm_simt_fp32_fp32_fp32_32x32x32(float *g_vec, floa
     const int BANK_NUM_PER_BLOCK = BLOCK_SIZE_K / BANK_VAL;
     const int BLOCK_SIZE_K_SPARSE = int(BLOCK_SIZE_K * (1 - sparsity));
     const int LEN_OF_BANK_PER_SPARSE_BLOCK = BLOCK_SIZE_K_SPARSE / BANK_NUM_PER_BLOCK;
-    
+
     int M_BLOCK_START = blockIdx.x * BLOCK_SIZE_M;
     int N_BLOCK_START = blockIdx.y * BLOCK_SIZE_N;
 
@@ -167,10 +176,18 @@ __global__ void nmsparse_ew_gemm_simt_fp32_fp32_fp32_32x32x32(float *g_vec, floa
     }
 }
 
-cudaError_t CudaSpmmEW(float *g_vec, float *g_mat_data, int *g_mat_index, float *g_odata, int M, int K, int N, float sparsity){
-    assert(M == 1 || M % 32 == 0);
-    if (M == 1){
-        int w = int((1 - sparsity) * K);
+template <typename dtype>
+cudaError_t nmsparseSpMMEW(nmsparseContext_t ctx, int m, int k, int n, dtype *mat_a_dense, int *mat_b_sparse_idx, dtype *mat_b_sparse_val, dtype *output, cudaStream_t stream = 0)
+{
+    assert(is_one(m) || is_divisible(m, 32));
+    const int sparsity = ctx.sparsity;
+    const int M = m;
+    const int N = n;
+    const int K = k;
+
+    if (is_one(m))
+    {
+        const int w = int((1 - sparsity) * K);
         const int h = N;
         const int vecNum = K;
         const int minibatch = M;
@@ -182,8 +199,6 @@ cudaError_t CudaSpmmEW(float *g_vec, float *g_mat_data, int *g_mat_index, float 
         const int VEC_WIDTH = vecNum * BLOCK_WIDTH / w;
         dim3 dimBlock(NUM_THREADS);
         dim3 dimGrid(h / NUM_THREADS, w / BLOCK_WIDTH, M / BLOCK_minibatch);
-        nmsparse_ew_gemv_simt_fp32_fp32_fp32_32x32x32<<<dimGrid, dimBlock, BLOCK_minibatch * VEC_WIDTH * sizeof(float)>>>(g_vec, g_mat_data, g_mat_index, g_odata, w, h, BLOCK_WIDTH, NUM_THREADS, VEC_WIDTH, minibatch, vecNum);
-    }else {
-
+        nmsparse_ew_gemv_simt_fp32_fp32_fp32_32x32x32<<<dimGrid, dimBlock, BLOCK_minibatch * VEC_WIDTH * sizeof(float)>>>(mat_a_dense, mat_b_sparse_val, mat_b_sparse_idx, output, w, h, BLOCK_WIDTH, NUM_THREADS, VEC_WIDTH, minibatch, vecNum);
     }
 }
