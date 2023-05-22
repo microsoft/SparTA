@@ -41,7 +41,12 @@ TEST_F(NMSparseTest, ElementWiseGemvTestFloat)
     gpuRef = (float *)malloc(result_nBytes);
 
     // initialize data at host side
-    nmsparse::nmSparseInitialRandomData(vec, mat_data, mat_index, mat_data_for_gpu, mat_index_for_gpu, vecNum, h, sparsity, minibatch);
+    nmsparse::nmsparseContext_t ctx;
+    nmsparse::nmsparseCreateContext(&ctx);
+    nmsparse::nmsparseSetContext(&ctx, nmsparse::ElementWise, nmsparseM, sparsity);
+    nmsparse::nmSparseInitialRandomData(ctx, vec, mat_data, mat_index, mat_data_for_gpu, mat_index_for_gpu, vecNum, h, sparsity, minibatch);
+    nmsparse::nmsparseKernelInit();
+
     memset(hostRef, 0, result_nBytes);
     memset(gpuRef, 0, result_nBytes);
 
@@ -58,9 +63,7 @@ TEST_F(NMSparseTest, ElementWiseGemvTestFloat)
     cudaMemcpy(g_mat_data, mat_data_for_gpu, mat_data_nBytes, cudaMemcpyHostToDevice);
     cudaMemcpy(g_mat_index, mat_index_for_gpu, mat_index_nBytes, cudaMemcpyHostToDevice);
     cudaMemcpy(g_result, gpuRef, result_nBytes, cudaMemcpyHostToDevice);
-    nmsparse::nmsparseContext_t ctx;
-    nmsparse::nmsparseCreateContext(&ctx);
-    nmsparse::nmsparseSetContext(&ctx, nmsparse::ElementWise, nmsparseM, sparsity);
+
     printf("M: %d, N: %d, K: %d, sparsity: %f\n", M, N, K, sparsity);
     printf("w = %d, h = %d, vecNum = %d, minibatch = %d\n", w, h, vecNum, minibatch);
     nmsparse::nmsparseSpMM(ctx, M, K, N, g_vec, g_mat_index, g_mat_data, g_result, 0);
