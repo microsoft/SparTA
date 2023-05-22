@@ -15,6 +15,9 @@
 namespace nmsparse
 {
     cudaError_t nmsparseKernelInit(){
+
+        cudaFuncSetAttribute(nmsparse_vw4_gemm_simt_fp32_fp32_fp32_32x128x64_8x4,
+                             cudaFuncAttributeMaxDynamicSharedMemorySize, 98304);
         cudaFuncSetAttribute(nmsparse_vw4_gemm_simt_fp32_fp32_fp32_32x128x128_8x4,
                              cudaFuncAttributeMaxDynamicSharedMemorySize, 98304);
         cudaFuncSetAttribute(nmsparse_vw32_gemm_simt_fp32_fp32_fp32_32x32x256_4x4,

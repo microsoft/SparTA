@@ -12,13 +12,13 @@ struct NMSparseTest : testing::Test
     }
 };
 
-TEST_F(NMSparseTest, VectorWise32GemmTestFloat)
+TEST_F(NMSparseTest, BlockWise4x4GemmTestFloat)
 {   
     const int M = 256;
     const int N = 1024;
     const int K = 1024;
     const int nmsparseM = 32;
-    const float sparsity = 0.5f;
+    const float sparsity = 0.75f;
     const int minibatch = M;
     const int h = N;
     const int vecNum = K;
@@ -43,7 +43,7 @@ TEST_F(NMSparseTest, VectorWise32GemmTestFloat)
     // initialize data at host side
     nmsparse::nmsparseContext_t ctx;
     nmsparse::nmsparseCreateContext(&ctx);
-    nmsparse::nmsparseSetContext(&ctx, nmsparse::VectorWise32, nmsparseM, sparsity);
+    nmsparse::nmsparseSetContext(&ctx, nmsparse::BlockWise4x4, nmsparseM, sparsity);
     nmsparse::nmSparseInitialRandomData(ctx, vec, mat_data, mat_index, mat_data_for_gpu, mat_index_for_gpu, vecNum, h, sparsity, minibatch);
     nmsparse::nmsparseKernelInit();
     memset(hostRef, 0, result_nBytes);
