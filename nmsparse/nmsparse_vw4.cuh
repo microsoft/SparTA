@@ -233,7 +233,7 @@ namespace nmsparse {
 	template <typename dtype>
 	cudaError_t nmsparseSpMMVW4(nmsparseContext_t ctx, int m, int k, int n, dtype *mat_a_dense, int *mat_b_sparse_idx, dtype *mat_b_sparse_val, dtype *output, cudaStream_t stream)
 	{
-        assert(is_divisible(m, 32) && is_divisible(n, 128) && is_divisible(k, 128));
+        assert(is_divisible(m, 32) && is_divisible(n, 128) && is_divisible(k, 64));
         const float sparsity = ctx.sparsity;
         const int M = m;
         const int N = n;
