@@ -121,6 +121,9 @@ namespace nmsparse{
         case SparsePattern::VectorWise4:
             nmSparseInitialRandomDataAlignN(vec, mat_data, mat_index, mat_data_for_gpu, mat_index_for_gpu, vecNum, h, sparsity, minibatch, 4);
             break;
+        case SparsePattern::VectorWise32:
+            nmSparseInitialRandomDataAlignN(vec, mat_data, mat_index, mat_data_for_gpu, mat_index_for_gpu, vecNum, h, sparsity, minibatch, 32);
+            break;
         default:
             throw std::runtime_error("Unsupported sparse pattern");
             break;
@@ -132,7 +135,7 @@ namespace nmsparse{
                               dtype *mat_in_dense, int *output_sparse_idx, dtype *output_sparse_val);
 
     template <typename dtype>
-    void nmsparseCPURef(dtype *vec, dtype *mat_data, int *mat_index, dtype *hostRef, const int condense_k, const int N, int vecNum, const int M)
+    void nmsparseCPURef_ALIGN_SHARED(dtype *vec, dtype *mat_data, int *mat_index, dtype *hostRef, const int condense_k, const int N, const int K, const int M)
     {
         float tmp;
         for (int batch = 0; batch < M; ++batch)
@@ -141,7 +144,23 @@ namespace nmsparse{
                 tmp = 0;
                 for (int i = 0; i < condense_k; ++i)
                 {
-                    tmp += mat_data[i + j * condense_k] * vec[mat_index[i + j * condense_k] + batch * vecNum];
+                    tmp += mat_data[i + j * condense_k] * vec[mat_index[i + j * condense_k] * M + batch];
+                }
+                hostRef[j * M + batch] = tmp;
+            }
+    }
+
+    template <typename dtype>
+    void nmsparseCPURef(dtype *vec, dtype *mat_data, int *mat_index, dtype *hostRef, const int condense_k, const int N, const int K, const int M)
+    {
+        float tmp;
+        for (int batch = 0; batch < M; ++batch)
+            for (int j = 0; j < N; ++j)
+            {
+                tmp = 0;
+                for (int i = 0; i < condense_k; ++i)
+                {
+                    tmp += mat_data[i + j * condense_k] * vec[mat_index[i + j * condense_k] + batch * K];
                 }
                 hostRef[j + batch * N] = tmp;
             }

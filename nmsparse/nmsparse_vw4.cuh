@@ -11,11 +11,11 @@ namespace nmsparse {
 
 	extern "C" __global__ void nmsparse_vw4_gemm_simt_fp32_fp32_fp32_32x128x128_8x4(float *g_vec, float *g_mat_data, int *g_mat_index, float *g_data, const int M, const int N, const int K, const float sparsity)
 	{
-#define BLOCK_SIZE_M 32
-#define BLOCK_SIZE_N 128
-#define BLOCK_SIZE_K 128
-#define THREAD_SIZE_M 8
-#define THREAD_SIZE_N 4
+		const int BLOCK_SIZE_M = 32;
+		const int BLOCK_SIZE_N = 128;
+		const int BLOCK_SIZE_K = 128;
+		const int THREAD_SIZE_M = 8;
+		const int THREAD_SIZE_N = 4;
 		extern __shared__ float shared_mem[];
 
 		const int BANK_VAL = 32;
@@ -116,11 +116,6 @@ namespace nmsparse {
 				g_data[(BLOCK_SIZE_M * blockIdx.x + THREAD_SIZE_M * t_M + i) * N + BLOCK_SIZE_N * blockIdx.y + THREAD_SIZE_N * t_N + j] = C_reg[i][j];
 			}
 		}
-#undef BLOCK_SIZE_M
-#undef BLOCK_SIZE_N
-#undef BLOCK_SIZE_K
-#undef THREAD_SIZE_M
-#undef THREAD_SIZE_N
 	}
 
 	template <typename dtype>

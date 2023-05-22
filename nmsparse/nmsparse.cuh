@@ -10,12 +10,16 @@
 #include "utils.cuh"
 #include "nmsparse_ew.cuh"
 #include "nmsparse_vw4.cuh"
+#include "nmsparse_vw32.cuh"
 
 namespace nmsparse
 {
     cudaError_t nmsparseKernelInit(){
         cudaFuncSetAttribute(nmsparse_vw4_gemm_simt_fp32_fp32_fp32_32x128x128_8x4,
                              cudaFuncAttributeMaxDynamicSharedMemorySize, 98304);
+        cudaFuncSetAttribute(nmsparse_vw32_gemm_simt_fp32_fp32_fp32_32x32x256_4x4,
+                             cudaFuncAttributeMaxDynamicSharedMemorySize, 98304);
+
         return cudaGetLastError();
     }
 
@@ -33,6 +37,10 @@ namespace nmsparse
             case SparsePattern::VectorWise4:
                 std::cout << "VectorWise4" << std::endl;
                 nmsparseSpMMVW4<dtype>(ctx, m, k, n, mat_a_dense, mat_b_sparse_idx, mat_b_sparse_val, output, stream);
+                break;
+            case SparsePattern::VectorWise32:
+                std::cout << "VectorWise32" << std::endl;
+                nmsparseSpMMVW32<dtype>(ctx, m, k, n, mat_a_dense, mat_b_sparse_idx, mat_b_sparse_val, output, stream);
                 break;
             default:
                 ::std::cout << "Unsupported sparse pattern" << ::std::endl;
