@@ -5,6 +5,16 @@
 #include <algorithm>
 
 namespace nmsparse{
+    bool is_one(const int x)
+    {
+        return 1 == x;
+    }
+
+    bool is_divisible(const int x, const int be_devide)
+    {
+        return 0 == (x % be_devide);
+    }
+
     template <typename dtype>
     bool nmsparseCreateSparse(nmsparseContext_t ctx, int k, int n,
                               dtype *mat_in_dense, int *output_sparse_idx, dtype *output_sparse_val){
@@ -17,12 +27,12 @@ namespace nmsparse{
     }
 
     template <typename dtype>
-    void nmSparseInitialRandomData(dtype *vec, dtype *mat_data, int *mat_index, dtype *mat_data_for_gpu, int *mat_index_for_gpu, int vecNum, int h, dtype sparse, int minibatch)
+    void nmSparseInitialRandomData(dtype *vec, dtype *mat_data, int *mat_index, dtype *mat_data_for_gpu, int *mat_index_for_gpu, int vecNum, int h, float sparsity, int minibatch)
     {
         // generate different seed for random number
         time_t t;
         srand((unsigned)time(&t));
-        unsigned int w = vecNum * sparse;
+        unsigned int w = vecNum * (1.0f - sparsity);
         const int NUM_BANK = vecNum / 32;
         for (int batch = 0; batch < minibatch; ++batch)
             for (int i = 0; i < vecNum; ++i)
@@ -49,7 +59,7 @@ namespace nmsparse{
                 std::sort(tmp_index, tmp_index + w / NUM_BANK);
                 for (int k = 0; k < w / NUM_BANK; ++k)
                 {
-                    mat_index[i + k + j * w] = tmp_index[k] + i / sparse; 
+                    mat_index[i + k + j * w] = tmp_index[k] + i / (1.0f - sparsity);
                     mat_index_for_gpu[(i + k) * h + j] = mat_index[i + k + j * w];
                 }
             }

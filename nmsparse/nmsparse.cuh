@@ -9,6 +9,7 @@
 #include "context.cuh"
 #include "utils.cuh"
 #include "nmsparse_ew.cuh"
+#include "nmsparse_vw4.cuh"
 
 namespace nmsparse
 {
@@ -23,6 +24,10 @@ namespace nmsparse
             case SparsePattern::ElementWise:
                 std::cout << "ElementWise" << std::endl;
                 nmsparseSpMMEW<dtype>(ctx, m, k, n, mat_a_dense, mat_b_sparse_idx, mat_b_sparse_val, output, stream);
+                break;
+            case SparsePattern::VectorWise4:
+                std::cout << "VectorWise4" << std::endl;
+                nmsparseSpMMVW4<dtype>(ctx, m, k, n, mat_a_dense, mat_b_sparse_idx, mat_b_sparse_val, output, stream);
                 break;
             default:
                 ::std::cout << "Unsupported sparse pattern" << ::std::endl;

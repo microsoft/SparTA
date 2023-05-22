@@ -18,7 +18,7 @@ TEST_F(NMSparseTest, ElementWiseGemvTestFloat)
     const int N = 1024;
     const int K = 1024;
     const int nmsparseM = 32;
-    const float sparsity = 0.5f;
+    const float sparsity = 0.75f;
     const int minibatch = M;
     const int h = N;
     const int vecNum = K;
@@ -72,6 +72,20 @@ TEST_F(NMSparseTest, ElementWiseGemvTestFloat)
     bool match;
     match = nmsparse::nmsparseCheckResult<float>(hostRef, gpuRef, h, minibatch);
     printf("Test %s\n", match ? "PASSED" : "FAILED");
+    // free device global memory
+    cudaFree(g_vec);
+    cudaFree(g_mat_data);
+    cudaFree(g_mat_index);
+    cudaFree(g_result);
+    cudaDeviceReset();
+    // free host memory
+    free(vec);
+    free(mat_data);
+    free(mat_index);
+    free(mat_data_for_gpu);
+    free(mat_index_for_gpu);
+    free(hostRef);
+    free(gpuRef);
     EXPECT_EQ(1, match);
 }
 

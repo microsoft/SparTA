@@ -2,6 +2,7 @@
 #define _NMSPARSE_KERNEL_ELEMENT_WISE_H_
 
 #include "context.cuh"
+#include "utils.cuh"
 #include <cuda_runtime.h>
 #include <cuda.h>
 
@@ -152,17 +153,6 @@ extern "C" __global__ void nmsparse_ew_gemm_simt_fp32_fp32_fp32_32x32x32(float *
 }
 
 namespace nmsparse {
-
-    bool is_one(const int x)
-    {
-        return 1 == x;
-    }
-
-    bool is_divisible(const int x, const int be_devide)
-    {
-        return 0 == (x % be_devide);
-    }
-
     template <typename dtype>
     cudaError_t nmsparseSpMMEW(nmsparseContext_t ctx, int m, int k, int n, dtype *mat_a_dense, int *mat_b_sparse_idx, dtype *mat_b_sparse_val, dtype *output, cudaStream_t stream = 0);
 
