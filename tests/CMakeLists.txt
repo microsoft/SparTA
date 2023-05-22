@@ -8,3 +8,4 @@ endfunction()
 
 add_test_executable(test_cuda_printf_within_gtest)
 add_test_executable(test_nmsparse_ew_gemv)
+add_test_executable(test_nmsparse_ew_gemm)

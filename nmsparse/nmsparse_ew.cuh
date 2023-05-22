@@ -197,18 +197,15 @@ namespace nmsparse {
             const int h = N;
             const int vecNum = K;
             const int minibatch = M;
-            int M = minibatch, N = h, K = vecNum, K_sparse = w;
+            int M = minibatch, N = h, K = vecNum;
             const int BLOCK_SIZE_M = 32;
             const int BLOCK_SIZE_N = 32;
-            const int BLOCK_SIZE_K = 32;
             const int THREAD_SIZE_M = 16;
             const int THREAD_SIZE_N = 1;
 
             dim3 dimBlock(int((BLOCK_SIZE_M / THREAD_SIZE_M) * (BLOCK_SIZE_N / THREAD_SIZE_N)));
             dim3 dimGrid(M / BLOCK_SIZE_M, N / BLOCK_SIZE_N);
-            dim3 dimBlock(int((BLOCK_SIZE_M / THREAD_SIZE_M) * (BLOCK_SIZE_N / THREAD_SIZE_N)));
-            dim3 dimGrid(M / BLOCK_SIZE_M, N / BLOCK_SIZE_N);
-            nmsparse_ew_gemm_simt_fp32_fp32_fp32_32x32x32<<<dimGrid, dimBlock>>>(g_vec, g_mat_data, g_mat_index, g_result, M, K, K_sparse, N);
+            nmsparse_ew_gemm_simt_fp32_fp32_fp32_32x32x32<<<dimGrid, dimBlock>>>(mat_a_dense, mat_b_sparse_val, mat_b_sparse_idx, output, M, K, N, sparsity);
         }
         return cudaGetLastError();
     }
