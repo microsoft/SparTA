@@ -40,12 +40,12 @@ __global__ void nmsparse_ew_gemv_simt_fp32_fp32_fp32_32x32x32(float *g_vec, floa
     extern __shared__ float vec_data[];
 
 #pragma unroll
-    for (int batch = 0; batch < BLOCK_minibatch; ++batch)
+    for (int batch = 0; batch < minibatch; ++batch)
     {
 #pragma unroll
         for (int i = 4 * threadIdx.x; i < VEC_WIDTH; i += 4 * NUM_THREADS)
         {
-            *(float4 *)(vec_data + i + batch * VEC_WIDTH) = *(float4 *)(g_vec + vecInd + i + (batch + blockIdx.z * BLOCK_minibatch) * vecNum);
+            *(float4 *)(vec_data + i + batch * VEC_WIDTH) = *(float4 *)(g_vec + vecInd + i + (batch + blockIdx.z * minibatch) * vecNum);
         }
     }
 
@@ -62,7 +62,7 @@ __global__ void nmsparse_ew_gemv_simt_fp32_fp32_fp32_32x32x32(float *g_vec, floa
         atomicAdd(g_odata + batch * h + threadyInd, sdata_tmp);
     }*/
 
-    float sdata[BLOCK_minibatch] = {0};
+    float sdata[minibatch] = {0};
 
     float data_tmp = 0;
     int index_tmp = 0;
@@ -74,7 +74,7 @@ __global__ void nmsparse_ew_gemv_simt_fp32_fp32_fp32_32x32x32(float *g_vec, floa
         index_tmp = g_mat_index[threadyInd + (index + blockxInd) * h] - vecInd;
 
 #pragma unroll
-        for (int batch = 0; batch < BLOCK_minibatch; batch += 1)
+        for (int batch = 0; batch < minibatch; batch += 1)
         {
             sdata[batch] += data_tmp * vec_data[index_tmp + batch * VEC_WIDTH];
         }
@@ -82,9 +82,9 @@ __global__ void nmsparse_ew_gemv_simt_fp32_fp32_fp32_32x32x32(float *g_vec, floa
     }
 
 #pragma unroll
-    for (int batch = 0; batch < BLOCK_minibatch; batch += 1)
+    for (int batch = 0; batch < minibatch; batch += 1)
     {
-        atomicAdd(g_odata + h * (batch + blockIdx.z * BLOCK_minibatch) + threadyInd, sdata[batch]);
+        atomicAdd(g_odata + h * (batch + blockIdx.z * minibatch) + threadyInd, sdata[batch]);
     }
 }
 
