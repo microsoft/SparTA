@@ -1,26 +1,17 @@
-#include "nmsparse.h"
+#ifndef _NMSPARSE_KERNEL_ELEMENT_WISE_H_
+#define _NMSPARSE_KERNEL_ELEMENT_WISE_H_
 
-using namespace nmsparse;
-
-bool is_one(const int x)
-{
-    return 1 == x;
-}
-
-bool is_divisible(const int x, const int be_devide)
-{
-    return 0 == (x % be_devide);
-}
+#include "context.cuh"
+#include <cuda_runtime.h>
+#include <cuda.h>
 
 // from MV_one_kernel_block_batch.cu
-__global__ void nmsparse_ew_gemv_simt_fp32_fp32_fp32_32x32x32(float *g_vec, float *g_mat_data, int *g_mat_index, float *g_odata, int w, int h, int BLOCK_WIDTH, int NUM_THREADS, int VEC_WIDTH, const int minibatch, const int vecNum)
+extern "C" __global__ void nmsparse_ew_gemv_simt_fp32_fp32_fp32_32x32x32(float *g_vec, float *g_mat_data, int *g_mat_index, float *g_odata, int w, int h, int BLOCK_WIDTH, int NUM_THREADS, int VEC_WIDTH, const int minibatch, const int vecNum)
 {
-    const int BANK_VAL = 32;
     int blockxInd;
     int vecInd;
     int blockElt; // holds the current block width
 
-    // Run this only 1 time
     if ((blockIdx.y + 1) * BLOCK_WIDTH <= w)
     {
         blockElt = BLOCK_WIDTH;
@@ -33,10 +24,6 @@ __global__ void nmsparse_ew_gemv_simt_fp32_fp32_fp32_32x32x32(float *g_vec, floa
     vecInd = blockIdx.y * VEC_WIDTH;
 
     unsigned int threadyInd = blockIdx.x * NUM_THREADS + threadIdx.x;
-
-    // if (blockIdx.x < 1 && threadIdx.x == 0) printf("griddim.y %d\n", blockIdx.y);
-    // for (unsigned int h_id = blockIdx.x; h_id < h; h_id += gridDim.x) {
-    //  each thread loads one element from global to shared mem
     extern __shared__ float vec_data[];
 
 #pragma unroll
@@ -51,18 +38,8 @@ __global__ void nmsparse_ew_gemv_simt_fp32_fp32_fp32_32x32x32(float *g_vec, floa
 
     __syncthreads();
 
-    /*
-    float sdata_tmp;
-    for (int batch = 0; batch < minibatch; ++batch) {
-        sdata_tmp = 0;
-        for(int index = 0; index < blockElt; ++index) {
-            sdata_tmp += g_mat_data[threadyInd + (index + blockxInd) * h] * vec_data[g_mat_index[threadyInd + (index + blockxInd) * h] - vecInd+batch*VEC_WIDTH];
-            //if (blockIdx.x < 1) printf("%d:%f %f %f\n", sdata[tid],g_mat_data[i] * g_vec[g_mat_index[i]], g_mat_data[i + tid_count] * g_vec[g_mat_index[i + tid_count]]);
-        }
-        atomicAdd(g_odata + batch * h + threadyInd, sdata_tmp);
-    }*/
-
-    float sdata[minibatch] = {0};
+    // due to a gemv kernel only handle m <= 8, so we use a constant shared memory to store.
+    float sdata[8] = {0};
 
     float data_tmp = 0;
     int index_tmp = 0;
@@ -78,7 +55,6 @@ __global__ void nmsparse_ew_gemv_simt_fp32_fp32_fp32_32x32x32(float *g_vec, floa
         {
             sdata[batch] += data_tmp * vec_data[index_tmp + batch * VEC_WIDTH];
         }
-        // if (blockIdx.x < 1) printf("%d:%f %f %f\n", sdata[tid],g_mat_data[i] * g_vec[g_mat_index[i]], g_mat_data[i + tid_count] * g_vec[g_mat_index[i + tid_count]]);
     }
 
 #pragma unroll
@@ -89,7 +65,7 @@ __global__ void nmsparse_ew_gemv_simt_fp32_fp32_fp32_32x32x32(float *g_vec, floa
 }
 
 // from balance_align.cu
-__global__ void nmsparse_ew_gemm_simt_fp32_fp32_fp32_32x32x32(float *g_vec, float *g_mat_data, int *g_mat_index, float *g_data, int M, int K, int N, float sparsity)
+extern "C" __global__ void nmsparse_ew_gemm_simt_fp32_fp32_fp32_32x32x32(float *g_vec, float *g_mat_data, int *g_mat_index, float *g_data, int M, int K, int N, float sparsity)
 {
     const int BLOCK_SIZE_M = 32;
     const int BLOCK_SIZE_N = 32;
@@ -97,7 +73,6 @@ __global__ void nmsparse_ew_gemm_simt_fp32_fp32_fp32_32x32x32(float *g_vec, floa
     const int THREAD_SIZE_M = 16;
     const int THREAD_SIZE_N = 1;
     const int BANK_VAL = 32;
-    const int NUM_BANK = K / BANK_VAL;
 
     const int BANK_NUM_PER_BLOCK = BLOCK_SIZE_K / BANK_VAL;
     const int BLOCK_SIZE_K_SPARSE = int(BLOCK_SIZE_K * (1 - sparsity));
@@ -176,29 +151,67 @@ __global__ void nmsparse_ew_gemm_simt_fp32_fp32_fp32_32x32x32(float *g_vec, floa
     }
 }
 
-template <typename dtype>
-cudaError_t nmsparseSpMMEW(nmsparseContext_t ctx, int m, int k, int n, dtype *mat_a_dense, int *mat_b_sparse_idx, dtype *mat_b_sparse_val, dtype *output, cudaStream_t stream = 0)
-{
-    assert(is_one(m) || is_divisible(m, 32));
-    const int sparsity = ctx.sparsity;
-    const int M = m;
-    const int N = n;
-    const int K = k;
+namespace nmsparse {
 
-    if (is_one(m))
+    bool is_one(const int x)
     {
-        const int w = int((1 - sparsity) * K);
-        const int h = N;
-        const int vecNum = K;
-        const int minibatch = M;
-        const int BANK_VAL = 32;
-        const int NUM_THREADS = 128;
-        const int NUM_BANK = K / BANK_VAL;
-        const int BLOCK_WIDTH = w / NUM_BANK;
-        const int BLOCK_minibatch = M;
-        const int VEC_WIDTH = vecNum * BLOCK_WIDTH / w;
-        dim3 dimBlock(NUM_THREADS);
-        dim3 dimGrid(h / NUM_THREADS, w / BLOCK_WIDTH, M / BLOCK_minibatch);
-        nmsparse_ew_gemv_simt_fp32_fp32_fp32_32x32x32<<<dimGrid, dimBlock, BLOCK_minibatch * VEC_WIDTH * sizeof(float)>>>(mat_a_dense, mat_b_sparse_val, mat_b_sparse_idx, output, w, h, BLOCK_WIDTH, NUM_THREADS, VEC_WIDTH, minibatch, vecNum);
+        return 1 == x;
+    }
+
+    bool is_divisible(const int x, const int be_devide)
+    {
+        return 0 == (x % be_devide);
+    }
+
+    template <typename dtype>
+    cudaError_t nmsparseSpMMEW(nmsparseContext_t ctx, int m, int k, int n, dtype *mat_a_dense, int *mat_b_sparse_idx, dtype *mat_b_sparse_val, dtype *output, cudaStream_t stream = 0);
+
+
+    template <typename dtype>
+    cudaError_t nmsparseSpMMEW(nmsparseContext_t ctx, int m, int k, int n, dtype *mat_a_dense, int *mat_b_sparse_idx, dtype *mat_b_sparse_val, dtype *output, cudaStream_t stream)
+    {
+        assert(is_one(m) || is_divisible(m, 32));
+        const float sparsity = ctx.sparsity;
+        const int M = m;
+        const int N = n;
+        const int K = k;
+
+        if (is_one(m))
+        {
+            std::cout << "nmsparseSpMMEW: m is one" << std::endl;
+            const int w = int((1.0f - sparsity) * K);
+            const int h = N;
+            const int vecNum = K;
+            const int minibatch = M;
+            const int BANK_VAL = 32;
+            const int NUM_THREADS = 128;
+            const int NUM_BANK = K / BANK_VAL;
+            const int BLOCK_WIDTH = w / NUM_BANK;
+            const int BLOCK_minibatch = M;
+            const int VEC_WIDTH = vecNum * BLOCK_WIDTH / w;
+            dim3 dimBlock(NUM_THREADS);
+            dim3 dimGrid(h / NUM_THREADS, w / BLOCK_WIDTH, M / BLOCK_minibatch);
+            nmsparse_ew_gemv_simt_fp32_fp32_fp32_32x32x32<<<dimGrid, dimBlock, BLOCK_minibatch * VEC_WIDTH * sizeof(float)>>>(mat_a_dense, mat_b_sparse_val, mat_b_sparse_idx, output, w, h, BLOCK_WIDTH, NUM_THREADS, VEC_WIDTH, minibatch, vecNum);
+        } else {
+            const int w = int((1.0f - sparsity) * K);
+            const int h = N;
+            const int vecNum = K;
+            const int minibatch = M;
+            int M = minibatch, N = h, K = vecNum, K_sparse = w;
+            const int BLOCK_SIZE_M = 32;
+            const int BLOCK_SIZE_N = 32;
+            const int BLOCK_SIZE_K = 32;
+            const int THREAD_SIZE_M = 16;
+            const int THREAD_SIZE_N = 1;
+
+            dim3 dimBlock(int((BLOCK_SIZE_M / THREAD_SIZE_M) * (BLOCK_SIZE_N / THREAD_SIZE_N)));
+            dim3 dimGrid(M / BLOCK_SIZE_M, N / BLOCK_SIZE_N);
+            dim3 dimBlock(int((BLOCK_SIZE_M / THREAD_SIZE_M) * (BLOCK_SIZE_N / THREAD_SIZE_N)));
+            dim3 dimGrid(M / BLOCK_SIZE_M, N / BLOCK_SIZE_N);
+            nmsparse_ew_gemm_simt_fp32_fp32_fp32_32x32x32<<<dimGrid, dimBlock>>>(g_vec, g_mat_data, g_mat_index, g_result, M, K, K_sparse, N);
+        }
+        return cudaGetLastError();
     }
 }
+
+#endif
