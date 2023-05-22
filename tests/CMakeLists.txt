@@ -1,0 +1,10 @@
+function(add_test_executable name)
+    add_executable(${name} ${name}.cu)
+    target_link_libraries(${name} googletest-gtest)
+    target_link_libraries(${name} pthread)
+    target_link_libraries(${name} nmsparse)
+    target_link_libraries(${name} ${CUDA_LIBRARIES})
+endfunction()
+
+add_test_executable(test_cuda_printf_within_gtest)
+add_test_executable(test_nmsparse_ew_gemv)
