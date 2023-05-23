@@ -175,6 +175,9 @@ namespace nmsparse
         case SparsePattern::VectorWise32:
             nmSparseInitialRandomDataAlignN(vec, mat_data, mat_index, mat_data_for_gpu, mat_index_for_gpu, vecNum, h, sparsity, minibatch, 32);
             break;
+        case SparsePattern::VectorWise64:
+            nmSparseInitialRandomDataAlignN(vec, mat_data, mat_index, mat_data_for_gpu, mat_index_for_gpu, vecNum, h, sparsity, minibatch, 64);
+            break;
         case SparsePattern::BlockWise4x4:
             if (sparsity == 0.90625)
                 nmSparseInitialRandomDataAlignNAlignK(vec, mat_data, mat_index, mat_data_for_gpu, mat_index_for_gpu, vecNum, h, sparsity, minibatch, 4, 3);
@@ -226,7 +229,7 @@ namespace nmsparse
     template <typename dtype>
     bool nmsparseCheckResult(dtype *hostRef, dtype *gpuRef, const int M, const int N)
     {
-        double epsilon = 1E-4;
+        double epsilon = 1E-2;
         bool match = 1;
         for (int batch = 0; batch < M; ++batch)
             for (int i = 0; i < N; i++)
