@@ -370,7 +370,6 @@ namespace nmsparse
 		const int BANK_NUM_PER_BLOCK = BLOCK_SIZE_K / BANK_VAL;
 		const int BLOCK_SIZE_K_SPARSE = int(BLOCK_SIZE_K * (1 - sparsity));
 		const int LEN_OF_BANK_PER_SPARSE_BLOCK = BLOCK_SIZE_K_SPARSE / BANK_NUM_PER_BLOCK;
-
 		int M_BLOCK_START = blockIdx.x * BLOCK_SIZE_M;
 		int N_BLOCK_START = blockIdx.y * BLOCK_SIZE_N;
 
@@ -386,7 +385,7 @@ namespace nmsparse
 		float *A_shared = shared_mem;
 		float *B_shared = A_shared + BLOCK_SIZE_M * BLOCK_SIZE_K;
 		int *B_index_shared = reinterpret_cast<int *>(B_shared + BLOCK_SIZE_N * BLOCK_SIZE_K_SPARSE);
-
+		
 		float A_reg[THREAD_SIZE_M];
 		float B_reg[THREAD_SIZE_N];
 		int B_reg_index;
@@ -488,7 +487,7 @@ namespace nmsparse
 			const int BLOCK_SIZE_M = 32;
 			const int BLOCK_SIZE_N = 128;
 			const int BLOCK_SIZE_K = 64;
-			const int THREAD_SIZE_M = 4;
+			const int THREAD_SIZE_M = 8;
 			const int THREAD_SIZE_N = 4;
 			const int BLOCK_SIZE_K_SPARSE = int(BLOCK_SIZE_K * (1 - sparsity));
 			dim3 dimBlock(int((BLOCK_SIZE_M / THREAD_SIZE_M) * (BLOCK_SIZE_N / THREAD_SIZE_N)));
@@ -499,7 +498,7 @@ namespace nmsparse
 			const int BLOCK_SIZE_M = 32;
 			const int BLOCK_SIZE_N = 128;
 			const int BLOCK_SIZE_K = 128;
-			const int THREAD_SIZE_M = 4;
+			const int THREAD_SIZE_M = 8;
 			const int THREAD_SIZE_N = 4;
 			const int BLOCK_SIZE_K_SPARSE = int(BLOCK_SIZE_K * (1 - sparsity));
 			dim3 dimBlock(int((BLOCK_SIZE_M / THREAD_SIZE_M) * (BLOCK_SIZE_N / THREAD_SIZE_N)));
@@ -510,7 +509,7 @@ namespace nmsparse
 			const int BLOCK_SIZE_M = 32;
 			const int BLOCK_SIZE_N = 128;
 			const int BLOCK_SIZE_K = 128;
-			const int THREAD_SIZE_M = 4;
+			const int THREAD_SIZE_M = 8;
 			const int THREAD_SIZE_N = 4;
 			const int BLOCK_SIZE_K_SPARSE = int(BLOCK_SIZE_K * (1 - sparsity));
 			dim3 dimBlock(int((BLOCK_SIZE_M / THREAD_SIZE_M) * (BLOCK_SIZE_N / THREAD_SIZE_N)));

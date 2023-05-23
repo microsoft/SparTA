@@ -21,14 +21,16 @@ namespace nmsparse
                              cudaFuncAttributeMaxDynamicSharedMemorySize, 98304);
         cudaFuncSetAttribute(nmsparse_vw4_gemm_simt_fp32_fp32_fp32_32x128x128_8x4,
                              cudaFuncAttributeMaxDynamicSharedMemorySize, 98304);
+
+        cudaFuncSetAttribute(nmsparse_vw32_gemm_simt_fp32_fp32_fp32_32x32x128_4x4,
+                             cudaFuncAttributeMaxDynamicSharedMemorySize, 98304);
         cudaFuncSetAttribute(nmsparse_vw32_gemm_simt_fp32_fp32_fp32_32x32x256_4x4,
                              cudaFuncAttributeMaxDynamicSharedMemorySize, 98304);
+
         cudaFuncSetAttribute(nmsparse_bw4x4_gemm_simt_fp32_fp32_fp32_32x128x128_8x4_K3,
                              cudaFuncAttributeMaxDynamicSharedMemorySize, 98304);
-
         cudaFuncSetAttribute(nmsparse_bw4x4_gemm_simt_fp32_fp32_fp32_32x128x64_8x4_K3,
                              cudaFuncAttributeMaxDynamicSharedMemorySize, 98304);
-
         cudaFuncSetAttribute(nmsparse_bw4x4_gemm_simt_fp32_fp32_fp32_32x128x128_8x4_K4,
                              cudaFuncAttributeMaxDynamicSharedMemorySize, 98304);
         cudaFuncSetAttribute(nmsparse_bw4x4_gemm_simt_fp32_fp32_fp32_32x128x64_8x4_K4,

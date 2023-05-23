@@ -18,7 +18,7 @@ TEST_F(NMSparseTest, BlockWise4x4GemmTestFloat)
     const int N = 1024;
     const int K = 1024;
     const int nmsparseM = 32;
-    const float sparsity = 0.5f;
+    const float sparsity = 0.90625f;
     const int minibatch = M;
     const int h = N;
     const int vecNum = K;
