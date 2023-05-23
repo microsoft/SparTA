@@ -4,7 +4,8 @@
 #include "context.cuh"
 #include <algorithm>
 
-namespace nmsparse{
+namespace nmsparse
+{
     bool is_one(const int x)
     {
         return 1 == x;
@@ -17,7 +18,8 @@ namespace nmsparse{
 
     template <typename dtype>
     bool nmsparseCreateSparse(nmsparseContext_t ctx, int k, int n,
-                              dtype *mat_in_dense, int *output_sparse_idx, dtype *output_sparse_val){
+                              dtype *mat_in_dense, int *output_sparse_idx, dtype *output_sparse_val)
+    {
 
         // check if the input is valid
         checkCtxPattern<dtype>(ctx);
@@ -112,7 +114,56 @@ namespace nmsparse{
     }
 
     template <typename dtype>
-    void nmSparseInitialRandomData(nmsparseContext_t ctx, dtype *vec, dtype *mat_data, int *mat_index, dtype *mat_data_for_gpu, int *mat_index_for_gpu, int vecNum, int h, float sparsity, int minibatch){
+    void nmSparseInitialRandomDataAlignNAlignK(dtype *vec, dtype *mat_data, int *mat_index, dtype *mat_data_for_gpu, int *mat_index_for_gpu, int vecNum, int h, float sparsity, int minibatch, const int ALIGN_N, const int ALIGN_K)
+    {
+        // generate different seed for random number
+        time_t t;
+        srand((unsigned)time(&t));
+        unsigned int w = vecNum * (1.0f - sparsity);
+        const int NUM_BANK = vecNum / 32;
+        for (int batch = 0; batch < minibatch; ++batch)
+            for (int i = 0; i < vecNum; ++i)
+            {
+                vec[i + vecNum * batch] = (float)rand() / RAND_MAX;
+                //	printf("%f\n", vec[i]);
+            }
+
+        for (int j = 0; j < h; ++j)
+            for (int i = 0; i < w; ++i)
+            {
+                mat_data[i + j * w] = (float)rand() / RAND_MAX;
+                mat_data_for_gpu[i * h + j] = mat_data[i + j * w];
+            }
+
+        int *tmp_index = (int *)malloc(vecNum / NUM_BANK * sizeof(int));
+        for (int i = 0; i < vecNum / NUM_BANK; ++i)
+            tmp_index[i] = i;
+
+        for (int j = 0; j < h; j += ALIGN_N)
+        {
+            for (int i = 0; i < w; i += w / NUM_BANK)
+            {
+                std::random_shuffle(tmp_index, tmp_index + vecNum / NUM_BANK);
+                std::sort(tmp_index, tmp_index + w / NUM_BANK);
+                for (int k = 0; k < w / NUM_BANK; k += ALIGN_K)
+                {
+                    for (int j_in = 0; j_in < ALIGN_N; j_in += 1)
+                    {
+                        for (int k_in = 0; k_in < ALIGN_K; k_in += 1)
+                        {
+                            mat_index[i + k + k_in + (j + j_in) * w] = tmp_index[k] + k_in + i / (1 - sparsity);
+                            mat_index_for_gpu[(i + k + k_in) * h + (j + j_in)] = mat_index[i + k + k_in + (j + j_in) * w];
+                        }
+                    }
+                }
+            }
+        }
+        free(tmp_index);
+    }
+
+    template <typename dtype>
+    void nmSparseInitialRandomData(nmsparseContext_t ctx, dtype *vec, dtype *mat_data, int *mat_index, dtype *mat_data_for_gpu, int *mat_index_for_gpu, int vecNum, int h, float sparsity, int minibatch)
+    {
         switch (ctx.nmsparsePattern)
         {
         case SparsePattern::ElementWise:
@@ -124,12 +175,18 @@ namespace nmsparse{
         case SparsePattern::VectorWise32:
             nmSparseInitialRandomDataAlignN(vec, mat_data, mat_index, mat_data_for_gpu, mat_index_for_gpu, vecNum, h, sparsity, minibatch, 32);
             break;
+        case SparsePattern::BlockWise4x4:
+            if (sparsity == 0.90625)
+                nmSparseInitialRandomDataAlignNAlignK(vec, mat_data, mat_index, mat_data_for_gpu, mat_index_for_gpu, vecNum, h, sparsity, minibatch, 4, 3);
+            else
+                nmSparseInitialRandomDataAlignNAlignK(vec, mat_data, mat_index, mat_data_for_gpu, mat_index_for_gpu, vecNum, h, sparsity, minibatch, 4, 4);
+            break;
         default:
             throw std::runtime_error("Unsupported sparse pattern");
             break;
         }
     }
-    
+
     template <typename dtype>
     bool nmsparseCreateSparse(nmsparseContext_t ctx, int k, int n,
                               dtype *mat_in_dense, int *output_sparse_idx, dtype *output_sparse_val);

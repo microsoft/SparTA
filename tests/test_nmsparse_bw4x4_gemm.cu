@@ -18,7 +18,7 @@ TEST_F(NMSparseTest, BlockWise4x4GemmTestFloat)
     const int N = 1024;
     const int K = 1024;
     const int nmsparseM = 32;
-    const float sparsity = 0.75f;
+    const float sparsity = 0.5f;
     const int minibatch = M;
     const int h = N;
     const int vecNum = K;
@@ -70,8 +70,8 @@ TEST_F(NMSparseTest, BlockWise4x4GemmTestFloat)
 
     // copy kernel result back to host side
     cudaMemcpy(gpuRef, g_result, result_nBytes, cudaMemcpyDeviceToHost);
-    nmsparse::nmsparseCPURef_ALIGN_SHARED<float>(vec, mat_data, mat_index, hostRef, w, h, vecNum, minibatch);
-    bool match;
+    nmsparse::nmsparseCPURef<float>(vec, mat_data, mat_index, hostRef, w, h, vecNum, minibatch);
+    bool match = false;
     match = nmsparse::nmsparseCheckResult<float>(hostRef, gpuRef, h, minibatch);
     printf("Test %s\n", match ? "PASSED" : "FAILED");
     EXPECT_EQ(1, match);

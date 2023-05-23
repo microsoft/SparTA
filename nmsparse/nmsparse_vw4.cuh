@@ -1,5 +1,5 @@
-#ifndef _NMSPARSE_KERNEL_VECTORWISE4_WISE_H_
-#define _NMSPARSE_KERNEL_VECTORWISE4_WISE_H_
+#ifndef _NMSPARSE_KERNEL_VECTORWISE4_H_
+#define _NMSPARSE_KERNEL_VECTORWISE4_H_
 
 #include "context.cuh"
 #include "utils.cuh"
@@ -252,7 +252,7 @@ namespace nmsparse {
 			dim3 dimGrid(M / BLOCK_SIZE_M, N / BLOCK_SIZE_N);
 
 			int shared_mem_size = sizeof(float) * (BLOCK_SIZE_M * BLOCK_SIZE_K + BLOCK_SIZE_N * BLOCK_SIZE_K_SPARSE + BLOCK_SIZE_N * BLOCK_SIZE_K_SPARSE);
-			nmsparse_vw4_gemm_simt_fp32_fp32_fp32_32x128x64_8x4<<<dimGrid, dimBlock, shared_mem_size>>>(mat_a_dense, mat_b_sparse_val, mat_b_sparse_idx, output, M, K, N, sparsity);
+			nmsparse_vw4_gemm_simt_fp32_fp32_fp32_32x128x64_8x4<<<dimGrid, dimBlock, shared_mem_size>>>(mat_a_dense, mat_b_sparse_val, mat_b_sparse_idx, output, M, N, K, sparsity);
 			return cudaGetLastError();
 		}
 		else
@@ -268,7 +268,7 @@ namespace nmsparse {
 			dim3 dimGrid(M / BLOCK_SIZE_M, N / BLOCK_SIZE_N);
 
 			int shared_mem_size = sizeof(float) * (BLOCK_SIZE_M * BLOCK_SIZE_K + BLOCK_SIZE_N * BLOCK_SIZE_K_SPARSE + BLOCK_SIZE_N * BLOCK_SIZE_K_SPARSE);
-			nmsparse_vw4_gemm_simt_fp32_fp32_fp32_32x128x128_8x4<<<dimGrid, dimBlock, shared_mem_size>>>(mat_a_dense, mat_b_sparse_val, mat_b_sparse_idx, output, M, K, N, sparsity);
+			nmsparse_vw4_gemm_simt_fp32_fp32_fp32_32x128x128_8x4<<<dimGrid, dimBlock, shared_mem_size>>>(mat_a_dense, mat_b_sparse_val, mat_b_sparse_idx, output, M, N, K, sparsity);
 		}
 
 		return cudaGetLastError();

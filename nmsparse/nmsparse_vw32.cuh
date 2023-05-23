@@ -1,5 +1,5 @@
-#ifndef _NMSPARSE_KERNEL_VECTORWISE32_WISE_H_
-#define _NMSPARSE_KERNEL_VECTORWISE32_WISE_H_
+#ifndef _NMSPARSE_KERNEL_VECTORWISE32_H_
+#define _NMSPARSE_KERNEL_VECTORWISE32_H_
 
 #include "context.cuh"
 #include "utils.cuh"
@@ -232,7 +232,7 @@ namespace nmsparse
 			dim3 dimBlock(int((BLOCK_SIZE_M / THREAD_SIZE_M) * (BLOCK_SIZE_N / THREAD_SIZE_N)));
 			dim3 dimGrid(M / BLOCK_SIZE_M, N / BLOCK_SIZE_N);
 			int shared_mem_size = sizeof(float) * (BLOCK_SIZE_M * BLOCK_SIZE_K_SPARSE + BLOCK_SIZE_N * BLOCK_SIZE_K_SPARSE);
-			nmsparse_vw32_gemm_simt_fp32_fp32_fp32_32x32x128_4x4<<<dimGrid, dimBlock, shared_mem_size>>>(mat_a_dense, mat_b_sparse_val, mat_b_sparse_idx, output, M, K, N, sparsity);
+			nmsparse_vw32_gemm_simt_fp32_fp32_fp32_32x32x128_4x4<<<dimGrid, dimBlock, shared_mem_size>>>(mat_a_dense, mat_b_sparse_val, mat_b_sparse_idx, output, M, N, K, sparsity);
 		}else{
 			const int BLOCK_SIZE_M = 32;
 			const int BLOCK_SIZE_N = 32;
@@ -243,7 +243,7 @@ namespace nmsparse
 			dim3 dimBlock(int((BLOCK_SIZE_M / THREAD_SIZE_M) * (BLOCK_SIZE_N / THREAD_SIZE_N)));
 			dim3 dimGrid(M / BLOCK_SIZE_M, N / BLOCK_SIZE_N);
 			int shared_mem_size = sizeof(float) * (BLOCK_SIZE_M * BLOCK_SIZE_K_SPARSE + BLOCK_SIZE_N * BLOCK_SIZE_K_SPARSE);
-			nmsparse_vw32_gemm_simt_fp32_fp32_fp32_32x32x256_4x4<<<dimGrid, dimBlock, shared_mem_size>>>(mat_a_dense, mat_b_sparse_val, mat_b_sparse_idx, output, M, K, N, sparsity);
+			nmsparse_vw32_gemm_simt_fp32_fp32_fp32_32x32x256_4x4<<<dimGrid, dimBlock, shared_mem_size>>>(mat_a_dense, mat_b_sparse_val, mat_b_sparse_idx, output, M, N, K, sparsity);
 		}
 		
 
