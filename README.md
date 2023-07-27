@@ -1,109 +1,77 @@
-# SparTA Getting Started
+## Overview
 
-> *This repo is under active development. We're trying to make it stable and user-friendly, but it is not surprising to meet problems in current phase. Please open issue or contact the authors when you need help.*
+This repo is for the SOSP'23 artifact evaluation of paper "PIT: Optimization of Dynamic Sparse Deep Learning Models via Permutation Invariant Transformation".
 
-`SparTA` is an end-to-end system to harvest the speeding up gain from the model sparsity.
+## Evaluation Setup
 
-## Installation 
-SparTA depends on user's local CUDA environments. Here are some requirements
-- [PyTorch](https://pytorch.org/)
+- Artifacts Available:
+  The source code of Sparta is available at: https://github.com/microsoft/SparTA/tree/pit_artifact
 
-User could install through `pip` command as below (*The PyPI install path is coming soon*)
+- Artifacts Functional:
+  Documentation: the following document includes detailed guidelines on how to build, install, test PIT and the experiments to compare with other baselines.
+
+- Results Reproduced:
+  To reproduce the main results presented in our paper, we provide a Docker image containing all the environments and baseline softwares. We also provide detailed guideline to help reproduce the results step by step.
+
+## Requirements
+
+1. V100 experiments:
+
+- 8x V100 32GB GPUs with more than 700GB disk space
+
+2. A100 experiments
+
+- 1x A100 80GB GPU with more than 200GB disk space
+
+## Environment setup
+
+First, git clone the source code.
+
 ```bash
-pip install git+https://github.com/microsoft/SparTA.git
+git clone https://github.com/microsoft/SparTA
+cd SparTA && git checkout pit_artifact
 ```
-or
+
+To make the reproducing easier, we provide a docker image that contains all dependencies and baselines. Build the docker image:
+
 ```bash
-git clone git@github.com:microsoft/SparTA.git
-pip install SparTA
+cd image
+// for the experiments on V100
+sudo docker build . -f Dockerfile -t artifact:v100
+// for the experiments on A100
+sudo docker build . -f Dockerfile.a100 -t artifact:a100
 ```
 
-Please make sure that the CUDA version matches the version used to compile PyTorch binaries.
-If cuda and nvcc version issues met, the following commands may be helpful to verify the environments. 
+The docker image compilation takes approximately an hour. To save time, we also provide pre-compiled images on the DockerHub: zhengningxin/pit_artifact:v100, zhengningxin/pit_artifact:a100.
 
-```python
-import os
-import torch
-import pycuda.driver
+If you meet out of disk space error, you can mount an external disk to the `/data/` directory inside the docker container. For example:
 
-if torch.cuda.is_available():
-    os.system('nvcc --version')
-    print(torch.version.cuda)
-    print(pycuda.driver.get_version())
-    print(pycuda.driver.get_driver_version())
+```bash
+docker run -it --gpus all --shm-size=150gb -v /tmp/data_docker:/data --rm -d --name pit_artifact -h docker zhengningxin/pit_artifact:a100
 ```
 
-## Usage
+## Run the experiments
 
-### Tune a sparse operator
+### V100
 
-```python
-import torch
-import sparta
-
-batch_size, in_features, out_features = 1024, 1024, 1024
-sparsity = 0.9
-granularity = (8, 8)
-
-# prepare data
-x = torch.rand((batch_size, in_features), device='cuda')
-weight = torch.rand((out_features, in_features), device='cuda')
-bias = torch.rand((out_features, ), device='cuda')
-
-# generate and apply weight mask
-mask = sparta.testing.block_mask(weight.shape, granularity, sparsity, device='cuda')
-weight = torch.mul(weight, mask)
-
-# create a dense operator
-dense_linear = torch.nn.Linear(in_features, out_features, device='cuda')
-dense_linear.load_state_dict({'weight': weight, 'bias': bias})
-
-# create a sparse operator
-sparse_linear = sparta.nn.SparseLinear(dense_linear, weight_mask=mask)
-
-# tune the sparse operator
-best_config = sparta.nn.tune(sparse_linear, sample_inputs=[x], max_trials=10, algo='rand')
-
-# check if the sparse operator runs correctly
-torch.testing.assert_close(sparse_linear(x), dense_linear(x))
+```bash
+docker run -it --gpus all --shm-size=32gb --rm -d --name pit_artifact -h docker zhengningxin/pit_artifact:v100
+docker exec -it pit_artifact bash
+mkdir -p workspace && cd workspace
+git clone https://github.com/microsoft/SparTA && cd SparTA && git checkout pit_artifact
+bash script/init_env_v100.sh
+bash script/run_v100.sh
 ```
 
-### Build a sparse operator with specified config
-```python
-# create a sparse operator
-sparse_linear = sparta.nn.SparseLinear(dense_linear, weight_mask=mask)
+### A100
 
-# build the sparse operator with the `best_config` we got before.
-sparse_linear.nn.build(best_config['root'], sample_inputs=[x])
+```bash
+docker run -it --gpus all --shm-size=32gb --rm -d --name pit_artifact -h docker zhengningxin/pit_artifact:a100
+docker exec -it pit_artifact bash
+mkdir -p workspace && cd workspace
+git clone https://github.com/microsoft/SparTA && cd SparTA && git checkout pit_artifact
+bash script/init_env_a100.sh
+bash script/run_a100.sh
 ```
 
-## Citing SparTA
-If SparTA is helpful in your projects, please cite our paper as below
-```
-@inproceedings {SparTA2022,
-    author = {Ningxin Zheng and Bin Lin and Quanlu Zhang and Lingxiao Ma and Yuqing Yang and Fan Yang and Yang Wang and Mao Yang and Lidong Zhou},
-    title = {SparTA: Deep-Learning Model Sparsity via Tensor-with-Sparsity-Attribute},
-    booktitle = {16th USENIX Symposium on Operating Systems Design and Implementation (OSDI 22)},
-    year = {2022},
-    isbn = {978-1-939133-28-1},
-    address = {Carlsbad, CA},
-    pages = {213--232},
-    url = {https://www.usenix.org/conference/osdi22/presentation/zheng-ningxin},
-    publisher = {USENIX Association},
-    month = jul,
-}
-```
-
-## Contributor License Agreement
-
-This project welcomes contributions and suggestions.  Most contributions require you to agree to a
-Contributor License Agreement (CLA) declaring that you have the right to, and actually do, grant us
-the rights to use your contribution. For details, visit https://cla.opensource.microsoft.com.
-
-When you submit a pull request, a CLA bot will automatically determine whether you need to provide
-a CLA and decorate the PR appropriately (e.g., status check, comment). Simply follow the instructions
-provided by the bot. You will only need to do this once across all repos using our CLA.
-
-This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/).
-For more information see the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or
-contact [opencode@microsoft.com](mailto:opencode@microsoft.com) with any additional questions or comments.
+You can get the results in the `results` directory.
