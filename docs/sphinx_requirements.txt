@@ -1,6 +1,0 @@
-sphinx
-sphinx-autobuild
-myst_parser
-sphinxawesome-theme
-torch
-numpy

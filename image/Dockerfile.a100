@@ -1,0 +1,93 @@
+# FROM nvidia/cuda:11.0-cudnn8-devel-ubuntu18.04
+# FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu18.04
+FROM nvidia/cuda:11.6.2-cudnn8-devel-ubuntu20.04
+# Install tools and dependencies.
+RUN ln -snf /usr/share/zoneinfo/$CONTAINER_TIMEZONE /etc/localtime && echo $CONTAINER_TIMEZONE > /etc/timezone
+RUN apt-get -y update --fix-missing
+RUN apt-get install -y \
+  emacs \
+  git \
+  wget \
+  libgoogle-glog-dev
+
+RUN apt-get update -y && \
+    apt-get install -y libsndfile1
+
+# Setup to install the latest version of cmake.
+RUN apt-get install -y software-properties-common && \
+    apt-get update && \
+    wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | tee /etc/apt/trusted.gpg.d/kitware.gpg >/dev/null && \
+    apt-add-repository 'deb https://apt.kitware.com/ubuntu/ bionic main' && \
+    apt-get update && apt-get install -y cmake
+# Set the working directory.
+WORKDIR /root
+
+# install cusparseLT
+RUN wget https://developer.download.nvidia.com/compute/libcusparse-lt/0.2.0/local_installers/libcusparse_lt-linux-x86_64-0.2.0.1.tar.gz && \
+    tar xzvf libcusparse_lt-linux-x86_64-0.2.0.1.tar.gz
+
+# install sputnik
+RUN git clone --recurse-submodules https://github.com/zheng-ningxin/sputnik.git && \
+    cd sputnik && mkdir build && cd build && \
+    cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TEST=ON -DBUILD_BENCHMARK=ON -DCUDA_ARCHS="80" && \
+    make -j && cp sputnik/libspmm.so /usr/local/lib/ && cp -r /root/sputnik/third_party/abseil-cpp/absl /usr/local/include/
+
+# install anaconda
+RUN wget https://repo.anaconda.com/archive/Anaconda3-2021.11-Linux-x86_64.sh && \
+    bash Anaconda3-2021.11-Linux-x86_64.sh -b -p /root/anaconda && \
+    eval "$(/root/anaconda/bin/conda shell.bash hook)" && conda create -n artifact python=3.8 -y && \
+    conda activate artifact
+
+# install tvm
+RUN wget https://github.com/llvm/llvm-project/releases/download/llvmorg-13.0.0/clang+llvm-13.0.0-x86_64-linux-gnu-ubuntu-16.04.tar.xz && \
+    tar -xvf clang+llvm-13.0.0-x86_64-linux-gnu-ubuntu-16.04.tar.xz
+RUN eval "$(/root/anaconda/bin/conda shell.bash hook)" && conda activate artifact && \
+    git clone --recursive https://github.com/linbinskn/tvm.git tvm && cd tvm && git checkout cuda_old && \
+    apt-get update && apt-get install -y python3 python3-dev python3-setuptools gcc libtinfo-dev zlib1g-dev build-essential cmake libedit-dev libxml2-dev && \
+    cd build && cmake .. && make -j &&  \
+    pip install decorator
+
+# install python packages
+RUN eval "$(/root/anaconda/bin/conda shell.bash hook)" && conda activate artifact && \
+    pip install torch==1.12.0+cu116 torchvision==0.13.0+cu116 torchaudio==0.12.0 --extra-index-url https://download.pytorch.org/whl/cu116 && \
+    pip install tensorboard transformers==3.5.0 onnxruntime graphviz onnx soundfile datasets==2.0.0 ply matplotlib numpy librosa xgboost==1.5.0 seaborn
+
+# install PIT
+RUN git clone https://github.com/zheng-ningxin/SparTA.git && cd SparTA && git checkout pit_sm80 && \
+    eval "$(/root/anaconda/bin/conda shell.bash hook)" && conda activate artifact && python setup.py develop
+
+# install azcopy
+RUN wget https://aka.ms/downloadazcopy-v10-linux && tar xzvf downloadazcopy-v10-linux && cp azcopy_linux_amd64_10.19.0/azcopy /usr/local/bin
+
+
+# configure the bashrc
+RUN echo 'export PYTHONPATH=/root/tvm/python:$PYTHONPATH \n\
+export CUDA_HOME=/usr/local/cuda \n\
+export PYTHONPATH="/tmp/megablocks/third_party/Megatron-LM:${PYTHONPATH}" \n\
+export TRANSFORMERS_CACHE=/data/.cache \n\
+source ~/anaconda/etc/profile.d/conda.sh \n\
+' >> /root/.bashrc
+
+# install open-mpi
+RUN eval "$(/root/anaconda/bin/conda shell.bash hook)" && conda activate artifact && wget https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.5.tar.gz && \
+    tar -zxvf openmpi-4.1.5.tar.gz && cd openmpi-4.1.5 && ./configure --enable-shared --prefix=/usr/local/mpich && make && make install && \
+    env MPICC=/usr/local/mpich/bin/mpicc python -m pip install mpi4py
+
+# install deepspeed
+RUN eval "$(/root/anaconda/bin/conda shell.bash hook)" && conda activate artifact && pip install pydantic==1.0 && pip install git+https://github.com/iofu728/deepspeed.git@pit_artifact
+
+# install transformers and others
+RUN eval "$(/root/anaconda/bin/conda shell.bash hook)" && conda activate artifact && \
+    pip install git+https://github.com/iofu728/transformers.git@v4.25.1_PIT && \
+    pip install triton==2.0.0.dev20221030 nvitop protobuf==3.20.0 evaluate && mkdir /data/
+
+# install megablocks
+RUN eval "$(/root/anaconda/bin/conda shell.bash hook)" && conda activate artifact && \
+    cd /tmp && git clone --recursive https://github.com/stanford-futuredata/megablocks && cd megablocks && \
+    git checkout d20e20134242b7e283cda9b86917153cb7af806c && cd third_party/Megatron-LM/ && git checkout 0bdc8181edb4713bb81816fb773c18255b25662f && \
+    cd ../../ && pip install -e . && sed -i 's/F.gelu(x.data, approximate=True)/F.relu(x.data)/' megablocks/layers/gelu.py && \
+    cd /tmp && git clone --recursive https://github.com/tgale96/sputnik.git && mkdir sputnik/build && sed -i '1i#include "cutlass/layout/matrix.h"' sputnik/third_party/cutlass/include/cutlass/gemm/gemm.h && \
+    cd sputnik/build && cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TEST=OFF -DBUILD_BENCHMARK=OFF -DCUDA_ARCHS="80" -DCMAKE_INSTALL_PREFIX=/usr/local/sputnik && make -j8 install && \
+    cd /tmp && git clone --recursive https://github.com/stanford-futuredata/stk && cd stk && echo "" > requirements.txt && pip install -e . && \
+    cd /tmp && pip install Ninja packaging && git clone https://github.com/NVIDIA/apex && cd apex && pip install -v --disable-pip-version-check --no-cache-dir --no-build-isolation --config-settings "--build-option=--cpp_ext" --config-settings "--build-option=--cuda_ext" ./ && \
+    pip install numpy==1.20.3 pybind11
