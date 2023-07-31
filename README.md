@@ -75,3 +75,9 @@ bash script/run_a100.sh
 ```
 
 You can get the results in the `results` directory.
+
+## Screen recording of experiments
+
+### A100
+
+You can find the [video](https://microsoftapc-my.sharepoint.com/:v:/g/personal/hjiang_microsoft_com/EbB6n3lOnDVAil2exSZGqcEBLsmKoy_xn6jv8gkJRZ0dbQ?e=I9SMCL) and the generation [generation figures](https://microsoftapc-my.sharepoint.com/:u:/g/personal/hjiang_microsoft_com/EQOUWSM2hvNFqkM0W49iga4BtxSPoC82B01FbhH8b0XM2A?e=0oo27s) on OneDrive.
