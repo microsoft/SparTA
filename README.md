@@ -81,3 +81,7 @@ You can get the results in the `results` directory.
 ### A100
 
 You can find the [video](https://microsoftapc-my.sharepoint.com/:v:/g/personal/hjiang_microsoft_com/EbB6n3lOnDVAil2exSZGqcEBLsmKoy_xn6jv8gkJRZ0dbQ?e=I9SMCL) and the generation [generation figures](https://microsoftapc-my.sharepoint.com/:u:/g/personal/hjiang_microsoft_com/EQOUWSM2hvNFqkM0W49iga4BtxSPoC82B01FbhH8b0XM2A?e=0oo27s) on OneDrive.
+
+### V100
+
+You can find the [video](https://microsoftapc-my.sharepoint.com/:v:/g/personal/hjiang_microsoft_com/EQK1VYaMfTNInUI9I07_jC4BKI_o394WLEvnNduiXa670A?e=CCoPaR) and the generation [generation figures](https://microsoftapc-my.sharepoint.com/:u:/g/personal/hjiang_microsoft_com/EXiiyHE_qAtLl8MIeqzwx0sB000o2VPuj4tBinVttxE5qQ?e=3o2r2t) on OneDrive.
