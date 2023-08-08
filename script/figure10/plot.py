@@ -60,7 +60,10 @@ def load_results():
         tmp = [d]
         for method in methods:
             if (d, method) not in g:
-                tmp += ["x", '']
+                if method == "PyTorch-S":
+                    tmp += [0, 0, 0]
+                else:
+                    tmp += [0, 0]
                 continue
             results = g[(d, method)]
             tmp += results
@@ -70,7 +73,10 @@ def load_results():
         tmp = [d]
         for method in methods:
             if (d, method) not in g:
-                tmp += ["", '']
+                if method == "PyTorch-S":
+                    tmp += [0, 0, 0]
+                else:
+                    tmp += [0, 0]
                 continue
             results = g[(d, method)]
             tmp += results
@@ -171,7 +177,7 @@ def plot_bert(seq_len_glue_data_list, seq_len_long_document_data_list):
         ax2.bar(x+1*width,turbo_data, width,  **styles['turbo'])
         ax2.bar(x+2*width,ours_data, width,  **styles['pit'])
 
-        for a, b in [(x+1*width,turbo_data)]:
+        for a, b in [(x+1*width,turbo_data), (x-2*width,pytorch_data), (x-1*width,triton_data)]:
         #     print(a, b)
             for ii, jj in zip(a, b):
                 if jj == 0:
