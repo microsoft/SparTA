@@ -80,8 +80,8 @@ You can get the results in the `results` directory.
 
 ### A100
 
-You can find the [video](https://microsoftapc-my.sharepoint.com/:v:/g/personal/hjiang_microsoft_com/EbB6n3lOnDVAil2exSZGqcEBLsmKoy_xn6jv8gkJRZ0dbQ?e=I9SMCL) and the [generated figures](https://microsoftapc-my.sharepoint.com/:u:/g/personal/hjiang_microsoft_com/EQOUWSM2hvNFqkM0W49iga4BtxSPoC82B01FbhH8b0XM2A?e=0oo27s) on OneDrive.
+You can find the [video](https://1drv.ms/v/s!AkEAblf6Lo_5h8Mo5Ra8mh7M66PoFQ?e=JSn8Lq) and the [generated figures](https://1drv.ms/u/s!AkEAblf6Lo_5h8MpStGDCYSeR3bTOw?e=PyepID) on OneDrive.
 
 ### V100
 
-You can find the [video](https://microsoftapc-my.sharepoint.com/:v:/g/personal/hjiang_microsoft_com/EQK1VYaMfTNInUI9I07_jC4BKI_o394WLEvnNduiXa670A?e=CCoPaR) and the [generated figures](https://microsoftapc-my.sharepoint.com/:u:/g/personal/hjiang_microsoft_com/EXiiyHE_qAtLl8MIeqzwx0sB000o2VPuj4tBinVttxE5qQ?e=3o2r2t) on OneDrive.
+You can find the [video](https://1drv.ms/v/s!AkEAblf6Lo_5h8MqIxX21Q78dp00vQ?e=ouxyz9) and the [generated figures](https://1drv.ms/u/s!AkEAblf6Lo_5h8MnhwlqhP3dU23q3A?e=Ce77Bp) on OneDrive.
