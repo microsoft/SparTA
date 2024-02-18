@@ -5,7 +5,7 @@ from typing import List
 
 import torch
 
-# import sparse_moe_cpp
+from sparta import sp_moe_ops
 
 
 class DynamicSparseMoE(torch.nn.Module):
@@ -24,8 +24,8 @@ class DynamicSparseMoE(torch.nn.Module):
         self.expert_count = torch.zeros(self.num_exps, dtype=torch.int32, device=self.device)
 
     def forward(self, tokens: torch.Tensor, exp_ids: torch.Tensor):
-        sparse_moe_cpp.convert_index(exp_ids, self.sparse_index, self.expert_count)
-        return sparse_moe_cpp.forward(
+        sp_moe_ops.convert_index(exp_ids, self.sparse_index, self.expert_count)
+        return sp_moe_ops.forward(
             tokens,
             self.weight,
             exp_ids,

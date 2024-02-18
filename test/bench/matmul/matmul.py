@@ -124,14 +124,16 @@ def profile_sparta_matmul(
         return 0., 0.
 
     sparta_matmul = SparseBatchMatMul(
-        B_mask=mask,
+        mode='dsd',
         transpose_A=False,
         transpose_B=True,
+        biased=False,
         compressed=True,
     )
+    sparta_matmul.set_mask(mask)
     sparta_matmul.build(config, sample_inputs=[data['A'], data['B']])
 
-    indexes = sparta_matmul.get_sparse_indexes('B')
+    indexes = sparta_matmul.get_sparse_indexes()
     data['B'] = indexes.convert(data['B'])
     data['grad_B'] = indexes.convert(data['grad_B'])
 
@@ -182,8 +184,8 @@ def profile_all(log_path: str, device: Any = 'cuda'):
             latency['dense'] = profile_dense_matmul(M, K, N, (g, g), s, device)
             config = get_sparta_config(sparta_configs, g, s)
             latency['sparta'] = profile_sparta_matmul(config, M, K, N, (g, g), s, device)
-            for block in [16, 32, 64]:
-                latency[f'triton-{block}'] = profile_triton_matmul(block, M, K, N, (g, g), s, device)
+            # for block in [16, 32, 64]:
+            #     latency[f'triton-{block}'] = profile_triton_matmul(block, M, K, N, (g, g), s, device)
             with open(log_path, 'a') as f:
                 for method, (lat_f, lat_b) in latency.items():
                     f.write(f'{method},{M},{K},{N},{g},{s},{lat_f},{lat_b}\n')

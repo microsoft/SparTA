@@ -110,6 +110,9 @@ class SparseOperator(torch.nn.Module):
         for port in self.ports.values():
             port.clear_data()
 
+    def get_search_space(self):
+        pass
+
 
 class SparseAutoGrad(SparseOperator):
 

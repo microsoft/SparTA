@@ -5,7 +5,7 @@ from typing import Optional
 
 import torch
 
-# import seqlen_dynamic_sparse_attention_cpp
+from sparta import sp_attn_ops
 
 
 class SeqlenDynamicSparseAttentionFunction(torch.autograd.Function):
@@ -21,7 +21,7 @@ class SeqlenDynamicSparseAttentionFunction(torch.autograd.Function):
         H: int
     ):
         # ctx.save_for_backward()
-        return seqlen_dynamic_sparse_attention_cpp.forward(Q, K, V, inter_result, seqlens, H)
+        return sp_attn_ops.forward(Q, K, V, inter_result, seqlens, H)
 
     @staticmethod
     def backward(ctx, *grad_outputs):

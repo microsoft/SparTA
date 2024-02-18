@@ -21,9 +21,9 @@ def sparse_softmax_forward_reference(
         torch.Tensor: The output tensor having the same shape with the input tensor. Notice that
             the return value on completely masked rows will be 0.
     """
-    C_max = x.max(axis=-1).values.unsqueeze(-1)
+    C_max = x.max(axis=-1, keepdim=True).values
     C_exp = torch.exp((x - C_max) / temperature) * mask
-    C_exp_sum = C_exp.sum(axis=-1).unsqueeze(-1) + 1e-10
+    C_exp_sum = C_exp.sum(axis=-1, keepdim=True) + 1e-10
     return C_exp / C_exp_sum
 
 

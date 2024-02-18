@@ -53,7 +53,7 @@ def test_sparse_attention_operator(
     sparsity: float = 0.95,
 ):
     torch.manual_seed(2022)
-    mask = block_mask((Nt, Ns), block=granularity, sparsity=sparsity, device='cuda')
+    mask = block_mask(shape=(Nt, Ns), granularity=granularity, sparsity=sparsity, device='cuda')
     query = torch.rand(size=(H, Nt, E), device='cuda')
     key = torch.rand(size=(H, Ns, E), device='cuda')
     value = torch.rand(size=(H, Ns, E), device='cuda')
@@ -89,5 +89,5 @@ def test_sparse_attention_operator(
         torch.testing.assert_close(value.grad, target_grad_value, atol=1e-4, rtol=1e-8)
 
         torch.manual_seed(random_seed)
-        mask = block_mask((Nt, Ns), block=granularity, sparsity=sparsity, device='cuda')
+        mask = block_mask(shape=(Nt, Ns), granularity=granularity, sparsity=sparsity, device='cuda')
         sparse_attention.update_mask(mask)

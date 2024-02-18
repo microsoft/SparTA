@@ -1,4 +1,4 @@
-granularity,sparsity,forward:C;BLOCK_SIZE_M_VALUE,forward:C;BLOCK_SIZE_K_VALUE,forward:C;BLOCK_SIZE_N_VALUE,backward:A;BLOCK_SIZE_M_VALUE,backward:A;BLOCK_SIZE_K_VALUE,backward:A;BLOCK_SIZE_N_VALUE,backward:B;BLOCK_SIZE_M_VALUE,backward:B;BLOCK_SIZE_K_VALUE,backward:B;BLOCK_SIZE_N_VALUE,forward:C;_impl,backward:A;_impl,backward:B;_impl
+granularity,sparsity,forward;BLOCK_SIZE_M_VALUE,forward;BLOCK_SIZE_K_VALUE,forward;BLOCK_SIZE_N_VALUE,backward:A;BLOCK_SIZE_M_VALUE,backward:A;BLOCK_SIZE_K_VALUE,backward:A;BLOCK_SIZE_N_VALUE,backward:B;BLOCK_SIZE_M_VALUE,backward:B;BLOCK_SIZE_K_VALUE,backward:B;BLOCK_SIZE_N_VALUE,forward;_impl,backward:A;_impl,backward:B;_impl
 1,0.0,0,0,0,64,32,64,32,16,64,openai,sparta,sparta
 1,0.2,0,0,0,64,32,64,32,16,64,openai,sparta,sparta
 1,0.4,0,0,0,64,32,64,32,16,64,openai,sparta,sparta
