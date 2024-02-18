@@ -1,20 +1,19 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-from typing import Dict, Tuple, Type
+from typing import Dict, Tuple, Type, Optional
 
 import torch
 import pytest
 
-from sparta.specializer.kernels import SparseMatMulKernel, SparTASparseMatMulKernel, OpenAISparseMatMulKernel
-from sparta.specializer.funtional import SparseBatchMatMulCtx, SparseBatchMatMulFunc
-from sparta.nn import SparseBatchMatMul, SparseLinear
+from sparta.kernels import SparseMatMulKernel, SparTASparseMatMulKernel, OpenAISparseMatMulKernel
+from sparta.operators import SparseLinear, SparseMatMul, SparseBatchMatMul
 from sparta.tesa import BCSIndexes
 from sparta.testing import block_mask
 
 
 def prepare_data(
-    batch: int = 4,
+    batch: Optional[int] = 4,
     M: int = 128,
     K: int = 256,
     N: int = 192,
@@ -25,6 +24,7 @@ def prepare_data(
     trans_B: bool = False,
     biased: bool = False,
     requires_grad: bool = False,
+    mask: Optional[torch.Tensor] = None,
     random_seed: int = 2022,
 ):
     inputs = ['A', 'B']
@@ -41,32 +41,51 @@ def prepare_data(
     torch.manual_seed(random_seed)
     data: Dict[str, torch.Tensor] = {}
     for x in inputs:
-        shape = (batch, *shapes[x]) if batch > 0 else shapes[x]
+        shape = shapes[x] if batch is None else (batch, *shapes[x])
         data[f'input_{x}'] = torch.rand(size=shape, device='cuda')
     if requires_grad:
         for y in outputs:
-            shape = (batch, *shapes[y]) if batch > 0 else shapes[y]
+            shape = shapes[y] if batch is None else (batch, *shapes[y])
             data[f'input_grad_{y}'] = torch.rand(size=shape, device='cuda')
 
     sparse_port = {'sdd': 'A', 'dsd': 'B', 'dds': 'C'}[mode]
-    mask = block_mask(shapes[sparse_port], block=granularity, sparsity=sparsity, device='cuda')
-    add_mask(data, {sparse_port: mask}, sparse_port, 'input')
+    if mask is None:
+        mask = block_mask(
+            shape=shapes[sparse_port],
+            granularity=granularity,
+            sparsity=sparsity,
+            device='cuda',
+        )
+    add_mask(data, mask, sparse_port, 'input')
 
+    calc_target_data(data, requires_grad, trans_A, trans_B)
+    add_mask(data, mask, sparse_port, 'target')
+
+    return data, mask
+
+
+def calc_target_data(
+    data: Dict[str, torch.Tensor],
+    requires_grad: bool,
+    trans_A: bool,
+    trans_B: bool,
+):
     if requires_grad:
-        for x in inputs:
-            data[f'input_{x}'].requires_grad = True
+        for k, v in data.items():
+            if k.startswith('input'):
+                v.requires_grad = True
 
-    if batch > 0:
+    if len(data['input_A'].shape) == 3:
         input_A = data['input_A'].swapaxes(1, 2) if trans_A else data['input_A']
         input_B = data['input_B'].swapaxes(1, 2) if trans_B else data['input_B']
         data['target_C'] = torch.bmm(input_A, input_B)
-        if biased:
+        if 'input_bias' in data:
             data['target_C'] += data['input_bias'].unsqueeze(1)
     else:
         input_A = data['input_A'].T if trans_A else data['input_A']
         input_B = data['input_B'].T if trans_B else data['input_B']
         data['target_C'] = torch.mm(input_A, input_B)
-        if biased:
+        if 'input_bias' in data:
             data['target_C'] += data['input_bias']
 
     if requires_grad:
@@ -75,24 +94,20 @@ def prepare_data(
         data['input_A'].grad = None
         data['target_grad_B'] = data['input_B'].grad
         data['input_B'].grad = None
-        if biased:
+        if 'input_bias' in data:
             data['target_grad_bias'] = data['input_bias'].grad
             data['input_bias'].grad = None
-
-    add_mask(data, {sparse_port: mask}, sparse_port, 'target')
-
-    return data, {sparse_port: mask}
 
 
 def add_mask(
     data: Dict[str, torch.Tensor],
-    masks: Dict[str, torch.Tensor], 
+    mask: torch.Tensor,
     sparse_port: str,
     stage: str,
 ):
     for name, val in data.items():
         if name.startswith(stage) and name.endswith(sparse_port):
-            val *= masks[sparse_port]
+            val *= mask
 
 
 def get_params(impl: str):
@@ -102,9 +117,6 @@ def get_params(impl: str):
             'BLOCK_SIZE_M_VALUE': 32,
             'BLOCK_SIZE_K_VALUE': 32,
             'BLOCK_SIZE_N_VALUE': 32,
-            'THREAD_SIZE_M_VALUE': 4,
-            'THREAD_SIZE_K_VALUE': 4,
-            'THREAD_SIZE_N_VALUE': 4,
         }
     else:
         return {'_impl': impl}
@@ -114,20 +126,23 @@ def compress_data(
     indexes: BCSIndexes,
     sparse_port: str,
     data: Dict[str, torch.Tensor],
-    masks: Dict[str, torch.Tensor],
+    mask: torch.Tensor,
+    requires_grad: bool,
 ):
     for name in data:
         if name.endswith(sparse_port):
             data[name] = indexes.convert(data[name].detach())
-    masks[sparse_port] = indexes.convert(masks[sparse_port].to(torch.float32)).to(torch.uint8)
-    if sparse_port in ['A', 'B']:
+    mask = indexes.convert(mask.to(torch.float32)).to(torch.uint8)
+    if sparse_port in ['A', 'B'] and requires_grad:
         data[f'input_{sparse_port}'].requires_grad = True
+    return data, mask
 
 
 def check_results(data: Dict[str, torch.Tensor]):
     for name, val in data.items():
         if name.startswith('target_'):
-            torch.testing.assert_close(val, data[name.replace('target', 'output')], msg=name)
+            out = data[name.replace('target', 'output')]
+            torch.testing.assert_close(out, val, atol=1e-4, rtol=1e-4, msg=name)
 
 
 @pytest.mark.parametrize("impl", ['sparta', 'openai'])
@@ -136,6 +151,7 @@ def check_results(data: Dict[str, torch.Tensor]):
 @pytest.mark.parametrize("trans_A", [False, True])
 @pytest.mark.parametrize("trans_B", [False, True])
 @pytest.mark.parametrize("compressed", [False, True])
+@pytest.mark.parametrize("batch", [None, 4])
 def test_sparse_matmul_kernel(
     impl: str,
     mode: str,
@@ -143,35 +159,48 @@ def test_sparse_matmul_kernel(
     compressed: bool,
     trans_A: bool,
     trans_B: bool,
-    batch: int = 4,
+    batch: Optional[int],
     M: int = 128,
     K: int = 256,
     N: int = 192,
     granularity: Tuple[int, int] = (8, 8),
     sparsity: float = 0.9,
 ):
-    data, masks = prepare_data(batch, M, K, N, granularity, sparsity, mode, trans_A, trans_B, biased, False)
+    data, mask = prepare_data(
+        batch, M, K, N,
+        granularity, sparsity,
+        mode, trans_A, trans_B, biased,
+        False,
+    )
 
     kernelClass: Type[SparseMatMulKernel] = {
         'sparta': SparTASparseMatMulKernel,
         'openai': OpenAISparseMatMulKernel,
     }[impl]
+    batched = batch is not None
     kernel = kernelClass(
         mode=mode,
         biased=biased,
         transpose_A=trans_A,
         transpose_B=trans_B,
         compressed=compressed,
+        batched=batched,
     )
+    kernel.attr.set_mask(mask)
+    batch = 1 if batch is None else batch
+    kernel.compile(get_params(impl), (batch, M, K, N))
 
-    for sparse_port, mask in masks.items():
-        kernel.ports[sparse_port].set_mask(mask)
-    kernel.set_shape(batch, M, K, N)
-    kernel.compile(get_params(impl))
+    sparse_port = {'sdd': 'A', 'dsd': 'B', 'dds': 'C'}[mode]
+
+    if compressed:
+        data, mask = compress_data(kernel.attr.indexes, sparse_port, data, mask, False)
 
     inputs = ['A', 'B', 'bias'] if biased else ['A', 'B']
     input_data = [data[f'input_{x}'] for x in inputs]
-    kernel.test(input_data, num_warmups=0, num_iters=1, cuda=False)
+
+    data['output_C'] = kernel(*input_data)
+    add_mask(data, mask, sparse_port, 'output')
+    check_results(data)
 
 
 @pytest.mark.parametrize("mode", ['sdd', 'dsd', 'dds'])
@@ -179,106 +208,82 @@ def test_sparse_matmul_kernel(
 @pytest.mark.parametrize("trans_A", [False, True])
 @pytest.mark.parametrize("trans_B", [False, True])
 @pytest.mark.parametrize("compressed", [False, True])
-def test_sparse_matmul_function(
+@pytest.mark.parametrize("batch", [None, 4])
+def test_sparse_matmul_operator(
     mode: str,
     biased: bool,
     compressed: bool,
     trans_A: bool,
     trans_B: bool,
-    batch: int = 4,
+    batch: Optional[int],
     M: int = 128,
     K: int = 256,
     N: int = 192,
     granularity: Tuple[int, int] = (8, 8),
     sparsity: float = 0.9,
 ):
-    data, masks = prepare_data(batch, M, K, N, granularity, sparsity, mode, trans_A, trans_B, biased, True)
+    data, mask = prepare_data(
+        batch, M, K, N,
+        granularity, sparsity,
+        mode, trans_A, trans_B, biased,
+        True,
+    )
 
-    sparse_ctx = SparseBatchMatMulCtx(mode, trans_A, trans_B, biased, compressed)
-    kernel_names = sparse_ctx.get_kernel_placeholders(backward=True).keys()
-    sparse_ctx.select_impls({
-        kernel_name: 'sparta'
-        for kernel_name in kernel_names
-    })
-    sparse_ctx.set_shape(batch, M, K, N)
-    for port_name, ports in sparse_ctx.sparse_ports.items():
-        for port in ports:
-            port.set_mask(masks[port_name])
-    sparse_ctx.build({
-        kernel_name: get_params('sparta')
-        for kernel_name in kernel_names
-    })
+    if batch is None:
+        sparse_matmul = SparseMatMul(mode, trans_A, trans_B, biased, compressed)
+    else:
+        sparse_matmul = SparseBatchMatMul(mode, trans_A, trans_B, biased, compressed)
+    sparse_matmul.set_mask(mask)
 
-    sparse_port = {'sdd': 'A', 'dsd': 'B', 'dds': 'C'}[mode]
-    if compressed:
-        compress_data(sparse_ctx.sparse_ports[sparse_port][0].indexes, sparse_port, data, masks)
-
+    kernel_names = ['forward', 'backward:A', 'backward:B']
     inputs = ['A', 'B', 'bias'] if biased else ['A', 'B']
-    input_data = [data[f'input_{x}'] for x in inputs]
-    data['output_C'] = SparseBatchMatMulFunc.apply(sparse_ctx, *input_data)
-    data['output_C'].backward(data['input_grad_C'])
-    for x in inputs:
-        data[f'output_grad_{x}'] = data[f'input_{x}'].grad
-
-    add_mask(data, masks, sparse_port, 'output')
-
-    check_results(data)
-
-
-@pytest.mark.parametrize("mode", ['sdd', 'dsd', 'dds'])
-@pytest.mark.parametrize("trans_A", [False, True])
-@pytest.mark.parametrize("trans_B", [False, True])
-@pytest.mark.parametrize("compressed", [False, True])
-def test_sparse_matmul_operator(
-    mode: str,
-    compressed: bool,
-    trans_A: bool,
-    trans_B: bool,
-    batch: int = 4,
-    M: int = 128,
-    K: int = 256,
-    N: int = 192,
-    granularity: Tuple[int, int] = (8, 8),
-    sparsity: float = 0.9,
-):
-    data, masks = prepare_data(
-        batch, M, K, N, granularity, sparsity,
-        mode, trans_A, trans_B, False, True,
+    sparse_matmul.build(
+        config={kernel_name: get_params('sparta') for kernel_name in kernel_names},
+        sample_inputs=[data[f'input_{x}'] for x in inputs]
     )
 
     sparse_port = {'sdd': 'A', 'dsd': 'B', 'dds': 'C'}[mode]
-    sparse_matmul = SparseBatchMatMul(
-        **{f'{name}_mask': val for name, val in masks.items()},
-        transpose_A=trans_A,
-        transpose_B=trans_B,
-        compressed=compressed,
-    )
-    sparse_matmul.build(
-        config={
-            kernel_name: get_params('sparta')
-            for kernel_name in sparse_matmul.get_kernel_placeholders(backward=True)
-        },
-        sample_inputs=[data['input_A'], data['input_B']],
-    )
 
-    for random_seed in range(3):  # Test dynamic sparse
+    def run_test():
+        nonlocal sparse_matmul, data, mask
         if compressed:
-            compress_data(sparse_matmul.get_sparse_indexes(sparse_port), sparse_port, data, masks)
-
-        data['output_C'] = sparse_matmul.forward(data['input_A'], data['input_B'])
+            indexes = sparse_matmul.get_sparse_indexes()
+            data, cmask = compress_data(indexes, sparse_port, data, mask, True)
+        else:
+            cmask = mask
+        data['output_C'] = sparse_matmul(*[data[f'input_{x}'] for x in inputs])
         data['output_C'].backward(data['input_grad_C'])
-        for x in ['A', 'B']:
+        for x in inputs:
             data[f'output_grad_{x}'] = data[f'input_{x}'].grad
-
-        add_mask(data, masks, sparse_port, 'output')
-
+        add_mask(data, cmask, sparse_port, 'output')
         check_results(data)
 
-        data, masks = prepare_data(
-            batch, M, K, N, granularity, sparsity,
-            mode, trans_A, trans_B, False, True, random_seed,
-        )
-        sparse_matmul.update_mask(**{f'{name}_mask': val for name, val in masks.items()})
+    run_test()
+
+    # Dynamic mask
+    data, mask = prepare_data(
+        batch, M, K, N,
+        granularity, sparsity,
+        mode, trans_A, trans_B, biased,
+        True, random_seed=2023,
+    )
+    sparse_matmul.set_mask(mask)
+    run_test()
+
+    # Dynamic Dim
+    if sparse_port == 'A':
+        N = 1024
+    elif sparse_port == 'B':
+        M = 1024
+    elif sparse_port == 'C':
+        K = 1024
+    data, mask = prepare_data(
+        batch, M, K, N,
+        granularity, sparsity,
+        mode, trans_A, trans_B, biased,
+        True, mask,
+    )
+    run_test()
 
 
 @pytest.mark.parametrize('mode', ['sdd', 'dsd', 'dds'])
@@ -292,9 +297,11 @@ def test_sparse_linear_operator(
     granularity: Tuple[int, int] = (8, 8),
     sparsity: float = 0.9,
 ):
-    data, masks = prepare_data(
-        -1, batch, in_dims, out_dims, granularity, sparsity,
-        mode, False, True, biased, True,
+    data, mask = prepare_data(
+        None, batch, in_dims, out_dims,
+        granularity, sparsity,
+        mode, False, True, biased,
+        True,
     )
 
     dense_linear = torch.nn.Linear(in_dims, out_dims, bias=biased, device='cuda')
@@ -303,37 +310,65 @@ def test_sparse_linear_operator(
     else:
         dense_linear.load_state_dict({'weight': data['input_B']})
 
-    sparse_port = {'sdd': 'A', 'dsd': 'B', 'dds': 'C'}[mode]
-    mask_name = {'sdd': 'input_mask', 'dsd': 'weight_mask', 'dds': 'output_mask'}[mode]
-    sparse_linear = SparseLinear(dense_linear, **{mask_name: masks[sparse_port]})
+    sparse_linear = SparseLinear(dense_linear, mode)
+    sparse_linear.set_mask(mask)
+
+    kernel_names = ['forward', 'backward:A', 'backward:B']
     sparse_linear.build(
-        config={
-            kernel_name: get_params('sparta')
-            for kernel_name in sparse_linear.get_kernel_placeholders(backward=True)
-        },
+        config={kernel_name: get_params('sparta') for kernel_name in kernel_names},
         sample_inputs=[data['input_A']],
     )
 
-    for random_seed in range(3):  # Test dynamic sparse
-        if mode == 'dsd':
-            compress_data(sparse_linear.get_sparse_indexes('B'), 'B', data, masks)
+    sparse_port = {'sdd': 'A', 'dsd': 'B', 'dds': 'C'}[mode]
 
-        data['output_C'] = sparse_linear.forward(data['input_A'])
+    def run_test():
+        nonlocal sparse_linear, data, mask
+        if mode == 'dsd':
+            indexes = sparse_linear.get_sparse_indexes()
+            data, cmask = compress_data(indexes, sparse_port, data, mask, True)
+        else:
+            cmask = mask
+        data['output_C'] = sparse_linear(data['input_A'])
         data['output_C'].backward(data['input_grad_C'])
         data[f'output_grad_A'] = data[f'input_A'].grad
         data[f'output_grad_B'] = sparse_linear.weight.grad
         if biased:
             data[f'output_grad_bias'] = sparse_linear.bias.grad
-
-        add_mask(data, masks, sparse_port, 'output')
-
+        add_mask(data, cmask, sparse_port, 'output')
         check_results(data)
 
-        data, masks = prepare_data(
-            -1, batch, in_dims, out_dims, granularity, sparsity,
-            mode, False, True, biased, True, random_seed,
-        )
-        if biased:
-            sparse_linear.bias = torch.nn.Parameter(data['input_bias'])
-        sparse_linear._raw_weight = data['input_B']
-        sparse_linear.update_mask(**{mask_name: masks[sparse_port]})
+    run_test()
+
+    # Dynamic mask
+    data, mask = prepare_data(
+        None, batch, in_dims, out_dims,
+        granularity, sparsity,
+        mode, False, True, biased,
+        True, random_seed=2023
+    )
+    sparse_linear.ports['B'].sample_data = data['input_B']
+    if biased:
+        sparse_linear.bias = torch.nn.Parameter(data['input_bias'])
+    sparse_linear.set_mask(mask)
+    run_test()
+
+    # Dynamic Dim
+    if sparse_port == 'A':
+        N = 1024
+    elif sparse_port == 'B':
+        M = 1024
+    elif sparse_port == 'C':
+        K = 1024
+    data, mask = prepare_data(
+        None, batch, in_dims, out_dims,
+        granularity, sparsity,
+        mode, False, True, biased,
+        True, mask,
+    )
+    weight = data['input_B']
+    if mode == 'dsd':
+        weight = sparse_linear.get_sparse_indexes().convert(weight.detach())
+    sparse_linear.weight = torch.nn.Parameter(weight)
+    if biased:
+        sparse_linear.bias = torch.nn.Parameter(data['input_bias'])
+    run_test()

@@ -17,15 +17,16 @@ def reduce_mask_ref(mask: torch.Tensor, BH: int, BW: int):
     return reduced
 
 
+@pytest.mark.parametrize("sparsity", [0, 0.999])
 @pytest.mark.parametrize("BH", [4, 8, 16, 32, 64, 128])
 @pytest.mark.parametrize("BW", [4, 8, 16, 32, 64, 128])
 def test_bcsr(
+    sparsity: float,
     BH: int,
     BW: int,
     H: int = 1024,
     W: int = 768,
     batch_size: int = 2,
-    sparsity: float = 0.999,
     random_seed: int = 2023,
 ):
     torch.manual_seed(random_seed)
@@ -47,15 +48,16 @@ def test_bcsr(
     torch.testing.assert_close(BCSR_indexes.sum(sparse_val, axis=-2), dense.sum(-2))
 
 
+@pytest.mark.parametrize("sparsity", [0, 0.999])
 @pytest.mark.parametrize("BH", [4, 8, 16, 32, 64, 128])
 @pytest.mark.parametrize("BW", [4, 8, 16, 32, 64, 128])
 def test_bcsc(
+    sparsity: float,
     BH: int,
     BW: int,
     H: int = 1024,
     W: int = 768,
     batch_size: int = 2,
-    sparsity: float = 0.999,
     random_seed: int = 2023,
 ):
     torch.manual_seed(random_seed)
@@ -77,15 +79,16 @@ def test_bcsc(
     torch.testing.assert_close(BCSC_indexes.sum(sparse_val, axis=-2), dense.sum(-2))
 
 
+@pytest.mark.parametrize("sparsity", [0, 0.999])
 @pytest.mark.parametrize("BH", [4, 8, 16, 32, 64, 128])
 @pytest.mark.parametrize("BW", [4, 8, 16, 32, 64, 128])
 def test_bcsrc(
+    sparsity: float,
     BH: int,
     BW: int,
     H: int = 1024,
     W: int = 768,
     batch_size: int = 2,
-    sparsity: float = 0.999,
     random_seed: int = 2023,
 ):
     torch.manual_seed(random_seed)

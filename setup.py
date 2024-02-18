@@ -21,14 +21,15 @@ if torch.cuda.is_available():
     os.makedirs(os.path.join('csrc', 'build'), exist_ok=True)
     with open(os.path.join('csrc', 'build', 'moe_sparse_forward_kernel.cu'), 'w') as f:
         f.write(moe_kernel)
+
     moe_ext = CUDAExtension(
-        name='sparse_moe_cpp',
+        name='sparta.sp_moe_ops',
         sources=[
             os.path.join('csrc', 'moe_sparse_forward.cpp'),
             os.path.join('csrc', 'build', 'moe_sparse_forward_kernel.cu'),
         ],
         extra_compile_args=[
-            '-std=c++14',
+            '-std=c++17',
             '-O3',
             '-U__CUDA_NO_HALF_OPERATORS__',
             '-U__CUDA_NO_HALF_CONVERSIONS__',
@@ -37,12 +38,12 @@ if torch.cuda.is_available():
     ext_modules.append(moe_ext)
 
     seqlen_dynamic_attention_ext = CUDAExtension(
-        name='seqlen_dynamic_sparse_attention_cpp',
+        name='sparta.sp_attn_ops',
         sources=[
             os.path.join('csrc', 'seqlen_dynamic_sparse_attention_forward.cpp'),
             os.path.join('csrc', 'seqlen_dynamic_sparse_attention_forward_kernel.cu'),
         ],
-        extra_compile_args=['-std=c++14', '-O3'],
+        extra_compile_args=['-std=c++17', '-O3'],
     )
     ext_modules.append(seqlen_dynamic_attention_ext)
 
@@ -63,8 +64,8 @@ setup(
     cmdclass={'build_ext': BuildExtension},
     include_package_data=True,
     package_data={
-        'sparta.specializer.kernels.templates': ['*.j2'],
-        'sparta.specializer.kernels.look_up_tables': ['*.csv'],
+        'sparta.kernels.templates': ['*.j2'],
+        'sparta.kernels.look_up_tables': ['*.csv'],
         'sparta.tesa.templates': ['*.j2'],
     },
 )

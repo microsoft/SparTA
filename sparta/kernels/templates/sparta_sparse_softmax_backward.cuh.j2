@@ -1,0 +1,77 @@
+{# Copyright (c) Microsoft Corporation. #}
+{# Licensed under the MIT license. #}
+
+{% set WARP_SIZE = [32, BLOCK_SIZE_W_VALUE]|min %}
+
+const int block_h = {{ BLOCK_SIZE_H_VALUE }};
+const int block_w = {{ BLOCK_SIZE_W_VALUE }};
+const int row_tile = {{ ROW_TILE_VALUE }};
+
+__global__ void SPARSE_SOFTMAX_BACKWARD(
+    float* out_grad,
+    float* out_val,
+    unsigned char* mask,
+    float temperature,
+    float* in_grad,
+    int* row_ptr,
+    int* BCSR_idx,
+    int H,
+    int W
+) {
+    uint WARP_OFFSET = (threadIdx.y % {{ 32 // WARP_SIZE }}) * {{ WARP_SIZE }};
+    uint WARP_MASK = 0x{% for _ in range(WARP_SIZE // 4) %}f{% endfor %} << WARP_OFFSET;
+
+    {% if BATCHED %}
+    {% if COMPRESSED %}
+    int num_nnz = row_ptr[H / block_h];
+    out_grad += blockIdx.y * num_nnz * block_h * block_w;
+    out_val += blockIdx.y * num_nnz * block_h * block_w;
+    in_grad += blockIdx.y * num_nnz * block_h * block_w;
+    {% else %}
+    out_grad += blockIdx.y * H * W;
+    out_val += blockIdx.y * H * W;
+    in_grad += blockIdx.y * H * W;
+    {% endif %}
+    {% endif %}
+
+    uint blk_row_idx = blockIdx.x / (block_h/row_tile) ;
+    int block_inter_row = (blockIdx.x % (block_h/row_tile)) * row_tile;
+    uint bm = threadIdx.x / {{ WARP_SIZE }};
+    uint bn = threadIdx.x % {{ WARP_SIZE }};
+    float regSum = 0.0f;
+    int block_seq_start = row_ptr[blk_row_idx];
+    int block_seq_end = row_ptr[blk_row_idx+1];
+
+    uint index_list[{{ MAX_W_VALUE // WARP_SIZE }}];
+    int val_num = 0;
+    for (int block_inter_col = bn; block_inter_col < block_w; block_inter_col += {{ WARP_SIZE }}) {
+        for (int block_seq = block_seq_start; block_seq < block_seq_end; block_seq++) {
+            uint mask_index = (blk_row_idx * block_h + block_inter_row + bm) * W +
+                ((BCSR_idx[block_seq] & 0xffff) * block_w + block_inter_col);
+            {% if COMPRESSED %}
+            uint val_index = block_h * block_w * block_seq +
+                (block_inter_row + bm) * block_w + block_inter_col;
+            {% else %}
+            uint val_index = mask_index;
+            {% endif %}
+            if (mask[mask_index]) {
+                index_list[val_num++] = val_index;
+            }
+        }
+    }
+
+    for (int k = 0; k < val_num; k++) {
+        uint index = index_list[k];
+        regSum += out_val[index] * out_grad[index];
+    }
+
+    #pragma unroll
+    for (int offset = {{ WARP_SIZE // 2 }}; offset > 0; offset >>= 1) {
+        regSum += __shfl_xor_sync(WARP_MASK, regSum, offset);
+    }
+
+    for (int k = 0; k < val_num; k++) {
+        uint index = index_list[k];
+        in_grad[index] = temperature * (out_val[index] * out_grad[index] - out_val[index] * regSum);
+    }
+}

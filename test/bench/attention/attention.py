@@ -12,7 +12,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from sparta.nn import SparseAttention
-from sparta.testing import block_mask, profile, sparse_multi_head_attention_reference
+from sparta.testing import block_mask, profile, sparse_multi_head_attention_forward_reference
 
 
 Ns, Nt, E = 4096, 3072, 768
@@ -88,7 +88,7 @@ def prepare_data(
     data['key'].requires_grad = True
     data['value'].requires_grad = True
     inputs = [data['query'], data['key'], data['value']]
-    data['out'] = sparse_multi_head_attention_reference(*inputs, mask)
+    data['out'] = sparse_multi_head_attention_forward_reference(*inputs, mask)
     data['out'].backward(data['grad_out'])
     data['grad_query'] = data['query'].grad
     data['grad_key'] = data['key'].grad
@@ -182,19 +182,9 @@ def profile_dense_attention(
         return 0., 0.
 
     def dense_attention(query, key, value):
-        return sparse_multi_head_attention_reference(query, key, value, mask)
+        return sparse_multi_head_attention_forward_reference(query, key, value, mask)
 
     return profile_attention(dense_attention, data)
-
-
-def load_sparta_config(device: Any = 'cuda'):
-    device_name = torch.cuda.get_device_name(device)
-    device_cfg_path = os.path.join(WORK_DIR, 'params', f'{device_name}.csv')
-    default_cfg_path = os.path.join(WORK_DIR, 'params', 'default.csv')
-    if os.path.exists(device_cfg_path):
-        return pd.read_csv(device_cfg_path)
-    else:
-        return pd.read_csv(default_cfg_path)
 
 
 def get_sparta_config(configs: pd.DataFrame, granularity: int, sparsity: float):
@@ -216,7 +206,7 @@ def profile_all(log_path: str, device: Any = 'cuda'):
     cols = ['method', 'Ns', 'Nt', 'E', 'granularity', 'sparsity', 'forward', 'backward']
     with open(log_path, 'w') as f:
         f.write(','.join(cols) + '\n')
-    sparta_configs = load_sparta_config(device)
+    sparta_configs = pd.read_csv(os.path.join(WORK_DIR, 'sparta_params.csv'))
     for g in GRANULARITY_LIST:
         for s in SPARSITY_LIST:
             print(f'========== Granularuty: {g} Sparsity: {s} ==========')

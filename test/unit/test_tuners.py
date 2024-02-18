@@ -55,10 +55,10 @@ def test_tune_sparse_linear(
     sparse_linear = SparseLinear(dense_linear, weight_mask=mask)
     if backward:
         count = debug_tune(sparse_linear, [sample_input], [sample_grad])
-        assert count == (3 * 3 * 3 + 1) * 3
+        assert count == (4 * 4 * 4 + 1) * 3
     else:
         count = debug_tune(sparse_linear, [sample_input], None)
-        assert count == (3 * 3 * 3 + 1) * 1
+        assert count == (4 * 4 * 4 + 1) * 1
 
 
 @pytest.mark.parametrize("backward", [False, True])
@@ -101,10 +101,10 @@ def test_tune_sparse_matmul(
     sparse_matmul = SparseBatchMatMul(**matmul_args)
     if backward:
         count = debug_tune(sparse_matmul, [A, B], [grad_C])
-        assert count == (3 * 3 * 3 + 1) * 3
+        assert count == (4 * 4 * 4 + 1) * 3
     else:
         count = debug_tune(sparse_matmul, [A, B], None)
-        assert count == (3 * 3 * 3 + 1) * 1
+        assert count == (4 * 4 * 4 + 1) * 1
 
 
 @pytest.mark.parametrize("backward", [False, True])
@@ -124,10 +124,10 @@ def test_tune_sparse_softmax(
     sparse_softmax = SparseSoftmax(mask=mask, temperature=dims, compressed=compressed)
     if backward:
         count = debug_tune(sparse_softmax, [sample_input], [sample_grad])
-        assert count == (5 * 4 * 5) * 2
+        assert count == (5 * 4) * 2
     else:
         count = debug_tune(sparse_softmax, [sample_input], None)
-        assert count == (5 * 4 * 5) * 1
+        assert count == (5 * 4) * 1
 
 
 @pytest.mark.parametrize("backward", [False, True])
@@ -148,7 +148,7 @@ def test_tune_sparse_attention(
     sparse_attention = SparseAttention(mask=mask)
     if backward:
         count = debug_tune(sparse_attention, [query, key, value], [grad_out])
-        assert count == (3 * 3 * 3 + 1) * 6 + (3 * 3 * 5) * 2
+        assert count == (3 * 4 * 4 + 1) * 6 + (3 * 4) * 2
     else:
         count = debug_tune(sparse_attention, [query, key, value], None)
-        assert count == (3 * 3 * 3 + 1) * 2 + (3 * 3 * 5) * 1
+        assert count == (3 * 4 * 4 + 1) * 2 + (3 * 4) * 1

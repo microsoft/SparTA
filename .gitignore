@@ -8,3 +8,4 @@ _build
 generated
 test/bench/*/latency.csv
 test/bench/*/latency.png
+test/lut_maker/*.log.csv

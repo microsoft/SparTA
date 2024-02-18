@@ -7,7 +7,7 @@ import torch
 import pytest
 
 from sparta.nn import SparseAttention
-from sparta.testing import block_mask, sparse_multi_head_attention_reference
+from sparta.testing import block_mask, sparse_multi_head_attention_forward_reference
 
 
 def get_params():
@@ -20,9 +20,6 @@ def get_params():
             'BLOCK_SIZE_M_VALUE': 32,
             'BLOCK_SIZE_K_VALUE': 32,
             'BLOCK_SIZE_N_VALUE': 32,
-            'THREAD_SIZE_M_VALUE': 4,
-            'THREAD_SIZE_K_VALUE': 4,
-            'THREAD_SIZE_N_VALUE': 4,
         }
         for kernel_name in matmul_kernel_names
     }
@@ -56,7 +53,7 @@ def test_sparse_attention_operator(
     sparsity: float = 0.95,
 ):
     torch.manual_seed(2022)
-    mask = block_mask((Nt, Ns), block=granularity, sparsity=sparsity, device='cuda')
+    mask = block_mask(shape=(Nt, Ns), granularity=granularity, sparsity=sparsity, device='cuda')
     query = torch.rand(size=(H, Nt, E), device='cuda')
     key = torch.rand(size=(H, Ns, E), device='cuda')
     value = torch.rand(size=(H, Ns, E), device='cuda')
@@ -75,7 +72,7 @@ def test_sparse_attention_operator(
 
     for random_seed in range(3):  # Test dynamic sparse
         query.grad, key.grad, value.grad = None, None, None
-        target_out = sparse_multi_head_attention_reference(query, key, value, mask)
+        target_out = sparse_multi_head_attention_forward_reference(query, key, value, mask)
         target_out.backward(grad_out)
 
         target_grad_query = query.grad
@@ -92,5 +89,5 @@ def test_sparse_attention_operator(
         torch.testing.assert_close(value.grad, target_grad_value, atol=1e-4, rtol=1e-8)
 
         torch.manual_seed(random_seed)
-        mask = block_mask((Nt, Ns), block=granularity, sparsity=sparsity, device='cuda')
+        mask = block_mask(shape=(Nt, Ns), granularity=granularity, sparsity=sparsity, device='cuda')
         sparse_attention.update_mask(mask)

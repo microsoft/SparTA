@@ -1,19 +1,16 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT license.
 
-import abc
 import sys
-import random
 import logging
 import warnings
-from typing import Any, List, Dict, Callable, Iterator, Optional
-from dataclasses import dataclass, field
+from typing import Any, List, Dict, Callable, Optional
 
 import torch
 import numpy as np
 
-from sparta.common.tuning import Tunable, TunableItemCfg
-from sparta.specializer import OperatorBase
+from sparta.tuning import TunableItemCfg, GridSearchTuner, RandomSearchTuner
+from sparta.operators import SparseOperator
 
 
 _logger = logging.Logger(__name__)
@@ -21,153 +18,8 @@ _handler = logging.StreamHandler()
 _logger.addHandler(_handler)
 
 
-# def tune_combined_module(
-#     module: torch.nn.Module, sample_inputs: List[torch.Tensor], sample_grads: List[torch.Tensor],
-#     algo: str = 'grid', max_trials: int = sys.maxsize, backward_weight: float = 0,
-#     tester_kw: Dict = None, build_kw: Dict = None, tuner_kw: Dict = None, verbose: bool = False
-# ):
-#     """Find, tune and build all sparse operators in the model.
-
-#     Args:
-#         module (torch.nn.Module): A PyTorch module that contains one or more sparse sub-modules.
-#         sample_inputs (List[torch.Tensor]): Sample input tensors to determine shape parameters.
-#         algo: (Optional[str]): The algorithm to search the best parameters. Defaults to 'grid'.
-#         max_trials: (Optional[int]): The maximum number of trials to run. Defaults to sys.maxsize.
-#         tester_kw: (Optional[Dict]): The keyword arguments for the tester. Defaults to None.
-#         build_kw: (Optional[Dict]): The keyword arguments for the builder (after tuning). Defaults to None.
-#         tuner_kw: (Optional[Dict]): The keyword arguments for the tuner. Defaults to None.
-#     """
-#     from nni import NoMoreTrialError
-
-#     @dataclass
-#     class _TuningContext:
-#         """Context for tuning."""
-#         module_dict: Dict[str, OperatorBase] = field(default_factory=dict)
-#         space_dict: Dict[str, TunableItemCfg] = field(default_factory=dict)
-#         input_dict: Dict[str, list] = field(default_factory=dict)
-#         best_latency: float = math.inf
-#         best_params: Dict = None
-
-#         def add(self, name, module, space, inputs):
-#             """Add a module to the context."""
-#             _logger.info(f'tunable operator deduced {type(module)} {name} ')
-#             self.module_dict[name] = module
-#             self.space_dict[name] = space
-#             self.input_dict[name] = inputs
-
-#     ctx = _TuningContext()
-
-#     if isinstance(module, OperatorBase):
-#         ctx.add('root', module, module.get_search_space(), sample_inputs)
-#     else:
-#         sample_inputs_dict = {}
-#         for child_name, child_module in module.named_children():
-#             sample_inputs_dict[child_name] = []
-#             child_module.register_forward_hook(get_input_hook(sample_inputs_dict, child_name))
-#         with warnings.catch_warnings():
-#             warnings.simplefilter('ignore')
-#             module.forward(*sample_inputs)
-#         for child_name, child_module in module.named_children():
-#             if isinstance(child_module, OperatorBase):
-#                 ctx.add(child_name, child_module, child_module.get_search_space(), sample_inputs_dict[child_name])
-
-#     tuner = Tunable.create_tuner(algo, ctx.space_dict, tuner_kw)
-#     tester_kw = tester_kw or {}
-#     for i in range(max_trials):
-#         try:
-#             params = tuner.generate_parameters(i)
-#         except NoMoreTrialError:
-#             break
-#         latency = 0.0
-#         try:
-#             for name, module in ctx.module_dict.items():
-#                 latency += module.test(
-#                     params[name],
-#                     sample_inputs=ctx.input_dict[name],
-#                     **tester_kw
-#                 )
-#         except AssertionError:
-#             _logger.warn(f'Invalid config')
-#             continue
-#         _logger.info(f'params:{params} -> latency: {latency}')
-#         tuner.receive_trial_result(i, params, latency)  # TODO: add status here
-#         if latency < ctx.best_latency:
-#             ctx.best_latency = latency
-#             ctx.best_params = params
-#     tuner.trial_end(i, True)
-
-#     build_kw = build_kw or {}
-#     for name, module in ctx.module_dict.items():
-#         module.build(ctx.best_params[name], sample_inputs=ctx.input_dict[name], **build_kw)
-#     return ctx.best_params
-
-
-class Tuner(object):
-
-    def __init__(
-        self,
-        search_space: Dict[Any, TunableItemCfg],
-        eval_func: Callable[[int, Dict[Any, Any]], float],
-        max_trials: int = sys.maxsize,
-    ):
-        self._search_space = search_space
-        self._eval_func = eval_func
-        space_shape = [len(param_space._value) for param_space in search_space.values()]
-        space_size = int(np.prod(space_shape))
-        self._max_trials = min(max_trials, space_size)
-        self.best_result = np.inf
-        self.best_config = None
-
-    @abc.abstractmethod
-    def next_config(self) -> Iterator[Dict[str, Any]]:
-        """Yields the next config."""
-
-    def tune(self):
-        for i, config in zip(range(self._max_trials), self.next_config()):
-            result = self._eval_func(i, config)
-            if result < self.best_result:
-                self.best_result = result
-                self.best_config = config
-
-
-class RandomSearchTuner(Tuner):
-
-    def next_config(self):
-        while True:
-            yield {
-                param_name: random.choice(param_space._value)
-                for param_name, param_space in self._search_space.items()
-            }
-
-
-class GridSearchTuner(Tuner):
-
-    def next_config(self):
-        if len(self._search_space) == 0:
-            yield {}
-        else:
-            param_names = []
-            param_idxs = []
-            param_space_sizes = []
-            for param_name, param_space in self._search_space.items():
-                param_names.append(param_name)
-                param_space_sizes.append(len(param_space._value))
-                param_idxs.append(0)
-            while param_idxs[0] < param_space_sizes[0]:
-                yield {
-                    param_name: self._search_space[param_name]._value[param_idx]
-                    for param_idx, param_name in zip(param_idxs, param_names)
-                }
-                k = len(param_idxs) - 1
-                param_idxs[k] += 1
-                while param_idxs[k] == param_space_sizes[k] and k > 0:
-                    param_idxs[k - 1] += 1
-                    param_idxs[k] = 0
-                    k -= 1
-
-
 def tune_sparse_module(
-    module: OperatorBase,
+    module: SparseOperator,
     name: str,
     sample_inputs: List[torch.Tensor],
     sample_grads: Optional[List[torch.Tensor]] = None,
@@ -224,7 +76,7 @@ def tune_sparse_module(
                 def try_params(lower_idx: int, params: Dict[Any, Any]):
                     try:
                         kernel.build(params)
-                        latency = kernel.test()
+                        latency = kernel.profile()
                     except AssertionError:
                         latency = np.inf
                     _logger.info(f'{impl} #{lower_idx}: {list(params.values())} => {latency} ms')
@@ -286,7 +138,7 @@ def tune_combined_module(
     sample_grads_dict = {'root': sample_grads}
     hook_handlers = []
 
-    def register_hooks(op: OperatorBase, name: str):
+    def register_hooks(op: SparseOperator, name: str):
         hook_handlers.append(op.register_forward_hook(get_input_hook(sample_inputs_dict, name)))
         hook_handlers.append(op.register_full_backward_hook(get_grad_hook(sample_grads_dict, name)))
 
@@ -317,7 +169,7 @@ def tune_combined_module(
     else:
         _logger.setLevel(logging.WARNING)
 
-    def tune(op: OperatorBase, name: str):
+    def tune(op: SparseOperator, name: str):
         best_configs[name] = tune_sparse_module(
             module=op,
             name=name,
@@ -351,7 +203,7 @@ def build_combined_module(
     sample_inputs_dict = {'root': sample_inputs}
     hook_handlers = []
 
-    def register_hooks(op: OperatorBase, name: str):
+    def register_hooks(op: SparseOperator, name: str):
         hook_handlers.append(op.register_forward_hook(get_input_hook(sample_inputs_dict, name)))
 
     iter_sparse_modules(module, 'root', register_hooks)
@@ -363,7 +215,7 @@ def build_combined_module(
     for handler in hook_handlers:
         handler.remove()
 
-    def build(op: OperatorBase, name: str):
+    def build(op: SparseOperator, name: str):
         op.build(configs[name], sample_inputs=sample_inputs_dict[name])
 
     iter_sparse_modules(module, 'root', build)
@@ -372,9 +224,9 @@ def build_combined_module(
 def iter_sparse_modules(
     module: torch.nn.Module,
     module_name: str,
-    func: Callable[[OperatorBase, str], None],
+    func: Callable[[SparseOperator, str], None],
 ):
-    if isinstance(module, OperatorBase):
+    if isinstance(module, SparseOperator):
         func(module, module_name)
         return
     for child_name, child_module in module.named_children():
