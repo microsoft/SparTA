@@ -7,8 +7,8 @@ import torch
 
 
 def block_mask(
-    shape: Tuple[int],
-    block: Tuple[int] = (1, 1),
+    shape: Tuple[int, int],
+    block: Tuple[int, int] = (1, 1),
     sparsity: float = 0.99,
     algo: str = 'rand',
     device: Any = 'cuda',
@@ -16,8 +16,8 @@ def block_mask(
     """Generate a 2D uint8 tensor as block mask.
 
     Args:
-        shape (Tuple[int]): Mask shape.
-        block (Tuple[int]): Block shape. (1, 1) means finegrained mask.
+        shape (Tuple[int, int]): Mask shape.
+        block (Tuple[int, int]): Block shape. (1, 1) means finegrained mask.
         sparsity (float): The ratio of empty block number to total block number.
         algo (str): Algorithm to generate mask. Only random generator is supported now.
     """
@@ -32,16 +32,16 @@ def block_mask(
 
 
 def random_block_mask(
-    shape: Tuple[int],
-    block: Tuple[int],
+    shape: Tuple[int, int],
+    block: Tuple[int, int],
     sparsity: float = 0.99,
     device: Any = 'cuda',
 ):
     """Randomly generate a 2D uint8 tensor as block mask.
 
     Args:
-        shape (Tuple[int]): Mask shape.
-        block (Tuple[int]): Block shape.
+        shape (Tuple[int, int]): Mask shape.
+        block (Tuple[int, int]): Block shape.
         sparsity (float): The ratio of empty block number to total block number.
     """
     compressed_shape = (shape[0] // block[0], shape[1] // block[1])
@@ -50,11 +50,11 @@ def random_block_mask(
     return mask.swapaxes(1, 2).reshape(shape).contiguous()
 
 
-def random_mask(shape: Tuple[int], sparsity: float = 0.99, device: Any = 'cuda'):
+def random_mask(shape: Tuple[int, int], sparsity: float = 0.99, device: Any = 'cuda'):
     """Randomly generate a 2D uint8 tensor as finegrained mask.
 
     Args:
-        shape (Tuple[int]): Mask shape.
+        shape (Tuple[int, int]): Mask shape.
         sparsity (float): The ratio of empty block number to total block number.
     """
     return (torch.rand(shape, device=device) > sparsity).to(torch.uint8)

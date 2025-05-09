@@ -184,7 +184,7 @@ class SparTASoftmaxKernel(SparseSoftmaxKernel):
         RT = self.get_parameter('ROW_TILE_VALUE')
         return (H // RT, batch_size, 1)
 
-    def threads_per_block(self) -> Tuple[int]:
+    def threads_per_block(self) -> Tuple[int, int, int]:
         RT = self.get_parameter('ROW_TILE_VALUE')
         return (RT * 32, 1, 1)
 
